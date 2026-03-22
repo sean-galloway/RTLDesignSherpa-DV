@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Ruff check
+        run: ruff check src/
+
+  build:
+    name: Build & verify (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        run: pip install -e ".[all]"
+
+      - name: Verify imports
+        run: |
+          python -c "from CocoTBFramework import __version__; print(f'Version: {__version__}')"
+          python -c "from CocoTBFramework.components.shared.field_config import FieldConfig; print('FieldConfig: OK')"
+          python -c "from CocoTBFramework.components.shared.memory_model import MemoryModel; print('MemoryModel: OK')"
+          python -c "from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer; print('FlexRandomizer: OK')"
+          python -c "from CocoTBFramework.components.axi4.axi4_packet import AXI4Packet; print('AXI4Packet: OK')"
+          python -c "from CocoTBFramework.components.gaxi import GAXIMaster, GAXISlave, GAXIMonitor; print('GAXI: OK')"
+          python -c "from CocoTBFramework.components.apb.apb_packet import APBPacket; print('APBPacket: OK')"
+          python -c "from CocoTBFramework.components.fifo.fifo_master import FIFOMaster; print('FIFOMaster: OK')"
+          python -c "from CocoTBFramework.components.axis4.axis_master import AXISMaster; print('AXISMaster: OK')"
+          python -c "from CocoTBFramework.scoreboards.base_scoreboard import BaseScoreboard; print('BaseScoreboard: OK')"
+
+      - name: Build package
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*

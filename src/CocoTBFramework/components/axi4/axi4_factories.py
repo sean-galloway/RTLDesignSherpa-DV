@@ -23,8 +23,9 @@ required to existing testbench code.
 All existing factory function signatures remain identical for backward compatibility.
 """
 
-from typing import Dict, Any, Optional
 from contextlib import redirect_stdout
+from typing import Any, Dict
+
 from .axi4_interfaces import AXI4MasterRead, AXI4MasterWrite, AXI4SlaveRead, AXI4SlaveWrite
 
 
@@ -221,11 +222,11 @@ def get_compliance_reports_from_components(components: Dict[str, Any]) -> Dict[s
         compliance_reports = get_compliance_reports_from_components(axi_components)
     """
     reports = {}
-    
+
     # Check if compliance checker exists
     if 'compliance_checker' in components and components['compliance_checker']:
         reports['compliance'] = components['compliance_checker'].get_compliance_report()
-    
+
     # Check if interface has compliance reporting
     if 'interface' in components:
         interface = components['interface']
@@ -233,7 +234,7 @@ def get_compliance_reports_from_components(components: Dict[str, Any]) -> Dict[s
             report = interface.get_compliance_report()
             if report:
                 reports['interface_compliance'] = report
-    
+
     return reports
 
 
@@ -252,13 +253,13 @@ def print_compliance_reports_from_components(components: Dict[str, Any]):
     # Print from compliance checker
     if 'compliance_checker' in components and components['compliance_checker']:
         components['compliance_checker'].print_compliance_report()
-    
+
     # Print from interface
     elif 'interface' in components:
         interface = components['interface']
         if hasattr(interface, 'print_compliance_report'):
             interface.print_compliance_report()
-    
+
     # If no compliance checking available
     else:
         print("AXI4 compliance checking is disabled (set AXI4_COMPLIANCE_CHECK=1 to enable)")
@@ -291,7 +292,7 @@ def with_axi4_compliance_reporting(test_function):
             # Compliance reports automatically printed at end
     """
     import functools
-    
+
     @functools.wraps(test_function)
     async def wrapper(*args, **kwargs):
         try:
@@ -306,13 +307,13 @@ def with_axi4_compliance_reporting(test_function):
                 print("="*80)
                 # Note: This would need to be enhanced to track all AXI4 components
                 # created during the test for complete reporting
-    
+
     return wrapper
 
 
 # ENHANCEMENT: Convenience function for creating complete AXI4 testbench setup
 
-def create_complete_axi4_testbench_components(dut, clock, master_prefix="m_axi_", 
+def create_complete_axi4_testbench_components(dut, clock, master_prefix="m_axi_",
                                             slave_prefix="s_axi_", log=None, **kwargs):
     """
     Create a complete set of AXI4 components for testbench with compliance checking.
@@ -331,14 +332,14 @@ def create_complete_axi4_testbench_components(dut, clock, master_prefix="m_axi_"
     ENHANCEMENT: Creates complete testbench setup with automatic compliance checking
     """
     components = {}
-    
+
     # Create master interfaces if signals exist
     try:
         if hasattr(dut, f'{master_prefix}awvalid'):
             components['master_write'] = create_axi4_master_wr(
                 dut, clock, master_prefix, log=log, **kwargs
             )
-        
+
         if hasattr(dut, f'{master_prefix}arvalid'):
             components['master_read'] = create_axi4_master_rd(
                 dut, clock, master_prefix, log=log, **kwargs
@@ -346,14 +347,14 @@ def create_complete_axi4_testbench_components(dut, clock, master_prefix="m_axi_"
     except Exception as e:
         if log:
             log.debug(f"Master interface creation: {e}")
-    
+
     # Create slave interfaces if signals exist
     try:
         if hasattr(dut, f'{slave_prefix}awready'):
             components['slave_write'] = create_axi4_slave_wr(
                 dut, clock, slave_prefix, log=log, **kwargs
             )
-        
+
         if hasattr(dut, f'{slave_prefix}arready'):
             components['slave_read'] = create_axi4_slave_rd(
                 dut, clock, slave_prefix, log=log, **kwargs
@@ -361,40 +362,40 @@ def create_complete_axi4_testbench_components(dut, clock, master_prefix="m_axi_"
     except Exception as e:
         if log:
             log.debug(f"Slave interface creation: {e}")
-    
+
     # Add convenience methods
     components['get_all_compliance_reports'] = lambda: {
         name: get_compliance_reports_from_components(comp)
         for name, comp in components.items()
         if isinstance(comp, dict) and 'compliance_checker' in comp
     }
-    
+
     components['print_all_compliance_reports'] = lambda: [
         print_compliance_reports_from_components(comp)
         for comp in components.values()
         if isinstance(comp, dict) and 'compliance_checker' in comp
     ]
-    
+
     return components
 
 
 def print_compliance_to_log(components, log):
     """
     Print compliance reports to log file instead of console.
-    
+
     Args:
         components: List of AXI components or single component
         log: Logger instance
     """
     if not isinstance(components, list):
         components = [components]
-    
+
     for comp in components:
         if hasattr(comp, 'get_compliance_report'):
             # Get the report data
             report = comp.get_compliance_report()
             if report and report.get('compliance_checking') == 'enabled':
-                
+
                 # Log the report using logger instead of print()
                 log.info("=" * 80)
                 log.info("AXI4 PROTOCOL COMPLIANCE REPORT")
@@ -402,12 +403,12 @@ def print_compliance_to_log(components, log):
                 log.info(f"Status: {report['compliance_status']}")
                 log.info(f"Total Violations: {report['total_violations']}")
                 log.info(f"Checks Performed: {report['statistics']['checks_performed']}")
-                
+
                 if report['violation_summary']:
                     log.info("Violation Summary:")
                     for vtype, count in report['violation_summary'].items():
                         log.info(f"  {vtype}: {count}")
-                
+
                 log.info("=" * 80)
             else:
                 log.info("AXI4 compliance checking was disabled")
@@ -418,22 +419,22 @@ def finalize_test_with_log_compliance(self):
     Example finalize_test method that puts compliance reports in log file.
     """
     # Your existing finalize code here
-    
+
     # Print compliance reports to LOG FILE (not console)
     from CocoTBFramework.components.axi4.axi4_factories import print_compliance_reports_from_components
-    
+
     # Method 1: Capture print output and redirect to log
     output_buffer = io.StringIO()
     with redirect_stdout(output_buffer):
         print_compliance_reports_from_components(self.axi_master)
-    
+
     # Log the captured output
     compliance_output = output_buffer.getvalue()
     if compliance_output:
         for line in compliance_output.split('\n'):
             if line.strip():
                 self.log.info(line)
-    
+
     # Method 2: Use the helper function (cleaner)
     print_compliance_to_log([self.axi_master, self.axi_slave], self.log)
 
@@ -457,7 +458,7 @@ def demonstrate_seamless_compliance_integration():
         # Exact same code - compliance checking automatically included!
         self.axi_master = create_axi4_master_rd(dut, self.aclk, prefix="m_axi_")
         self.axi_slave = create_axi4_slave_wr(dut, self.aclk, prefix="s_axi_")
-        
+
         # Optional: Print compliance reports at end of test
         # (only prints if AXI4_COMPLIANCE_CHECK=1 is set)
 

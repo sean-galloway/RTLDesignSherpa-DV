@@ -26,8 +26,8 @@ Supports all SMBus 2.0 transaction types including:
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List
 from enum import IntEnum
+from typing import List, Optional
 
 
 class SMBusTransactionType(IntEnum):

@@ -39,16 +39,16 @@ Usage:
 """
 
 import os
-import asyncio
-from typing import Dict, List, Any, Optional, Tuple, Set
 from dataclasses import dataclass, field
 from enum import Enum
-import cocotb
-from cocotb.triggers import RisingEdge, FallingEdge, Timer
+from typing import Any, Dict, List
 
-from CocoTBFramework.components.gaxi.gaxi_monitor import GAXIMonitor
+import cocotb
+from cocotb.triggers import RisingEdge
+
 from CocoTBFramework.components.axi4.axi4_field_configs import AXI4FieldConfigHelper
 from CocoTBFramework.components.axi4.axi4_packet import AXI4Packet
+from CocoTBFramework.components.gaxi.gaxi_monitor import GAXIMonitor
 
 
 class AXI4ViolationType(Enum):
@@ -57,25 +57,25 @@ class AXI4ViolationType(Enum):
     VALID_DROPPED = "valid_dropped"
     READY_BEFORE_VALID = "ready_before_valid"
     VALID_UNSTABLE = "valid_unstable"
-    
+
     # Burst violations
     BURST_LENGTH_VIOLATION = "burst_length_violation"
     BURST_SIZE_VIOLATION = "burst_size_violation"
     BURST_BOUNDARY_VIOLATION = "burst_boundary_violation"
     WLAST_MISMATCH = "wlast_mismatch"
     RLAST_MISMATCH = "rlast_mismatch"
-    
+
     # ID violations
     ID_ORDERING_VIOLATION = "id_ordering_violation"
     ID_WIDTH_VIOLATION = "id_width_violation"
-    
+
     # Response violations
     RESPONSE_CODE_VIOLATION = "response_code_violation"
-    
+
     # Timing violations
     RESET_VIOLATION = "reset_violation"
     CLOCK_VIOLATION = "clock_violation"
-    
+
     # Data integrity violations
     DATA_STABILITY_VIOLATION = "data_stability_violation"
     STROBE_VIOLATION = "strobe_violation"
@@ -95,7 +95,7 @@ class AXI4Violation:
 class AXI4ComplianceChecker:
     """
     Non-intrusive AXI4 protocol compliance checker.
-    
+
     Can be optionally enabled via environment variables without modifying
     existing testbench code.
     """
@@ -107,24 +107,24 @@ class AXI4ComplianceChecker:
         self.prefix = prefix
         self.log = log
         self.enabled = True
-        
+
         # Configuration
         self.data_width = kwargs.get('data_width', 32)
         self.id_width = kwargs.get('id_width', 8)
         self.addr_width = kwargs.get('addr_width', 32)
         self.user_width = kwargs.get('user_width', 1)
         self.multi_sig = kwargs.get('multi_sig', True)
-        
+
         # Violation tracking
         self.violations: List[AXI4Violation] = []
         self.violation_counts: Dict[AXI4ViolationType, int] = {}
         self.cycle_count = 0
-        
+
         # Transaction tracking for ordering and matching
         self.outstanding_reads: Dict[int, Any] = {}  # ID -> transaction info
         self.outstanding_writes: Dict[int, Any] = {}
         self.write_data_queue: Dict[int, List[Any]] = {}  # ID -> W beats
-        
+
         # Statistics
         self.stats = {
             'total_ar_transactions': 0,
@@ -135,7 +135,7 @@ class AXI4ComplianceChecker:
             'total_violations': 0,
             'checks_performed': 0
         }
-        
+
         # Start monitoring if signals exist
         self.monitors_active = False
         self.setup_monitors()
@@ -144,16 +144,16 @@ class AXI4ComplianceChecker:
     def create_if_enabled(cls, dut, clock, prefix="", log=None, **kwargs):
         """
         Factory method that returns None if compliance checking is disabled.
-        
+
         This allows testbenches to conditionally enable compliance checking
         without code changes:
-        
+
         self.compliance_checker = AXI4ComplianceChecker.create_if_enabled(...)
         """
         # Check if compliance checking is enabled
         if not cls.is_enabled():
             return None
-            
+
         try:
             return cls(dut, clock, prefix, log, **kwargs)
         except Exception as e:
@@ -171,7 +171,7 @@ class AXI4ComplianceChecker:
         try:
             # Create monitors for each channel
             self.monitors = {}
-            
+
             # AR Channel Monitor
             if self._has_channel_signals('ar'):
                 self.monitors['AR'] = GAXIMonitor(
@@ -186,12 +186,12 @@ class AXI4ComplianceChecker:
                     multi_sig=self.multi_sig,
                     log=self.log
                 )
-                
+
             # Similar for other channels...
             if self._has_channel_signals('aw'):
                 self.monitors['AW'] = GAXIMonitor(
                     dut=self.dut,
-                    title="AW_Monitor", 
+                    title="AW_Monitor",
                     prefix=self.prefix,
                     clock=self.clock,
                     field_config=AXI4FieldConfigHelper.create_aw_field_config(
@@ -201,7 +201,7 @@ class AXI4ComplianceChecker:
                     multi_sig=self.multi_sig,
                     log=self.log
                 )
-                
+
             if self._has_channel_signals('w'):
                 self.monitors['W'] = GAXIMonitor(
                     dut=self.dut,
@@ -215,7 +215,7 @@ class AXI4ComplianceChecker:
                     multi_sig=self.multi_sig,
                     log=self.log
                 )
-                
+
             if self._has_channel_signals('r'):
                 self.monitors['R'] = GAXIMonitor(
                     dut=self.dut,
@@ -229,7 +229,7 @@ class AXI4ComplianceChecker:
                     multi_sig=self.multi_sig,
                     log=self.log
                 )
-                
+
             if self._has_channel_signals('b'):
                 self.monitors['B'] = GAXIMonitor(
                     dut=self.dut,
@@ -243,18 +243,18 @@ class AXI4ComplianceChecker:
                     multi_sig=self.multi_sig,
                     log=self.log
                 )
-            
+
             # Start monitoring tasks
             if self.monitors:
                 self.monitors_active = True
                 cocotb.start_soon(self.monitor_transactions())
                 cocotb.start_soon(self.monitor_handshakes())
                 cocotb.start_soon(self.cycle_counter())
-                
+
                 if self.log:
                     channels = list(self.monitors.keys())
                     self.log.info(f"AXI4 compliance checker active for channels: {channels}")
-            
+
         except Exception as e:
             if self.log:
                 self.log.warning(f"Could not setup AXI4 monitors: {e}")
@@ -265,19 +265,19 @@ class AXI4ComplianceChecker:
         try:
             # Check for required signals
             if channel.lower() == 'ar':
-                return (hasattr(self.dut, f'{self.prefix}arvalid') and 
+                return (hasattr(self.dut, f'{self.prefix}arvalid') and
                        hasattr(self.dut, f'{self.prefix}arready'))
             elif channel.lower() == 'aw':
-                return (hasattr(self.dut, f'{self.prefix}awvalid') and 
+                return (hasattr(self.dut, f'{self.prefix}awvalid') and
                        hasattr(self.dut, f'{self.prefix}awready'))
             elif channel.lower() == 'w':
-                return (hasattr(self.dut, f'{self.prefix}wvalid') and 
+                return (hasattr(self.dut, f'{self.prefix}wvalid') and
                        hasattr(self.dut, f'{self.prefix}wready'))
             elif channel.lower() == 'r':
-                return (hasattr(self.dut, f'{self.prefix}rvalid') and 
+                return (hasattr(self.dut, f'{self.prefix}rvalid') and
                        hasattr(self.dut, f'{self.prefix}rready'))
             elif channel.lower() == 'b':
-                return (hasattr(self.dut, f'{self.prefix}bvalid') and 
+                return (hasattr(self.dut, f'{self.prefix}bvalid') and
                        hasattr(self.dut, f'{self.prefix}bready'))
         except:
             pass
@@ -287,7 +287,7 @@ class AXI4ComplianceChecker:
         """Monitor and validate AXI4 transactions."""
         if not self.monitors_active:
             return
-            
+
         try:
             while True:
                 # Monitor each channel for new transactions
@@ -297,7 +297,7 @@ class AXI4ComplianceChecker:
                         for packet in packets:
                             await self.validate_transaction(channel_name, packet)
                             self.stats['checks_performed'] += 1
-                
+
                 await RisingEdge(self.clock)
         except Exception as e:
             if self.log:
@@ -307,16 +307,16 @@ class AXI4ComplianceChecker:
         """Monitor AXI4 handshake protocol compliance."""
         if not self.monitors_active:
             return
-            
+
         try:
             while True:
                 # Check handshake rules for each channel
                 for channel in ['ar', 'aw', 'w', 'r', 'b']:
                     if self._has_channel_signals(channel):
                         await self.check_handshake_rules(channel)
-                
+
                 await RisingEdge(self.clock)
-                
+
         except Exception as e:
             if self.log:
                 self.log.debug(f"Monitor handshakes stopped: {e}")
@@ -326,22 +326,22 @@ class AXI4ComplianceChecker:
         try:
             valid_signal = getattr(self.dut, f'{self.prefix}{channel}valid', None)
             ready_signal = getattr(self.dut, f'{self.prefix}{channel}ready', None)
-            
+
             if valid_signal is None or ready_signal is None:
                 return
-                
-            valid_val = bool(valid_signal.value)
-            ready_val = bool(ready_signal.value)
-            
+
+            bool(valid_signal.value)
+            bool(ready_signal.value)
+
             # Rule: Once VALID is asserted, it must remain asserted until READY
             # (This requires state tracking which we'll implement simply)
-            
+
             # Rule: READY can be asserted before VALID (this is allowed)
             # Rule: Data must be stable while VALID is asserted
-            
+
             self.stats['checks_performed'] += 1
-            
-        except Exception as e:
+
+        except Exception:
             # Silently ignore signal access errors
             pass
 
@@ -358,7 +358,7 @@ class AXI4ComplianceChecker:
                 await self.validate_r_transaction(packet)
             elif channel == 'B':
                 await self.validate_b_transaction(packet)
-                
+
         except Exception as e:
             if self.log:
                 self.log.debug(f"Transaction validation error for {channel}: {e}")
@@ -366,7 +366,7 @@ class AXI4ComplianceChecker:
     async def validate_ar_transaction(self, packet: AXI4Packet):
         """Validate AR (Address Read) transaction."""
         self.stats['total_ar_transactions'] += 1
-        
+
         # Check burst length
         burst_len = getattr(packet, 'len', 0) + 1
         if burst_len > 256:
@@ -375,7 +375,7 @@ class AXI4ComplianceChecker:
                 'AR',
                 f"Burst length {burst_len} exceeds maximum of 256"
             )
-        
+
         # Check burst size
         burst_size = getattr(packet, 'size', 0)
         if burst_size > 7:  # 2^7 = 128 bytes maximum
@@ -384,7 +384,7 @@ class AXI4ComplianceChecker:
                 'AR',
                 f"Burst size {burst_size} exceeds maximum of 7"
             )
-        
+
         # Track outstanding read
         transaction_id = getattr(packet, 'id', 0)
         self.outstanding_reads[transaction_id] = {
@@ -396,16 +396,16 @@ class AXI4ComplianceChecker:
     async def validate_aw_transaction(self, packet: AXI4Packet):
         """Validate AW (Address Write) transaction."""
         self.stats['total_aw_transactions'] += 1
-        
+
         # Similar checks as AR
         burst_len = getattr(packet, 'len', 0) + 1
         if burst_len > 256:
             self.record_violation(
                 AXI4ViolationType.BURST_LENGTH_VIOLATION,
-                'AW', 
+                'AW',
                 f"Burst length {burst_len} exceeds maximum of 256"
             )
-        
+
         # Track outstanding write
         transaction_id = getattr(packet, 'id', 0)
         self.outstanding_writes[transaction_id] = {
@@ -417,15 +417,15 @@ class AXI4ComplianceChecker:
     async def validate_w_transaction(self, packet: AXI4Packet):
         """Validate W (Write Data) transaction."""
         self.stats['total_w_beats'] += 1
-        
+
         # Check WLAST timing
-        is_last = getattr(packet, 'last', 0)
+        getattr(packet, 'last', 0)
         # Additional WLAST validation would require tracking write beats per ID
 
     async def validate_r_transaction(self, packet: AXI4Packet):
         """Validate R (Read Data) transaction."""
         self.stats['total_r_beats'] += 1
-        
+
         # Check response code
         resp = getattr(packet, 'resp', 0)
         if resp > 3:
@@ -434,15 +434,15 @@ class AXI4ComplianceChecker:
                 'R',
                 f"Invalid response code {resp}"
             )
-        
+
         # Check RLAST matching
         transaction_id = getattr(packet, 'id', 0)
         is_last = getattr(packet, 'last', 0)
-        
+
         if transaction_id in self.outstanding_reads:
             outstanding = self.outstanding_reads[transaction_id]
             outstanding['received_beats'] += 1
-            
+
             expected_last = (outstanding['received_beats'] == outstanding['expected_beats'])
             if bool(is_last) != expected_last:
                 self.record_violation(
@@ -450,14 +450,14 @@ class AXI4ComplianceChecker:
                     'R',
                     f"RLAST mismatch for ID {transaction_id}: expected {expected_last}, got {bool(is_last)}"
                 )
-            
+
             if is_last:
                 del self.outstanding_reads[transaction_id]
 
     async def validate_b_transaction(self, packet: AXI4Packet):
         """Validate B (Write Response) transaction."""
         self.stats['total_b_responses'] += 1
-        
+
         # Check response code
         resp = getattr(packet, 'resp', 0)
         if resp > 3:
@@ -477,11 +477,11 @@ class AXI4ComplianceChecker:
             severity=kwargs.get('severity', 'ERROR'),
             additional_data=kwargs.get('additional_data', {})
         )
-        
+
         self.violations.append(violation)
         self.violation_counts[violation_type] = self.violation_counts.get(violation_type, 0) + 1
         self.stats['total_violations'] += 1
-        
+
         if self.log:
             self.log.error(f"AXI4 Violation [{channel}]: {message}")
 
@@ -498,15 +498,15 @@ class AXI4ComplianceChecker:
         """Get comprehensive compliance report."""
         if not self.enabled:
             return {'compliance_checking': 'disabled'}
-        
+
         total_violations = len(self.violations)
         violation_summary = {}
-        
+
         for vtype in AXI4ViolationType:
             count = self.violation_counts.get(vtype, 0)
             if count > 0:
                 violation_summary[vtype.value] = count
-        
+
         return {
             'compliance_checking': 'enabled',
             'total_violations': total_violations,
@@ -531,9 +531,9 @@ class AXI4ComplianceChecker:
             if self.log:
                 self.log.info("AXI4 compliance checking was disabled")
             return
-            
+
         report = self.get_compliance_report()
-        
+
         if self.log:
             self.log.info("=" * 80)
             self.log.info("AXI4 PROTOCOL COMPLIANCE REPORT")
@@ -541,12 +541,12 @@ class AXI4ComplianceChecker:
             self.log.info(f"Status: {report['compliance_status']}")
             self.log.info(f"Total Violations: {report['total_violations']}")
             self.log.info(f"Checks Performed: {report['statistics']['checks_performed']}")
-            
+
             if report['violation_summary']:
                 self.log.info("Violation Summary:")
                 for vtype, count in report['violation_summary'].items():
                     self.log.info(f"  {vtype}: {count}")
-            
+
             self.log.info("=" * 80)
 
 
@@ -554,19 +554,19 @@ class AXI4ComplianceChecker:
 def add_axi4_compliance_checking(testbench_class):
     """
     Decorator to add AXI4 compliance checking to existing testbenches.
-    
+
     Usage:
         @add_axi4_compliance_checking
         class MyAXI4Testbench(TBBase):
             ...
     """
-    
+
     original_init = testbench_class.__init__
     original_final = getattr(testbench_class, 'finalize_test', None)
-    
+
     def new_init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        
+
         # Add compliance checker
         if hasattr(self, 'dut') and hasattr(self, 'aclk'):
             self.axi4_compliance_checker = AXI4ComplianceChecker.create_if_enabled(
@@ -575,17 +575,17 @@ def add_axi4_compliance_checking(testbench_class):
                 prefix='m_axi',  # Default prefix
                 log=self.log
             )
-    
+
     def new_finalize(self):
         # Print compliance report
         if hasattr(self, 'axi4_compliance_checker') and self.axi4_compliance_checker:
             self.axi4_compliance_checker.print_compliance_report()
-        
+
         # Call original finalize if it exists
         if original_final:
             original_final(self)
-    
+
     testbench_class.__init__ = new_init
     testbench_class.finalize_test = new_finalize
-    
+
     return testbench_class

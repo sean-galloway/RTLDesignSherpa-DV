@@ -36,7 +36,8 @@ Key differences from AXI4:
 - Added: All signals listed above
 """
 
-from typing import Optional, Tuple, Dict, Any
+from typing import Any, Dict, Tuple
+
 from ..shared.packet import Packet
 from .axi5_field_configs import AXI5FieldConfigHelper
 
@@ -194,8 +195,8 @@ class AXI5Packet(Packet):
         has_len = hasattr(self, 'len')
         has_atop = hasattr(self, 'atop')
         has_chunken = hasattr(self, 'chunken')
-        has_chunkv = hasattr(self, 'chunkv')
-        has_tagupdate = hasattr(self, 'tagupdate')
+        hasattr(self, 'chunkv')
+        hasattr(self, 'tagupdate')
 
         if has_addr and has_len and not has_data:
             # Address channel with burst info

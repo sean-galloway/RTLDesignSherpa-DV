@@ -26,7 +26,8 @@ Key Features:
 - Memory model integration
 """
 
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Tuple
+
 from .axi5_interfaces import AXI5MasterRead, AXI5MasterWrite, AXI5SlaveRead, AXI5SlaveWrite
 
 

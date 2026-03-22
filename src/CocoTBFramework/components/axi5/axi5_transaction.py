@@ -29,7 +29,7 @@ Key Design Principles:
 """
 
 import time
-from typing import Optional, List, Any
+from typing import Any, List, Optional
 
 
 class AXI5Transaction:

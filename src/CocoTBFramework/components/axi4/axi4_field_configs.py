@@ -27,6 +27,7 @@ Key Design Principles:
 """
 
 from typing import Dict, List, Tuple
+
 from ..shared.field_config import FieldConfig, FieldDefinition
 
 
@@ -492,7 +493,7 @@ class AXI4FieldConfigHelper:
             user_width: Width of user fields
             channels: List of channels to preview
         """
-        print(f"\nAXI4 Field Configuration Preview")
+        print("\nAXI4 Field Configuration Preview")
         print(f"ID Width: {id_width}, Addr Width: {addr_width}, Data Width: {data_width}, User Width: {user_width}")
         print("-" * 70)
 
@@ -536,7 +537,7 @@ def get_axi4_field_configs(id_width: int = 8, addr_width: int = 32,
                         channels: List[str] = ['AW', 'W', 'B', 'AR', 'R']) -> Dict[str, FieldConfig]:
     """
     Get AXI4 field configurations for all specified channels.
-    
+
     This is the function expected by the randomization code.
 
     Args:

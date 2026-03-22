@@ -20,8 +20,8 @@ This version fixes the memory read issue and generates sequential data for reads
 to make testing more predictable and easier to debug.
 """
 
+
 import cocotb
-from collections import deque
 from cocotb.triggers import RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
@@ -29,7 +29,7 @@ from cocotb.utils import get_sim_time
 class GAXICommandHandler:
     """
     Enhanced command handler for GAXI transactions with FIXED response generation.
-    
+
     Key improvements:
     - Sequential data generation for reads
     - Better memory model integration
@@ -151,7 +151,7 @@ class GAXICommandHandler:
     async def _generate_response_for_transaction(self, cmd_transaction):
         """
         FIXED: Generate a response for a received command transaction.
-        
+
         Now generates sequential data for reads instead of relying on memory.
         """
         try:
@@ -191,7 +191,7 @@ class GAXICommandHandler:
 
                 # FIXED: Try memory first, then fall back to sequential data
                 success, read_data = await self._handle_memory_read(address)
-                
+
                 if not success or read_data == 0:
                     # Generate sequential data for more predictable testing
                     read_data = self._generate_sequential_data(address)
@@ -244,10 +244,10 @@ class GAXICommandHandler:
     def _generate_sequential_data(self, address):
         """
         NEW: Generate sequential data based on address for predictable testing.
-        
+
         Args:
             address: Address being read
-            
+
         Returns:
             Sequential data value
         """
@@ -255,16 +255,16 @@ class GAXICommandHandler:
         # Use address as part of the data pattern
         data = self.sequential_data_counter + (address >> 2)  # Word-aligned addressing
         self.sequential_data_counter += self.sequential_data_step
-        
+
         # Keep data in 32-bit range
         data = data & 0xFFFFFFFF
-        
+
         return data
 
     def _extract_field_value(self, transaction, field_name, alt_field_name=None, default=0):
         """
         FIXED: Extract a field value from a transaction supporting both storage methods.
-        
+
         Handles both APB-style attributes and GAXI-style fields dictionary.
         """
         # First try fields dictionary (GAXI style)
@@ -273,7 +273,7 @@ class GAXICommandHandler:
                 value = transaction.fields[field_name]
                 if value is not None:
                     return value
-        
+
         # Try primary field name as attribute (APB style)
         if hasattr(transaction, field_name):
             value = getattr(transaction, field_name)
@@ -308,7 +308,7 @@ class GAXICommandHandler:
             if field_name in response_packet.field_config:
                 response_packet.fields[field_name] = value
                 return
-        
+
         # Try primary field name as attribute (APB style)
         if hasattr(response_packet, field_name):
             setattr(response_packet, field_name, value)
@@ -339,7 +339,7 @@ class GAXICommandHandler:
             try:
                 # Convert integer to bytearray for memory write
                 data_bytes = self.memory_model.integer_to_bytearray(data, 4)  # 32-bit
-                
+
                 # Write to memory with proper address masking
                 success = self.memory_model.write(address & 0xFFFF, data_bytes, strobe)
 
@@ -505,7 +505,7 @@ class GAXICommandHandler:
         else:
             # Slave is a monitor - transactions will be observed automatically
             if self.log:
-                self.log.debug(f"Slave is monitor - transaction will be observed automatically")
+                self.log.debug("Slave is monitor - transaction will be observed automatically")
 
     def _handle_slave_response(self, response):
         """Handle a response from the slave."""
@@ -546,7 +546,7 @@ class GAXICommandHandler:
     def _check_waiting_transactions(self):
         """Check if any waiting transactions now have satisfied dependencies."""
         for txn_id in self.transaction_ordering:
-            if (txn_id in self.pending_transactions and 
+            if (txn_id in self.pending_transactions and
                 not self.pending_transactions[txn_id]['completed'] and
                 self._is_dependency_satisfied(txn_id)):
                 # This transaction's dependencies are now satisfied, send it

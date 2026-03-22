@@ -16,9 +16,9 @@
 """FIFO Packet class - minimal protocol-specific extensions to base Packet class"""
 from typing import Optional
 
-from ..shared.packet import Packet
 from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.packet import Packet
 
 
 class FIFOPacket(Packet):

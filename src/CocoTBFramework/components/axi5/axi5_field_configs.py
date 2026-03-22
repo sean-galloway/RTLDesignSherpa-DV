@@ -33,6 +33,7 @@ AXI5 Changes from AXI4:
 """
 
 from typing import Dict, List, Tuple
+
 from ..shared.field_config import FieldConfig, FieldDefinition
 
 
@@ -853,7 +854,7 @@ class AXI5FieldConfigHelper:
         if channels is None:
             channels = ['AW', 'W', 'B', 'AR', 'R']
 
-        print(f"\nAXI5 Field Configuration Preview")
+        print("\nAXI5 Field Configuration Preview")
         print(f"ID Width: {id_width}, Addr Width: {addr_width}, Data Width: {data_width}, User Width: {user_width}")
         print(f"NSAID Width: {nsaid_width}, MPAM Width: {mpam_width}, MECID Width: {mecid_width}")
         print("-" * 80)

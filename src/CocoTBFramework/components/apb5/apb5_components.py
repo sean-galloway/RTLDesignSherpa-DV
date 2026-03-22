@@ -17,17 +17,14 @@
 
 from collections import deque
 
-import cocotb
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
-from cocotb.triggers import RisingEdge, FallingEdge, Timer
-from cocotb_bus.monitors import BusMonitor
 from cocotb_bus.drivers import BusDriver
+from cocotb_bus.monitors import BusMonitor
 
 from ..shared.flex_randomizer import FlexRandomizer
 from ..shared.memory_model import MemoryModel
-
 from .apb5_packet import APB5Packet
-
 
 # Define the PWRITE mapping
 pwrite = ['READ', 'WRITE']
@@ -108,7 +105,6 @@ class APB5Monitor(BusMonitor):
 
     async def _monitor_recv(self):
         """Monitor APB5 transactions."""
-        prev_psel = 0
         prev_penable = 0
         prev_pready = 0
 
@@ -192,7 +188,6 @@ class APB5Monitor(BusMonitor):
                 self.print(transaction)
 
             # Update previous state
-            prev_psel = curr_psel
             prev_penable = curr_penable
             prev_pready = curr_pready
 
@@ -284,7 +279,6 @@ class APB5Slave(BusMonitor):
 
     async def _monitor_recv(self):
         """Handle APB5 slave transactions."""
-        prev_psel = 0
         prev_penable = 0
 
         while True:
@@ -395,7 +389,6 @@ class APB5Slave(BusMonitor):
                 if self.is_signal_present('PSLVERR'):
                     self.bus.PSLVERR.value = 0
 
-            prev_psel = curr_psel
             prev_penable = curr_penable
 
 

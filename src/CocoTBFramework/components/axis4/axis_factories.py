@@ -20,10 +20,11 @@ This module provides factory functions for creating AXIS components
 with APIs similar to AXI4 factories for consistency.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict
+
 from ..gaxi.gaxi_master import GAXIMaster
-from ..gaxi.gaxi_slave import GAXISlave
 from ..gaxi.gaxi_monitor import GAXIMonitor
+from ..gaxi.gaxi_slave import GAXISlave
 from .axis_field_configs import AXISFieldConfigs
 
 
@@ -231,7 +232,7 @@ def create_axis_slave_interface(dut, clock, prefix="", data_width=32,
     return result['interface']
 
 
-def create_axis_testbench(dut, clock, master_prefix="m_axis_", 
+def create_axis_testbench(dut, clock, master_prefix="m_axis_",
                          slave_prefix="s_axis_", data_width=32,
                          id_width=8, dest_width=4, user_width=1,
                          log=None, **kwargs):
@@ -256,7 +257,7 @@ def create_axis_testbench(dut, clock, master_prefix="m_axis_",
     Note: Creates components based on signal availability
     """
     components = {}
-    
+
     # Create master interface if signals exist
     try:
         if hasattr(dut, f'{master_prefix}tvalid'):
@@ -264,7 +265,7 @@ def create_axis_testbench(dut, clock, master_prefix="m_axis_",
                 dut, clock, master_prefix, data_width, id_width,
                 dest_width, user_width, log=log, **kwargs
             )
-            
+
             # Add master monitor
             components['master_monitor'] = create_axis_monitor(
                 dut, clock, master_prefix, data_width, id_width,
@@ -273,7 +274,7 @@ def create_axis_testbench(dut, clock, master_prefix="m_axis_",
     except Exception as e:
         if log:
             log.debug(f"Master interface creation: {e}")
-    
+
     # Create slave interface if signals exist
     try:
         if hasattr(dut, f'{slave_prefix}tready'):
@@ -281,7 +282,7 @@ def create_axis_testbench(dut, clock, master_prefix="m_axis_",
                 dut, clock, slave_prefix, data_width, id_width,
                 dest_width, user_width, log=log, **kwargs
             )
-            
+
             # Add slave monitor
             components['slave_monitor'] = create_axis_monitor(
                 dut, clock, slave_prefix, data_width, id_width,
@@ -290,14 +291,14 @@ def create_axis_testbench(dut, clock, master_prefix="m_axis_",
     except Exception as e:
         if log:
             log.debug(f"Slave interface creation: {e}")
-    
+
     # Add convenience methods
     components['get_all_stats'] = lambda: {
         name: comp.get('interface', comp).get_stats()
         for name, comp in components.items()
         if hasattr(comp.get('interface', comp), 'get_stats')
     }
-    
+
     return components
 
 
@@ -317,7 +318,7 @@ def create_simple_axis_master(dut, clock, prefix="", data_width=32, log=None, **
         AXISMaster instance
     """
     field_config = AXISFieldConfigs.create_simple_axis_config(data_width=data_width)
-    
+
     master = AXISMaster(
         dut=dut,
         title=f"Simple_AXIS_Master_{prefix}",
@@ -327,7 +328,7 @@ def create_simple_axis_master(dut, clock, prefix="", data_width=32, log=None, **
         log=log,
         **kwargs
     )
-    
+
     return master
 
 
@@ -347,7 +348,7 @@ def create_simple_axis_slave(dut, clock, prefix="", data_width=32, log=None, **k
         AXISSlave instance
     """
     field_config = AXISFieldConfigs.create_simple_axis_config(data_width=data_width)
-    
+
     slave = AXISSlave(
         dut=dut,
         title=f"Simple_AXIS_Slave_{prefix}",
@@ -357,7 +358,7 @@ def create_simple_axis_slave(dut, clock, prefix="", data_width=32, log=None, **k
         log=log,
         **kwargs
     )
-    
+
     return slave
 
 
@@ -365,11 +366,11 @@ def create_simple_axis_slave(dut, clock, prefix="", data_width=32, log=None, **k
 def get_axis_signal_map(prefix="", direction="master"):
     """
     Get standard AXIS signal mapping for manual override.
-    
+
     Args:
         prefix: Signal prefix (e.g., "m_axis_", "s_axis_")
         direction: "master" or "slave" for signal direction
-    
+
     Returns:
         Dictionary mapping simplified names to DUT signal names
     """
@@ -387,7 +388,7 @@ def get_axis_signal_map(prefix="", direction="master"):
     else:  # slave
         return {
             'valid': f'{prefix}tvalid',
-            'ready': f'{prefix}tready', 
+            'ready': f'{prefix}tready',
             'data': f'{prefix}tdata',
             'strb': f'{prefix}tstrb',
             'last': f'{prefix}tlast',
@@ -407,16 +408,16 @@ def print_axis_stats_to_log(components, log):
     """
     if not log:
         return
-        
+
     log.info("=== AXIS Component Statistics ===")
-    
+
     for name, component_dict in components.items():
         if isinstance(component_dict, dict) and 'interface' in component_dict:
             interface = component_dict['interface']
             if hasattr(interface, 'get_stats'):
                 stats = interface.get_stats()
                 log.info(f"\n{name.upper()} Statistics:")
-                
+
                 # Print key statistics
                 for key, value in stats.items():
                     if isinstance(value, dict):
@@ -449,13 +450,13 @@ def get_axis_stats_summary(components):
         'timeouts': 0,
         'errors': 0
     }
-    
+
     for name, component_dict in components.items():
         if isinstance(component_dict, dict) and 'interface' in component_dict:
             interface = component_dict['interface']
             if hasattr(interface, 'get_stats'):
                 stats = interface.get_stats()
-                
+
                 # Aggregate statistics
                 summary['total_packets_sent'] += stats.get('packets_sent', 0)
                 summary['total_packets_received'] += stats.get('packets_received', 0)
@@ -466,9 +467,9 @@ def get_axis_stats_summary(components):
                 summary['total_data_bytes'] += stats.get('total_data_bytes', 0)
                 summary['timeouts'] += stats.get('timeouts', 0)
                 summary['errors'] += stats.get('errors', 0)
-                
+
                 # Protocol violations from monitors
                 if 'protocol_stats' in stats:
                     summary['protocol_violations'] += stats['protocol_stats'].get('protocol_violations', 0)
-    
+
     return summary

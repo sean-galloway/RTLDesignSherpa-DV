@@ -25,13 +25,13 @@ This module extends the APB packet with APB5-specific signals:
 """
 
 import random
-from typing import Optional
+
 from cocotb_coverage.crv import Randomized
 
-from ..shared.packet import Packet
+from ..apb.apb_packet import PWRITE_MAP, APBPacket
 from ..shared.field_config import FieldConfig, FieldDefinition
 from ..shared.flex_randomizer import FlexRandomizer
-from ..apb.apb_packet import APBPacket, PWRITE_MAP
+from ..shared.packet import Packet
 
 
 class APB5Packet(Packet):

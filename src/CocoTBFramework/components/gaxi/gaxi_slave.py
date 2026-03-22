@@ -22,12 +22,11 @@ debugging and error recovery through structured pipeline phases.
 FIXED: Removed double initialization and fixed attribute access issues.
 """
 
-import cocotb
-from cocotb.triggers import RisingEdge, FallingEdge, Timer
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
-from .gaxi_monitor_base import GAXIMonitorBase
 from ..shared.monitor_statistics import MonitorStatistics
+from .gaxi_monitor_base import GAXIMonitorBase
 from .gaxi_packet import GAXIPacket
 
 
@@ -121,7 +120,7 @@ class GAXISlave(GAXIMonitorBase):
 
         # REMOVED: Double initialization calls that were breaking the slave
         # These were already handled by GAXIMonitorBase:
-        # - BusMonitor.__init__() 
+        # - BusMonitor.__init__()
         # - self.complete_base_initialization()
         # - self.log setup
 
@@ -161,18 +160,18 @@ class GAXISlave(GAXIMonitorBase):
             current_time = get_sim_time('ns')
             self.receive_state = to_state
             self.phase_timings[to_state] = current_time
-            
+
             context_str = ", ".join(f"{k}={v}" for k, v in context.items()) if context else ""
             reason_str = f" ({reason})" if reason else ""
             context_suffix = f" [{context_str}]" if context_str else ""
-            
+
             self.log.debug(f"Slave({self.title}) Pipeline: {from_state} -> {to_state}{reason_str}{context_suffix} @ {current_time}ns")
 
     async def reset_bus(self):
         """Reset bus with enhanced pipeline state management"""
         self.log.debug(f"GAXISlave({self.title}): resetting the bus")
         self._log_pipeline_transition("any", "reset", "bus reset requested")
-        
+
         self.reset_occurring = True
         await RisingEdge(self.clock)
         await RisingEdge(self.clock)
@@ -185,7 +184,7 @@ class GAXISlave(GAXIMonitorBase):
 
         # Clear any queued transactions
         self._recvQ.clear()
-        
+
         self._log_pipeline_transition("reset", "idle", "reset complete")
 
     def _set_ready(self, value):
@@ -198,13 +197,13 @@ class GAXISlave(GAXIMonitorBase):
     async def _monitor_recv(self):
         """
         Enhanced monitoring receive with structured phases and better debugging.
-        
+
         Maintains exact timing behavior while adding structured phases,
         better error recovery, and optional debugging.
         """
         try:
             self._log_pipeline_transition("idle", "monitor_start", "starting receive monitoring")
-            
+
             last_packet = None
             last_xfer = False
 
@@ -212,7 +211,7 @@ class GAXISlave(GAXIMonitorBase):
                 # Enhanced recv phase 1: Handle pending transactions
                 self._log_pipeline_transition("cycle_start", "phase1", "handle pending transactions")
                 current_time = await self._recv_phase1(last_packet, last_xfer)
-                
+
                 # Always clear the last transfer here
                 last_xfer = False
 
@@ -223,8 +222,8 @@ class GAXISlave(GAXIMonitorBase):
                 # Enhanced recv phase 3: Check for valid handshake and process transaction
                 self._log_pipeline_transition("phase2", "phase3", "check handshake and process")
                 last_packet, last_xfer = await self._recv_phase3(current_time)
-                
-                self._log_pipeline_transition("phase3", "cycle_end", "cycle complete", 
+
+                self._log_pipeline_transition("phase3", "cycle_end", "cycle complete",
                                             last_xfer=last_xfer, has_pending=last_packet is not None)
 
         except Exception as e:
@@ -242,7 +241,7 @@ class GAXISlave(GAXIMonitorBase):
         """
         phase_start = get_sim_time('ns')
         self.phase_statistics['phase1_count'] += 1
-        
+
         # Wait a brief moment for signal stability - exact original logic
         await Timer(200, units='ps')
         current_time = get_sim_time('ns')
@@ -251,14 +250,14 @@ class GAXISlave(GAXIMonitorBase):
         if last_xfer:
             if self.pipeline_debug:
                 self.log.debug(f"Slave({self.title}) Phase1: processing deferred capture from fifo_flop mode")
-            
+
             self.phase_statistics['deferred_captures'] += 1
             packet = last_packet
 
             # Use inherited clean _get_data_dict() and _finish_packet()
             data_dict = self._get_data_dict()
             self._finish_packet(current_time, packet, data_dict)
-            
+
             if self.pipeline_debug:
                 self.log.debug(f"Slave({self.title}) Phase1: deferred capture completed")
 
@@ -275,7 +274,7 @@ class GAXISlave(GAXIMonitorBase):
         """
         phase_start = get_sim_time('ns')
         self.phase_statistics['phase2_count'] += 1
-        
+
         # Check if valid on this cycle, if so we can't drop ready - exact original logic
         if not (hasattr(self, 'valid_sig') and self.valid_sig is not None and
                 hasattr(self, 'ready_sig') and self.ready_sig is not None and
@@ -287,7 +286,7 @@ class GAXISlave(GAXIMonitorBase):
             # Wait for valid to assert to decide to delay the ready
             if (hasattr(self, 'valid_sig') and self.valid_sig is not None and
                 self.valid_sig.value.is_resolvable):
-                
+
                 wait_cycles = 0
                 while self.valid_sig.value.integer == 0:
                     await self.wait_cycles(1)
@@ -298,10 +297,10 @@ class GAXISlave(GAXIMonitorBase):
             # Determine ready delay for this cycle - using inherited randomizer
             delay_cfg = self.randomizer.next()
             ready_delay = delay_cfg.get('ready_delay', 0)
-            
+
             if self.pipeline_debug and ready_delay > 0:
                 self.log.debug(f"Slave({self.title}) Phase2: applying ready delay {ready_delay} cycles")
-            
+
             if ready_delay > 0:
                 # Deassert ready during delay
                 self._set_ready(0)
@@ -309,13 +308,13 @@ class GAXISlave(GAXIMonitorBase):
 
         # Assert ready to accept data
         self._set_ready(1)
-        
+
         if self.pipeline_debug:
             self.log.debug(f"Slave({self.title}) Phase2: ready asserted, waiting for falling edge")
 
         # Wait for a falling edge to sample signals
         await FallingEdge(self.clock)
-        
+
         if self.pipeline_debug:
             phase_duration = get_sim_time('ns') - phase_start
             self.log.debug(f"Slave({self.title}) Phase2: completed in {phase_duration}ns")
@@ -324,13 +323,13 @@ class GAXISlave(GAXIMonitorBase):
         """
         Enhanced Phase 3: Transaction processing with better debugging.
         Maintains exact original timing and logic.
-        
+
         Returns:
             Tuple of (last_packet, last_xfer) for deferred processing
         """
         phase_start = get_sim_time('ns')
         self.phase_statistics['phase3_count'] += 1
-        
+
         # Check for valid handshake (valid=1 and ready=1) - exact original logic
         if (hasattr(self, 'valid_sig') and self.valid_sig is not None and
             hasattr(self, 'ready_sig') and self.ready_sig is not None and
@@ -349,30 +348,30 @@ class GAXISlave(GAXIMonitorBase):
             packet.start_time = current_time
 
             # Record transaction received (using MonitorStatistics interface)
-            received_time = get_sim_time('ns')
+            get_sim_time('ns')
 
             if self.mode == 'fifo_flop':
                 # 'fifo_flop' mode: note handshake time, defer data capture to next cycle
                 if self.pipeline_debug:
                     self.log.debug(f"Slave({self.title}) Phase3: fifo_flop mode - deferring data capture")
-                
+
                 last_xfer = True
                 last_packet = packet
                 await RisingEdge(self.clock)
                 await Timer(self.tick_delay, units=self.tick_units)
-                
+
                 if self.pipeline_debug:
                     phase_duration = get_sim_time('ns') - phase_start
                     self.log.debug(f"Slave({self.title}) Phase3: deferred setup completed in {phase_duration}ns")
-                
+
                 return last_packet, last_xfer
             else:
                 # In skid/fifo_mux mode, capture data in the same cycle
                 if self.pipeline_debug:
                     self.log.debug(f"Slave({self.title}) Phase3: {self.mode} mode - immediate capture")
-                
+
                 self.phase_statistics['immediate_captures'] += 1
-                
+
                 # Use inherited clean _get_data_dict() and _finish_packet()
                 data_dict = self._get_data_dict()
                 self._finish_packet(current_time, packet, data_dict)
@@ -387,7 +386,7 @@ class GAXISlave(GAXIMonitorBase):
                 if self.memory_model:
                     if self.pipeline_debug:
                         self.log.debug(f"Slave({self.title}) Phase3: performing memory operation")
-                    
+
                     # Use unified memory integration
                     success = self.handle_memory_write(packet)
                     if success:
@@ -397,7 +396,7 @@ class GAXISlave(GAXIMonitorBase):
         await RisingEdge(self.clock)
         await Timer(self.tick_delay, units=self.tick_units)
         self._set_ready(0)
-        
+
         if self.pipeline_debug:
             phase_duration = get_sim_time('ns') - phase_start
             self.log.debug(f"Slave({self.title}) Phase3: completed in {phase_duration}ns")
@@ -409,7 +408,7 @@ class GAXISlave(GAXIMonitorBase):
         """Enhanced wait method with reset awareness and debugging"""
         if self.pipeline_debug and cycles > 1:
             self.log.debug(f"Slave({self.title}): waiting {cycles} cycles")
-        
+
         for cycle in range(cycles):
             await RisingEdge(self.clock)
             if self.reset_occurring:
@@ -428,7 +427,7 @@ class GAXISlave(GAXIMonitorBase):
             'observed_packets': len(self._recvQ),
             'mode': self.mode
         })
-        
+
         # Calculate derived statistics
         if stats['handshake_count'] > 0:
             stats['deferred_capture_rate'] = stats['deferred_captures'] / stats['handshake_count']
@@ -436,7 +435,7 @@ class GAXISlave(GAXIMonitorBase):
         else:
             stats['deferred_capture_rate'] = 0.0
             stats['immediate_capture_rate'] = 0.0
-            
+
         return stats
 
     def get_stats(self):

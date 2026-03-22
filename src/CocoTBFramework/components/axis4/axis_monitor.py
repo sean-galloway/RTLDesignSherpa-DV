@@ -20,26 +20,25 @@ This module provides AXIS Monitor functionality using GAXI infrastructure.
 Similar API to AXI4Monitor but adapted for stream protocol.
 """
 
-import cocotb
 from cocotb.triggers import FallingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from ..gaxi.gaxi_monitor_base import GAXIMonitorBase
-from .axis_packet import AXISPacket
 from .axis_field_configs import AXISFieldConfigs
+from .axis_packet import AXISPacket
 
 
 class AXISMonitor(GAXIMonitorBase):
     """
     AXIS Monitor component for observing AXI4-Stream protocol.
-    
+
     Inherits all common functionality from GAXIMonitorBase:
     - Signal resolution and data collection setup
     - Clean _get_data_dict() with automatic field unpacking
     - Unified _finish_packet() without conditional mess
     - Packet creation and statistics
     - Memory model integration
-    
+
     AXIS-specific features:
     - Stream transaction monitoring
     - Frame boundary detection with TLAST
@@ -47,7 +46,7 @@ class AXISMonitor(GAXIMonitorBase):
     - Comprehensive stream statistics
     """
 
-    def __init__(self, dut, title, prefix, clock, field_config=None, 
+    def __init__(self, dut, title, prefix, clock, field_config=None,
                 is_slave=False, mode='skid',
                 bus_name='', pkt_prefix='', multi_sig=False,
                 log=None, super_debug=False, signal_map=None, **kwargs):
@@ -85,17 +84,17 @@ class AXISMonitor(GAXIMonitorBase):
 
         # AXIS Monitor specific attributes
         self.is_slave = is_slave
-        
+
         # Frame tracking
         self._current_frame = []
         self._frame_id = None
-        
+
         # Statistics tracking
         self.packets_observed = 0
         self.frames_observed = 0
         self.total_data_bytes = 0
         self.protocol_violations = 0
-        
+
         # Complete initialization
         self.complete_base_initialization()
 
@@ -107,32 +106,32 @@ class AXISMonitor(GAXIMonitorBase):
     async def _monitor_recv(self):
         """
         Monitor for AXIS transfers.
-        
+
         This is the main monitoring loop that watches for valid/ready handshakes
         and captures stream data for analysis.
         """
         try:
             while True:
                 await FallingEdge(self.clock)
-                
+
                 # Check for valid handshake
                 if self._is_handshake_valid():
                     current_time = get_sim_time(units='ns')
-                    
+
                     # Create packet from current data
                     packet = AXISPacket(
                         field_config=self.field_config,
                         timestamp=current_time
                     )
-                    
+
                     # Collect data using inherited functionality
                     data_dict = self._get_data_dict()
                     self._finish_packet(current_time, packet, data_dict)
-                    
+
                     # Update statistics
                     self.packets_observed += 1
                     self.total_data_bytes += packet.get_byte_count()
-                    
+
                     # Handle frame boundaries
                     if packet.is_last():
                         self.frames_observed += 1
@@ -144,18 +143,18 @@ class AXISMonitor(GAXIMonitorBase):
                         self._current_frame.append(packet)
                         if self._frame_id is None:
                             self._frame_id = packet.id
-                    
+
                     # Check for protocol violations
                     self._check_protocol_violations(packet)
-                    
+
                     # Write to memory model if available
                     if self.memory_model:
                         self.write_to_memory_unified(packet)
-                    
+
                     if self.log and self.super_debug:
                         self.log.debug(f"AXISMonitor '{self.title}': "
                                      f"Observed packet {packet}")
-                
+
                 # Small delay to avoid oversampling
                 await Timer(1, units='ps')
 
@@ -172,24 +171,24 @@ class AXISMonitor(GAXIMonitorBase):
             # Get signals using inherited signal resolution
             valid_signal = getattr(self, 'valid_signal', None)
             ready_signal = getattr(self, 'ready_signal', None)
-            
+
             if valid_signal is None or ready_signal is None:
                 return False
-                
+
             return bool(valid_signal.value) and bool(ready_signal.value)
-            
+
         except Exception:
             return False
 
     def _check_protocol_violations(self, packet):
         """
         Check for AXIS protocol violations.
-        
+
         Args:
             packet: AXISPacket to check
         """
         violations = []
-        
+
         # Check if strobe has any holes (non-contiguous 1s)
         if hasattr(packet, 'strb') and packet.strb:
             strb_val = packet.strb
@@ -198,7 +197,7 @@ class AXISMonitor(GAXIMonitorBase):
             last_bit = -1
             bit_pos = 0
             temp_strb = strb_val
-            
+
             while temp_strb > 0:
                 if temp_strb & 1:
                     if first_bit == -1:
@@ -206,18 +205,18 @@ class AXISMonitor(GAXIMonitorBase):
                     last_bit = bit_pos
                 temp_strb >>= 1
                 bit_pos += 1
-            
+
             # Check for holes between first and last bits
             if first_bit != -1 and last_bit != -1:
                 for i in range(first_bit, last_bit + 1):
                     if not (strb_val & (1 << i)):
                         violations.append(f"Non-contiguous strobe at bit {i}")
                         break
-        
+
         # Check for zero strobe with valid data
         if hasattr(packet, 'strb') and packet.strb == 0 and packet.data != 0:
             violations.append("Zero strobe with non-zero data")
-        
+
         # Log violations
         if violations:
             self.protocol_violations += len(violations)
@@ -229,16 +228,16 @@ class AXISMonitor(GAXIMonitorBase):
     async def _process_complete_frame(self, frame_packets):
         """
         Process a complete frame (packets ending with TLAST).
-        
+
         Args:
             frame_packets: List of AXISPacket objects forming a complete frame
         """
         if not frame_packets:
             return
-            
+
         frame_size = sum(p.get_byte_count() for p in frame_packets)
         frame_id = frame_packets[0].id if frame_packets else 0
-        
+
         if self.log and self.super_debug:
             self.log.debug(f"AXISMonitor '{self.title}': "
                          f"Observed complete frame ID={frame_id}, size={frame_size} bytes, "
@@ -247,7 +246,7 @@ class AXISMonitor(GAXIMonitorBase):
     def get_current_frame_info(self):
         """
         Get information about the currently observed frame.
-        
+
         Returns:
             Dictionary with frame information
         """
@@ -261,7 +260,7 @@ class AXISMonitor(GAXIMonitorBase):
     def get_protocol_stats(self):
         """
         Get protocol-specific statistics.
-        
+
         Returns:
             Dictionary with protocol statistics
         """
@@ -274,7 +273,7 @@ class AXISMonitor(GAXIMonitorBase):
     def get_bandwidth_stats(self):
         """
         Get bandwidth and throughput statistics.
-        
+
         Returns:
             Dictionary with bandwidth statistics
         """
@@ -290,7 +289,7 @@ class AXISMonitor(GAXIMonitorBase):
     def get_stats(self):
         """Get comprehensive statistics."""
         base_stats = self.get_base_stats_unified()
-        
+
         # Add AXIS monitor specific statistics
         axis_stats = {
             'monitor_type': 'slave' if self.is_slave else 'master',
@@ -301,11 +300,11 @@ class AXISMonitor(GAXIMonitorBase):
             'protocol_stats': self.get_protocol_stats(),
             'bandwidth_stats': self.get_bandwidth_stats()
         }
-        
+
         # Add base monitor statistics
         if hasattr(self, 'stats'):
             axis_stats.update(self.stats.get_stats())
-        
+
         # Merge base stats with AXIS-specific stats
         base_stats.update(axis_stats)
         return base_stats
@@ -313,49 +312,49 @@ class AXISMonitor(GAXIMonitorBase):
     async def wait_for_frames(self, frame_count, timeout_cycles=1000):
         """
         Wait for a specific number of frames to be observed.
-        
+
         Args:
             frame_count: Number of frames to wait for
             timeout_cycles: Maximum cycles to wait
-        
+
         Returns:
             True if frames observed, False if timeout
         """
         initial_frame_count = self.frames_observed
         target_frames = initial_frame_count + frame_count
         cycles = 0
-        
+
         while cycles < timeout_cycles:
             if self.frames_observed >= target_frames:
                 return True
-            
+
             await RisingEdge(self.clock)
             cycles += 1
-        
+
         return False
 
     async def wait_for_packets(self, packet_count, timeout_cycles=1000):
         """
         Wait for a specific number of packets to be observed.
-        
+
         Args:
             packet_count: Number of packets to wait for
             timeout_cycles: Maximum cycles to wait
-        
+
         Returns:
             True if packets observed, False if timeout
         """
         initial_packet_count = self.packets_observed
         target_packets = initial_packet_count + packet_count
         cycles = 0
-        
+
         while cycles < timeout_cycles:
             if self.packets_observed >= target_packets:
                 return True
-            
+
             await RisingEdge(self.clock)
             cycles += 1
-        
+
         return False
 
     def __str__(self):

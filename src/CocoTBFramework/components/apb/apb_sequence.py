@@ -14,13 +14,13 @@
 # Created: 2025-10-18
 
 """Enhanced APB Sequence class with direct packet generation"""
-from dataclasses import dataclass, field
-from collections import deque
-import random
-from typing import List, Tuple, Dict, Optional
 import copy
+import random
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
 from .apb_packet import APBPacket
+
 
 @dataclass
 class APBSequence:

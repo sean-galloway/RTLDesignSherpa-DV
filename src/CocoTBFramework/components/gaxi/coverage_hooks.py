@@ -33,7 +33,7 @@ Usage:
 """
 
 import logging
-from typing import Callable, List, Any, Optional, Protocol
+from typing import Any, Callable, List, Optional, Protocol
 
 
 class CoverageProtocol(Protocol):

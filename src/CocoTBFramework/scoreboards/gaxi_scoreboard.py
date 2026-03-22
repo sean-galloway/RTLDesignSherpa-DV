@@ -15,7 +15,8 @@
 
 """GAXI Scoreboard for verifying GAXI transactions - Updated for new field config and packet classes"""
 from CocoTBFramework.components.gaxi.gaxi_packet import GAXIPacket
-from CocoTBFramework.components.shared.field_config import FieldConfig, FieldDefinition
+from CocoTBFramework.components.shared.field_config import FieldConfig
+
 from .base_scoreboard import BaseScoreboard
 
 

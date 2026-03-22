@@ -22,7 +22,6 @@ leveraging the unified infrastructure through the updated base classes.
 All existing parameters are preserved and used exactly as before.
 """
 
-import cocotb
 from cocotb.triggers import FallingEdge, Timer
 from cocotb.utils import get_sim_time
 

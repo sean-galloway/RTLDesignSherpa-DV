@@ -22,9 +22,9 @@ This package provides APB5 protocol support including:
 - APB5Monitor: Protocol monitor with APB5 event tracking
 """
 
+from .apb5_components import APB5Master, APB5Monitor, APB5Slave
+from .apb5_factories import create_apb5_master, create_apb5_monitor, create_apb5_slave
 from .apb5_packet import APB5Packet, APB5Transaction
-from .apb5_components import APB5Master, APB5Slave, APB5Monitor
-from .apb5_factories import create_apb5_master, create_apb5_slave, create_apb5_monitor
 
 __all__ = [
     'APB5Packet',

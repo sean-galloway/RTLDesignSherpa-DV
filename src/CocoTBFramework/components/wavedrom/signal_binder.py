@@ -23,9 +23,10 @@ This provides a thin wavedrom-specific layer that translates between SignalResol
 results and TemporalConstraintSolver's signal binding format.
 """
 
-from ..shared.signal_mapping_helper import SignalResolver
+from typing import TYPE_CHECKING, Dict, Optional
+
 from ..shared.field_config import FieldConfig
-from typing import Optional, Dict, TYPE_CHECKING
+from ..shared.signal_mapping_helper import SignalResolver
 
 if TYPE_CHECKING:
     from .constraint_solver import TemporalConstraintSolver

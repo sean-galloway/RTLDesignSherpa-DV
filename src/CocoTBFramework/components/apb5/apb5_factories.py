@@ -15,10 +15,10 @@
 
 """Factory functions for creating APB5 BFM components."""
 
-from typing import Optional, List, Dict, Any, Callable
+from typing import Any, Callable, Dict, List, Optional
 
 from ..shared.flex_randomizer import FlexRandomizer
-from .apb5_components import APB5Monitor, APB5Slave, APB5Master
+from .apb5_components import APB5Master, APB5Monitor, APB5Slave
 
 
 def create_apb5_master(

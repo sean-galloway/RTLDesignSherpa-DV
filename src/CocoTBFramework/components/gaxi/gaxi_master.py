@@ -20,11 +20,12 @@ Maintains all existing functionality and timing while adding better
 debugging and error recovery through structured pipeline phases.
 """
 
-import cocotb
 from collections import deque
-from cocotb_bus.drivers import BusDriver
+
+import cocotb
 from cocotb.triggers import RisingEdge, Timer
 from cocotb.utils import get_sim_time
+from cocotb_bus.drivers import BusDriver
 
 from ..shared.master_statistics import MasterStatistics
 from .gaxi_component_base import GAXIComponentBase

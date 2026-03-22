@@ -28,9 +28,10 @@ AXI5-specific features supported:
 - Poison indicators
 """
 
-from typing import Dict, Any, Optional, Tuple, List
-from .axi5_packet import AXI5Packet
+from typing import List, Optional, Tuple
+
 from .axi5_field_configs import AXI5FieldConfigHelper
+from .axi5_packet import AXI5Packet
 
 
 def create_simple_read_packet(address: int, id_val: int = 0, burst_len: int = 1,

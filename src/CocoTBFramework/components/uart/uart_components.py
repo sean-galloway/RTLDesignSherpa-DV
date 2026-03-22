@@ -18,10 +18,10 @@
 from collections import deque
 
 import cocotb
+from cocotb.triggers import Edge, RisingEdge
 from cocotb.utils import get_sim_time
-from cocotb.triggers import RisingEdge, FallingEdge, Timer, Edge
-from cocotb_bus.monitors import BusMonitor
 from cocotb_bus.drivers import BusDriver
+from cocotb_bus.monitors import BusMonitor
 
 from .uart_packet import UARTPacket
 

@@ -25,10 +25,10 @@ FIXED: Now passes resolved signals directly to DataStrategies, eliminating guess
 ADDED: Optional signal_map parameter for manual signal mapping override.
 """
 
-from ..shared.field_config import FieldConfig
-from ..shared.signal_mapping_helper import SignalResolver
 from ..shared.data_strategies import DataCollectionStrategy, DataDrivingStrategy
+from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.signal_mapping_helper import SignalResolver
 
 
 class FIFOComponentBase:
@@ -40,7 +40,7 @@ class FIFOComponentBase:
 
     FIXED: Data strategies now receive resolved signals directly from SignalResolver
     instead of doing their own signal discovery.
-    
+
     ADDED: Optional signal_map parameter for manual signal override.
     """
 

@@ -19,8 +19,8 @@ Memory Model Class with Integrated Diagnostics and Access Tracking
 This module provides a high-performance memory model with comprehensive diagnostics,
 access tracking, and region management capabilities for hardware verification.
 """
+
 import numpy as np
-from typing import Optional, Dict, Any, Union, List, Tuple
 
 
 class MemoryModel:
@@ -312,9 +312,9 @@ class MemoryModel:
             # Check if transaction has required fields
             if check_required_fields:
                 if not hasattr(transaction, 'addr'):
-                    return False, f"Transaction missing required address field"
+                    return False, "Transaction missing required address field"
                 if not hasattr(transaction, 'data'):
-                    return False, f"Transaction missing required data field"
+                    return False, "Transaction missing required data field"
 
             addr = addr_field
             data = data_field
@@ -378,7 +378,7 @@ class MemoryModel:
         try:
             # Check if transaction has required fields
             if check_required_fields and not hasattr(transaction, 'addr'):
-                return False, None, f"Transaction missing required address field"
+                return False, None, "Transaction missing required address field"
 
             # Get address from transaction
             addr = getattr(transaction, 'addr', 0)

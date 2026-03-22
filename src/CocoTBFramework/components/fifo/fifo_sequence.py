@@ -27,7 +27,6 @@ Key improvements:
 - Eliminates unnecessary complexity while keeping useful features
 """
 import random
-from typing import Dict, List, Optional, Tuple, Any
 
 from ..shared.field_config import FieldConfig
 from ..shared.packet_factory import PacketFactory

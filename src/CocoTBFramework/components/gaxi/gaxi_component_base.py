@@ -26,10 +26,11 @@ ADDED: Optional signal_map parameter for manual signal mapping override.
 """
 
 from cocotb.utils import get_sim_time
-from ..shared.field_config import FieldConfig
-from ..shared.signal_mapping_helper import SignalResolver
+
 from ..shared.data_strategies import DataCollectionStrategy, DataDrivingStrategy
+from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.signal_mapping_helper import SignalResolver
 
 
 class GAXIComponentBase:

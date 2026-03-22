@@ -22,17 +22,19 @@ Key fixes:
 3. Better constraint isolation between transactions
 """
 
-import cocotb
-from typing import Dict, List, Optional, Any, Set, Union, Callable
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from cocotb.triggers import RisingEdge, FallingEdge, Timer
+from typing import Any, Callable, Dict, List, Optional, Set, Union
+
+import cocotb
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 
 # Required imports - no conditionals
 from ortools.sat.python import cp_model
-from .wavejson_gen import WaveJSONGenerator, TemporalAnnotation, create_wavejson_from_packet
+
 from ..shared.field_config import FieldConfig, FieldDefinition
+from .wavejson_gen import TemporalAnnotation, WaveJSONGenerator
 
 
 class ClockEdge(Enum):
@@ -1349,8 +1351,8 @@ class TemporalConstraintSolver:
 
                 # If prefer_latest is True, delete earlier matches (keep only latest)
                 if constraint.prefer_latest and '_' in filename:
-                    import os
                     import glob
+                    import os
                     # Extract base name and number
                     base_name = filename.rsplit('_', 1)[0]
                     current_num = int(filename.rsplit('_', 1)[1].replace('.json', ''))
@@ -1626,7 +1628,7 @@ class TemporalConstraintSolver:
         # WaveJSON generator status
         if self.wavejson_generator:
             stats = self.wavejson_generator.get_stats()
-            self.log.info(f"WaveJSON Generator:")
+            self.log.info("WaveJSON Generator:")
             self.log.info(f"    Total signals: {stats['total_signals']}")
             self.log.info(f"    Interface groups: {stats['interface_groups']}")
             self.log.info(f"    Protocol configs: {stats.get('protocol_configs', 0)}")

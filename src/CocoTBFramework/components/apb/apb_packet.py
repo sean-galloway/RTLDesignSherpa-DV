@@ -16,14 +16,14 @@
 """APB Packet Implementation using the generic Packet base class"""
 
 import random
-from collections import deque
-from typing import Dict, Any, List, Optional, Union
+
 from cocotb_coverage.crv import Randomized
+
+from ..shared.field_config import FieldConfig, FieldDefinition
+from ..shared.flex_randomizer import FlexRandomizer
 
 # Import the base Packet class and other dependencies
 from ..shared.packet import Packet
-from ..shared.field_config import FieldConfig, FieldDefinition
-from ..shared.flex_randomizer import FlexRandomizer
 
 # Define the PWRITE mapping
 PWRITE_MAP = ['READ', 'WRITE']

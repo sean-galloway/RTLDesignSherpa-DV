@@ -21,14 +21,11 @@ This module provides AXIS5 Master functionality with:
 - TPARITY: Data parity protection
 """
 
-import cocotb
-from cocotb.triggers import RisingEdge, Timer
-from cocotb.utils import get_sim_time
-from collections import deque
+from cocotb.triggers import RisingEdge
 
 from ..axis4.axis_master import AXISMaster
-from .axis5_packet import AXIS5Packet
 from .axis5_field_configs import AXIS5FieldConfigs
+from .axis5_packet import AXIS5Packet
 
 
 class AXIS5Master(AXISMaster):

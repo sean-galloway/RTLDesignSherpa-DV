@@ -26,12 +26,10 @@ This completes Phase 3 of the refactoring plan by providing:
 - Enhanced dual randomization capabilities
 """
 
-from typing import Dict, List, Optional, Union, Any
-import logging
+from typing import Any, Dict, List, Optional
 
 from .axi4_randomization_config import AXI4RandomizationConfig
 from .axi4_timing_config import AXI4TimingConfig, create_axi4_timing_config
-from CocoTBFramework.components.shared.flex_config_gen import FlexConfigGen
 
 
 class AXI4RandomizationManager:

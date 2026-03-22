@@ -55,8 +55,8 @@ Example Usage:
         assert packet.data == 0x55
 """
 
+from .uart_components import UARTMaster, UARTMonitor, UARTSlave
 from .uart_packet import UARTPacket
-from .uart_components import UARTMonitor, UARTMaster, UARTSlave
 
 __all__ = [
     'UARTPacket',

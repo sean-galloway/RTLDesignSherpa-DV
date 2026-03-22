@@ -22,12 +22,13 @@ components, with proper defaults for signal prefixes and naming.
 All existing APIs are preserved exactly as before.
 """
 
-from ..shared.memory_model import MemoryModel
-from ..shared.field_config import FieldConfig
-from .gaxi_master import GAXIMaster
-from .gaxi_slave import GAXISlave
-from .gaxi_monitor import GAXIMonitor
 from CocoTBFramework.scoreboards.gaxi_scoreboard import GAXIScoreboard
+
+from ..shared.field_config import FieldConfig
+from ..shared.memory_model import MemoryModel
+from .gaxi_master import GAXIMaster
+from .gaxi_monitor import GAXIMonitor
+from .gaxi_slave import GAXISlave
 
 
 def get_default_field_config(data_width=32):
@@ -53,7 +54,7 @@ def create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_clas
     Create a GAXI Master component with simplified configuration.
 
     All existing parameters are preserved and passed through exactly as before.
-    
+
 
     Args:
         dut: Device under test
@@ -399,7 +400,7 @@ def create_gaxi_system(dut, clock, title_prefix="", field_config=None,
     )
 
 
-def create_gaxi_test_environment(dut, clock, 
+def create_gaxi_test_environment(dut, clock,
                                 bus_name='', pkt_prefix='',
                                 **kwargs):
     """

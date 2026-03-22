@@ -28,15 +28,16 @@ Key differences from AXI4:
 Note: Maintains function parity with AXI4 utilities where applicable for compatibility.
 """
 
-from typing import Dict, Any, Optional, Tuple
-from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
+from typing import Dict, Optional, Tuple
+
 from CocoTBFramework.components.axil4.axil4_field_configs import AXIL4FieldConfigHelper
+from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
 
 
 def create_simple_read_packet(address: int, prot: int = 0, **kwargs) -> AXIL4Packet:
     """
     Create a simple AR (Address Read) packet for register access.
-    
+
     Note: This function provides compatibility with AXI4 packet utilities.
     In AXIL4, there are no burst parameters (len, size, burst_type).
 
@@ -94,7 +95,7 @@ def create_simple_write_address_packet(address: int, prot: int = 0, **kwargs) ->
     return packet
 
 
-def create_simple_write_data_packet(data: int, strb: Optional[int] = None, 
+def create_simple_write_data_packet(data: int, strb: Optional[int] = None,
                                   data_width: int = 32, **kwargs) -> AXIL4Packet:
     """
     Create a simple W (Write Data) packet for register access.
@@ -131,7 +132,7 @@ def create_simple_write_data_packet(data: int, strb: Optional[int] = None,
     return packet
 
 
-def create_simple_read_response_packet(data: int, resp: int = 0, 
+def create_simple_read_response_packet(data: int, resp: int = 0,
                                      data_width: int = 32, **kwargs) -> AXIL4Packet:
     """
     Create a simple R (Read Response) packet for register access.
@@ -237,17 +238,17 @@ def create_register_response_packets(read_data: Optional[int] = None, write_resp
         Dictionary with 'R' and/or 'B' packets
     """
     packets = {}
-    
+
     if read_data is not None:
         packets['R'] = create_simple_read_response_packet(read_data, 0, data_width)
-    
+
     if write_resp is not None:
         packets['B'] = create_simple_write_response_packet(write_resp)
-    
+
     return packets
 
 
-def create_error_response_packets(error_type: str = "SLVERR", 
+def create_error_response_packets(error_type: str = "SLVERR",
                                 data_width: int = 32) -> Dict[str, AXIL4Packet]:
     """
     Create error response packets for testing.
@@ -261,7 +262,7 @@ def create_error_response_packets(error_type: str = "SLVERR",
     """
     resp_codes = {"OKAY": 0, "EXOKAY": 1, "SLVERR": 2, "DECERR": 3}
     resp_code = resp_codes.get(error_type.upper(), 2)  # Default to SLVERR
-    
+
     return {
         'R': create_simple_read_response_packet(0xDEADDEAD, resp_code, data_width),
         'B': create_simple_write_response_packet(resp_code)
@@ -280,14 +281,14 @@ def validate_axil4_address_alignment(address: int, data_width: int = 32) -> Tupl
         Tuple of (is_valid, error_message)
     """
     bytes_per_transfer = data_width // 8
-    
+
     if address % bytes_per_transfer != 0:
         return False, f"Address 0x{address:X} not aligned to {bytes_per_transfer}-byte boundary"
-    
+
     return True, "Address properly aligned"
 
 
-def create_axil4_register_map_packets(register_map: Dict[int, int], 
+def create_axil4_register_map_packets(register_map: Dict[int, int],
                                     data_width: int = 32) -> Dict[int, AXIL4Packet]:
     """
     Create R response packets for a register map.
@@ -300,10 +301,10 @@ def create_axil4_register_map_packets(register_map: Dict[int, int],
         Dictionary mapping addresses to R packets
     """
     packets = {}
-    
+
     for addr, data in register_map.items():
         packets[addr] = create_simple_read_response_packet(data, 0, data_width)
-    
+
     return packets
 
 
@@ -319,7 +320,7 @@ def create_strobe_patterns(data_width: int = 32) -> Dict[str, int]:
     """
     strb_width = data_width // 8
     max_strb = (1 << strb_width) - 1
-    
+
     patterns = {
         'all_bytes': max_strb,
         'no_bytes': 0,
@@ -329,9 +330,9 @@ def create_strobe_patterns(data_width: int = 32) -> Dict[str, int]:
         'upper_half': max_strb ^ ((1 << (strb_width // 2)) - 1),
         'alternating': 0x5 if strb_width >= 4 else 0x1,
     }
-    
+
     # Filter out invalid patterns for narrow data widths
-    return {name: pattern for name, pattern in patterns.items() 
+    return {name: pattern for name, pattern in patterns.items()
             if pattern <= max_strb and pattern >= 0}
 
 
@@ -359,7 +360,7 @@ def create_simple_write_packets(address: int, data: int, strb: Optional[int] = N
                                prot: int = 0, data_width: int = 32) -> Tuple[AXIL4Packet, AXIL4Packet]:
     """
     Create AW and W packets for a simple register write.
-    
+
     Note: Provides compatibility with AXI4 create_simple_write_packets but without ID parameter.
 
     Args:
@@ -411,20 +412,20 @@ if __name__ == "__main__":
 
     # Test error packets
     error_packets = create_error_response_packets("SLVERR")
-    print(f"\nError Packets:")
+    print("\nError Packets:")
     print(f"Error R: resp={error_packets['R'].resp}, data=0x{error_packets['R'].data:X}")
     print(f"Error B: resp={error_packets['B'].resp}")
 
     # Test strobe patterns
     strobe_patterns = create_strobe_patterns(32)
-    print(f"\nStrobe patterns for 32-bit data:")
+    print("\nStrobe patterns for 32-bit data:")
     for name, pattern in strobe_patterns.items():
         print(f"  {name}: 0x{pattern:X}")
 
     # Test address validation
     is_valid, msg = validate_axil4_address_alignment(0x1000, 32)
     print(f"\nAddress validation (0x1000): {is_valid} - {msg}")
-    
+
     is_valid, msg = validate_axil4_address_alignment(0x1002, 32)
     print(f"Address validation (0x1002): {is_valid} - {msg}")
 

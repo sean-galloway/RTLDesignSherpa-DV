@@ -22,12 +22,10 @@ leveraging the unified infrastructure through the updated base classes.
 All existing parameters are preserved and used exactly as before.
 """
 
-import cocotb
-from cocotb.triggers import RisingEdge, FallingEdge, Timer
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from .fifo_monitor_base import FIFOMonitorBase
-from ..shared.monitor_statistics import MonitorStatistics
 from .fifo_packet import FIFOPacket
 
 

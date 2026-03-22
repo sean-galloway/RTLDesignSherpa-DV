@@ -26,10 +26,10 @@ Features:
 - Enhanced dual randomization capabilities
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from .axi5_randomization_config import AXI5RandomizationConfig, AXI5RandomizationProfile
-from .axi5_timing_config import create_axi5_timing_from_profile, get_axi5_timing_profiles
+from .axi5_timing_config import create_axi5_timing_from_profile
 
 
 class AXI5TimingConfig:

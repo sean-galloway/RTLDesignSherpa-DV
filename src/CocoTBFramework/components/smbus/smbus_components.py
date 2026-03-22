@@ -32,14 +32,15 @@ Open-drain semantics: To release a line, set _t=1.
 To drive low, set _t=0 and _o=0.
 """
 
-import cocotb
-from cocotb.triggers import RisingEdge, FallingEdge, Edge, Timer, First
-from cocotb.utils import get_sim_time
-from collections import deque
-from typing import Optional, List, Callable, Dict, Any
 import logging
+from collections import deque
+from typing import Any, Callable, Dict, List, Optional
 
-from .smbus_packet import SMBusPacket, SMBusTransactionType, SMBusCondition
+import cocotb
+from cocotb.triggers import Edge, FallingEdge, First, RisingEdge, Timer
+from cocotb.utils import get_sim_time
+
+from .smbus_packet import SMBusCondition, SMBusPacket, SMBusTransactionType
 
 
 class SMBusCRC:
@@ -257,7 +258,6 @@ class SMBusMonitor:
             Tuple of (byte_value, ack, condition)
         """
         byte_val = 0
-        condition = SMBusCondition.IDLE
 
         for i in range(8):
             # Wait for SCL rising, but check for START/STOP
@@ -292,7 +292,7 @@ class SMBusMonitor:
             scl_rise = RisingEdge(self.scl)
             sda_edge = Edge(self.sda)
 
-            result = await First(scl_rise, sda_edge)
+            await First(scl_rise, sda_edge)
 
             # Check what triggered
             if self.scl.value.integer == 1:

@@ -21,10 +21,9 @@ All existing parameters are maintained and used exactly as before.
 """
 
 from cocotb_bus.monitors import BusMonitor
-from cocotb.utils import get_sim_time
 
-from .fifo_component_base import FIFOComponentBase
 from ..shared.monitor_statistics import MonitorStatistics
+from .fifo_component_base import FIFOComponentBase
 from .fifo_packet import FIFOPacket
 
 
@@ -215,7 +214,7 @@ class FIFOMonitorBase(FIFOComponentBase, BusMonitor):
         """Handle memory write using unified memory integration"""
         success, error = self.write_to_memory_unified(packet)
         if success:
-            self.log.debug(f"FIFOMonitorBase: Memory write successful")
+            self.log.debug("FIFOMonitorBase: Memory write successful")
         else:
             self.log.warning(f"FIFOMonitorBase: Memory write failed: {error}")
         return success

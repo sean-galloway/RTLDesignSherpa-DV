@@ -23,7 +23,8 @@ The default behavior is now MSB-first ordering (first field added gets highest b
 For backward compatibility with existing testbenches, use FieldConfig(lsb_first=True).
 """
 from dataclasses import dataclass, field
-from typing import Dict, Tuple, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Tuple
+
 from rich.console import Console
 from rich.table import Table
 
@@ -60,7 +61,7 @@ class FieldDefinition:
         # Validate bit width
         if self.bits <= 0:
             raise ValueError(f"Field '{self.name}' must have positive bit width, got {self.bits}")
-            
+
         # Set active_bits to full width if not specified
         if self.active_bits is None:
             self.active_bits = (self.bits - 1, 0)
@@ -93,7 +94,7 @@ class FieldDefinition:
     def set_bit_position(self, msb: int, lsb: int):
         """Set the absolute bit position within the packet"""
         self.bit_position = (msb, lsb)
-    
+
     def get_bit_range_str(self) -> str:
         """Get a string representation of the bit range"""
         if self.bit_position:
@@ -141,15 +142,15 @@ class FieldConfig:
 
     This class replaces the dictionary-based approach with a more robust structure
     that maintains field order and provides validation.
-    
+
     Default behavior is MSB-first ordering (first field added gets highest bit positions).
     Use lsb_first=True for backward compatibility with existing testbenches.
     """
-    
+
     def __init__(self, lsb_first: bool = False):
         """
         Initialize field configuration.
-        
+
         Args:
             lsb_first: If True, use LSB-first ordering for compatibility with existing testbenches.
                       If False (default), use MSB-first ordering.
@@ -158,7 +159,7 @@ class FieldConfig:
         self._field_order: List[str] = []
         self.total_bits: int = 0
         self._lsb_first: bool = lsb_first
-        
+
         # Print migration info for LSB-first usage
         if lsb_first:
             print("INFO: Using LSB-first ordering for backward compatibility. "
@@ -167,7 +168,7 @@ class FieldConfig:
     def add_field(self, field_def: FieldDefinition) -> 'FieldConfig':
         """
         Add a field to the configuration.
-        
+
         In MSB-first mode (default): First field added gets highest bit positions
         In LSB-first mode: First field added gets lowest bit positions (legacy behavior)
 
@@ -182,16 +183,16 @@ class FieldConfig:
             raise ValueError(f"Field '{name}' already exists in configuration")
 
         self._fields[name] = field_def
-        
+
         if self._lsb_first:
             # Legacy LSB-first: new field goes at the end (gets next lowest bits)
             self._field_order.append(name)
         else:
             # MSB-first: new field goes at the beginning (gets highest bits)
             self._field_order.insert(0, name)
-            
+
         self.total_bits += field_def.bits
-        
+
         # Update bit positions for all fields
         self._update_bit_positions()
         return self
@@ -213,7 +214,7 @@ class FieldConfig:
     def _update_bit_positions(self):
         """Update bit positions for all fields based on current ordering"""
         current_bit = self.total_bits - 1  # Start from MSB
-        
+
         # Always assign bits from MSB to LSB regardless of ordering mode
         for field_name in self._field_order:
             field_def = self._fields[field_name]
@@ -271,7 +272,7 @@ class FieldConfig:
     def field_names(self) -> List[str]:
         """
         Get ordered list of field names in bit order (MSB to LSB).
-        
+
         Note: This maintains compatibility with existing iteration patterns.
         Use get_logical_order() if you need the conceptual add order.
         """
@@ -297,31 +298,31 @@ class FieldConfig:
     def get_packet_layout(self) -> str:
         """
         Get a visual representation of the packet layout.
-        
+
         Returns:
             String showing bit positions and field names in bit order (MSB to LSB)
         """
         if not self._field_order:
             return "Empty packet configuration"
-            
+
         mode = "LSB-first (legacy)" if self._lsb_first else "MSB-first"
         lines = [
             f"Packet Layout - {mode} (Total: {self.total_bits} bits)",
             "=" * 60
         ]
-        
+
         # Show fields in bit position order (MSB to LSB)
         for field_name in self._field_order:
             field_def = self._fields[field_name]
             bit_range = field_def.get_bit_range_str()
             lines.append(f"{bit_range:>12} | {field_name:<20} | {field_def.description}")
-            
+
         return "\n".join(lines)
 
     def get_logical_order(self) -> List[str]:
         """
         Get field names in logical order (order they were added).
-        
+
         Returns:
             List of field names in the order they were conceptually added
         """
@@ -333,7 +334,7 @@ class FieldConfig:
     def get_bit_order(self) -> List[str]:
         """
         Get field names in bit position order (MSB to LSB).
-        
+
         Returns:
             List of field names in bit position order (highest bits first)
         """
@@ -498,7 +499,7 @@ class FieldConfig:
         field_def = self._fields[field_name]
         old_bits = field_def.bits
         field_def.bits = new_bits
-        
+
         # Update total bits
         self.total_bits = self.total_bits - old_bits + new_bits
 
@@ -752,7 +753,7 @@ class FieldConfig:
             FieldConfig with 'addr' and 'data' fields
         """
         config = cls(lsb_first=lsb_first)
-        
+
         if lsb_first:
             # Legacy behavior: add in the order you want them to appear in low->high bits
             config.add_field(FieldDefinition("data", data_width, format="hex", description="Data value"))
@@ -761,7 +762,7 @@ class FieldConfig:
             # MSB-first: add in logical order (addr is conceptually "first"/most significant)
             config.add_field(FieldDefinition("addr", addr_width, format="hex", description="Address"))
             config.add_field(FieldDefinition("data", data_width, format="hex", description="Data value"))
-            
+
         return config
 
     @classmethod

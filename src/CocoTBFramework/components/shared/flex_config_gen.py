@@ -20,9 +20,9 @@ This class simplifies the creation of FlexRandomizer constraint dictionaries by 
 a clean API for building weighted bin configurations and common shortcuts.
 """
 
-from typing import Dict, List, Tuple, Union, Optional
-from .flex_randomizer import FlexRandomizer
+from typing import Dict, List, Optional, Tuple, Union
 
+from .flex_randomizer import FlexRandomizer
 
 # Canned profiles for common timing patterns
 DEFAULT_PROFILES = {

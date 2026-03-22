@@ -65,6 +65,14 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I"]
+ignore = [
+    "E501",   # line-too-long — inherited from source, not worth reformatting
+    "E722",   # bare-except — inherited patterns
+    "F821",   # undefined-name — forward refs and conditional imports
+    "F601",   # multi-value-repeated-key-literal — intentional in configs
+    "F402",   # import-shadowed-by-loop-var — inherited patterns
+    "E731",   # lambda-assignment — inherited patterns
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -24,11 +24,11 @@ ADDED: Optional signal_map parameter for manual signal mapping override.
 ADDED: Full FIFO protocol support for signal_map functionality.
 FIXED: Missing comma in FIFO patterns and enhanced validation for critical data signals.
 """
-from typing import Dict, List, Optional, Any, Union
 from itertools import product
+from typing import Any, Dict, List, Optional
+
 from rich.console import Console
 from rich.table import Table
-
 
 # Standard FIFO modes (kept for parameter passing to RTL)
 FIFO_VALID_MODES = ['fifo_mux', 'fifo_flop']
@@ -1115,7 +1115,7 @@ class SignalResolver:
             if self.multi_sig:
                 # Multi-sig mode: need field names
                 if not self.field_config:
-                    raise ValueError(f"field_config required for multi_sig=True with signal_map")
+                    raise ValueError("field_config required for multi_sig=True with signal_map")
                 required_keys.update(self.field_config.field_names())
             else:
                 # Single-sig mode: need data signal
@@ -1133,7 +1133,7 @@ class SignalResolver:
             if self.multi_sig:
                 # Multi-sig mode: need field names
                 if not self.field_config:
-                    raise ValueError(f"field_config required for multi_sig=True with signal_map")
+                    raise ValueError("field_config required for multi_sig=True with signal_map")
                 required_keys.update(self.field_config.field_names())
             else:
                 # Single-sig mode: not typically used for AXI4
@@ -1151,7 +1151,7 @@ class SignalResolver:
             if self.multi_sig:
                 # Multi-sig mode: need field names
                 if not self.field_config:
-                    raise ValueError(f"field_config required for multi_sig=True with signal_map")
+                    raise ValueError("field_config required for multi_sig=True with signal_map")
                 required_keys.update(self.field_config.field_names())
             else:
                 # Single-sig mode: need data signal
@@ -1556,17 +1556,17 @@ class SignalResolver:
                 # This should be a CRITICAL ERROR for single-signal mode
                 critical_error = [
                     f"🚨 CRITICAL: No data signal found for {self.component_name} in single-signal mode!",
-                    f"",
+                    "",
                     f"Component: {self.component_name}",
                     f"Protocol: {self.protocol_type}",
-                    f"Mode: single-signal (multi_sig=False)",
+                    "Mode: single-signal (multi_sig=False)",
                     f"Bus name: '{self.bus_name}' (empty means no bus prefix)",
-                    f"",
-                    f"This component REQUIRES a data signal for proper operation.",
-                    f"Without it, the component cannot send/receive packet data.",
-                    f"",
-                    f"💡 TROUBLESHOOTING:",
-                    f"1. Check signal naming - expected patterns:",
+                    "",
+                    "This component REQUIRES a data signal for proper operation.",
+                    "Without it, the component cannot send/receive packet data.",
+                    "",
+                    "💡 TROUBLESHOOTING:",
+                    "1. Check signal naming - expected patterns:",
                     f"   - {self.bus_name}data (current bus_name + 'data')",
                     f"   - {self.bus_name}rd_data (for read-side)",
                     f"   - {self.bus_name}packet",
@@ -1574,28 +1574,28 @@ class SignalResolver:
 
                 if available_data_signals:
                     critical_error.extend([
-                        f"",
-                        f"2. Available data-like signals found on DUT:",
+                        "",
+                        "2. Available data-like signals found on DUT:",
                         f"   {', '.join(available_data_signals)}",
-                        f"",
-                        f"3. Use manual signal_map to specify correct signal:",
+                        "",
+                        "3. Use manual signal_map to specify correct signal:",
                         f"   signal_map={{'data': '{available_data_signals[0] if available_data_signals else 'your_data_signal'}'}}",
                     ])
                 else:
                     critical_error.extend([
-                        f"",
-                        f"2. No data-like signals found on DUT!",
+                        "",
+                        "2. No data-like signals found on DUT!",
                         f"   Available signals: {', '.join(sorted(self.top_level_ports.keys())[:10])}{'...' if len(self.top_level_ports) > 10 else ''}",
-                        f"",
-                        f"3. Verify your DUT has the expected data output signal",
+                        "",
+                        "3. Verify your DUT has the expected data output signal",
                     ])
 
                 critical_error.extend([
-                    f"",
+                    "",
                     f"4. Check bus_name parameter - currently: '{self.bus_name}'",
-                    f"   If your signals have a different prefix, update bus_name",
-                    f"",
-                    f"This error prevents component initialization to avoid runtime failures.",
+                    "   If your signals have a different prefix, update bus_name",
+                    "",
+                    "This error prevents component initialization to avoid runtime failures.",
                 ])
 
                 errors.append('\n'.join(critical_error))
@@ -1641,7 +1641,7 @@ class SignalResolver:
         if self.super_debug:
             self._log_info(f"Prepared signal lists - "
                             f"_signals: {_signals}, _optional_signals: {_optional_signals}")
-            self._log_info(f"Using full signal names with prefix='' to cocotb")
+            self._log_info("Using full signal names with prefix='' to cocotb")
 
         return _signals, _optional_signals
 

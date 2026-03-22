@@ -28,7 +28,7 @@ from ..shared.field_config import FieldConfig, FieldDefinition
 class AXISFieldConfigs:
     """
     Factory class for creating AXIS field configurations.
-    
+
     AXI4-Stream protocol uses a single T channel containing:
     - TDATA: Data payload
     - TSTRB: Byte enables (strobe)
@@ -40,7 +40,7 @@ class AXISFieldConfigs:
     """
 
     @staticmethod
-    def create_t_field_config(data_width: int = 32, id_width: int = 8, 
+    def create_t_field_config(data_width: int = 32, id_width: int = 8,
                              dest_width: int = 4, user_width: int = 1) -> FieldConfig:
         """
         Create field configuration for AXIS T channel.
@@ -48,7 +48,7 @@ class AXISFieldConfigs:
         Args:
             data_width: Width of TDATA field (8, 16, 32, 64, 128, 256, 512, 1024)
             id_width: Width of TID field (1-16 bits)
-            dest_width: Width of TDEST field (1-16 bits) 
+            dest_width: Width of TDEST field (1-16 bits)
             user_width: Width of TUSER field (1-32 bits)
 
         Returns:
@@ -152,7 +152,7 @@ class AXISFieldConfigs:
                                          dest_width: int, user_width: int) -> FieldConfig:
         """
         Create AXIS configuration from hardware module parameters.
-        
+
         This matches the parameters used in the axis_master/axis_slave hardware modules.
 
         Args:

@@ -27,11 +27,11 @@ This module provides AXI5-specific randomization that includes support for:
 Includes industry-specific profiles optimized for different use cases.
 """
 
-from typing import Dict, List, Optional, Union, Any, Tuple
-import random
 import logging
+import random
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 from .axi5_field_configs import get_axi5_field_configs
 

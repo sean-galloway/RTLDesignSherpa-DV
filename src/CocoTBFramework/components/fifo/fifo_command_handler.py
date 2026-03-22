@@ -26,9 +26,7 @@ Focuses on core functionality:
 - Basic timeout protection
 """
 
-import cocotb
-from cocotb.triggers import RisingEdge, Timer
-from cocotb.utils import get_sim_time
+from cocotb.triggers import RisingEdge
 
 
 class FIFOCommandHandler:

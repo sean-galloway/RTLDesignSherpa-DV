@@ -22,7 +22,6 @@ This module provides packet classes for AXI5-Stream protocol with:
 """
 
 import random
-from typing import Optional, Dict, Any
 
 from ..axis4.axis_packet import AXISPacket
 from ..shared.field_config import FieldConfig, FieldDefinition

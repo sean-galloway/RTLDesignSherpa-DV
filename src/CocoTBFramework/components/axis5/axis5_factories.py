@@ -24,11 +24,12 @@ AXIS5 extends AXIS4 with:
 - TPARITY: Data parity protection
 """
 
-from typing import Dict, Any
-from .axis5_master import AXIS5Master
-from .axis5_slave import AXIS5Slave
-from .axis5_monitor import AXIS5Monitor
+from typing import Any, Dict
+
 from .axis5_field_configs import AXIS5FieldConfigs
+from .axis5_master import AXIS5Master
+from .axis5_monitor import AXIS5Monitor
+from .axis5_slave import AXIS5Slave
 
 
 def create_axis5_master(dut, clock, prefix="", data_width=32, id_width=8,

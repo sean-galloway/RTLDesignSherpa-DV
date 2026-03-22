@@ -22,12 +22,12 @@ This module provides AXIS5 Monitor functionality with:
 """
 
 import cocotb
-from cocotb.triggers import RisingEdge, FallingEdge, Timer
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from ..axis4.axis_monitor import AXISMonitor
-from .axis5_packet import AXIS5Packet
 from .axis5_field_configs import AXIS5FieldConfigs
+from .axis5_packet import AXIS5Packet
 
 
 class AXIS5Monitor(AXISMonitor):

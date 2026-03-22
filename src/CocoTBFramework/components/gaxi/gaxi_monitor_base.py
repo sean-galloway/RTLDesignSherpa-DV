@@ -20,11 +20,11 @@ Eliminates duplication while preserving exact APIs and timing.
 All existing parameters are maintained and used exactly as before.
 """
 
-from cocotb_bus.monitors import BusMonitor
 from cocotb.utils import get_sim_time
+from cocotb_bus.monitors import BusMonitor
 
-from .gaxi_component_base import GAXIComponentBase
 from ..shared.monitor_statistics import MonitorStatistics
+from .gaxi_component_base import GAXIComponentBase
 from .gaxi_packet import GAXIPacket
 
 
@@ -229,7 +229,7 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
         """Handle memory write using unified memory integration"""
         success, error = self.write_to_memory_unified(packet)
         if success:
-            self.log.debug(f"GAXIMonitorBase: Memory write successful")
+            self.log.debug("GAXIMonitorBase: Memory write successful")
         else:
             self.log.warning(f"GAXIMonitorBase: Memory write failed: {error}")
         return success

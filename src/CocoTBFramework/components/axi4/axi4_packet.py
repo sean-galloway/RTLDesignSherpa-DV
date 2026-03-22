@@ -26,7 +26,8 @@ Key changes:
 - Documentation updated to reflect generic naming convention
 """
 
-from typing import Optional, Tuple, Dict, Any
+from typing import Any, Dict, Tuple
+
 from ..shared.packet import Packet
 from .axi4_field_configs import AXI4FieldConfigHelper
 

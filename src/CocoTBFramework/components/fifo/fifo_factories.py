@@ -26,16 +26,17 @@ Key improvements:
 - Cleaner parameter handling
 - Leverages existing infrastructure (SignalResolver, FieldConfig, etc.)
 """
-from typing import Optional, Dict, Any, Union, List
+from typing import Any, Dict, List, Optional, Union
 
-from ..shared.memory_model import MemoryModel
+from CocoTBFramework.scoreboards.fifo_scoreboard import FIFOScoreboard
+
 from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
-from CocoTBFramework.scoreboards.fifo_scoreboard import FIFOScoreboard
-from .fifo_master import FIFOMaster
-from .fifo_slave import FIFOSlave
-from .fifo_monitor import FIFOMonitor
+from ..shared.memory_model import MemoryModel
 from .fifo_command_handler import FIFOCommandHandler
+from .fifo_master import FIFOMaster
+from .fifo_monitor import FIFOMonitor
+from .fifo_slave import FIFOSlave
 
 
 def create_default_field_config(data_width: int = 32,

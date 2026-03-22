@@ -18,16 +18,14 @@
 from collections import deque
 
 import cocotb
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
-from cocotb.triggers import RisingEdge, FallingEdge, Timer
-from cocotb_bus.monitors import BusMonitor
 from cocotb_bus.drivers import BusDriver
+from cocotb_bus.monitors import BusMonitor
 
 from ..shared.flex_randomizer import FlexRandomizer
 from ..shared.memory_model import MemoryModel
-
 from .apb_packet import APBPacket  # Updated import
-
 
 # define the PWRITE mapping
 pwrite = ['READ', 'WRITE']
@@ -87,7 +85,6 @@ class APBMonitor(BusMonitor):
     async def _monitor_recv(self):
         # Track previous state to detect transaction boundaries
         # APB Protocol: PSEL -> PSEL+PENABLE -> PSEL+PENABLE+PREADY (completion)
-        prev_psel = 0
         prev_penable = 0
         prev_pready = 0
 
@@ -149,7 +146,6 @@ class APBMonitor(BusMonitor):
                 self.print(transaction)
 
             # Update previous state for next iteration
-            prev_psel = curr_psel
             prev_penable = curr_penable
             prev_pready = curr_pready
 
@@ -259,7 +255,7 @@ class APBSlave(BusMonitor):
         addr_bits_needed = (self.num_lines * self.strb_bits - 1).bit_length()
         memory_addr_mask = (1 << addr_bits_needed) - 1
         word_index = (address & memory_addr_mask) >> (self.strb_bits.bit_length() - 1)
-        pprot      =  self.bus.PPROT.value.integer if self.is_signal_present('PPROT') else 0
+        self.bus.PPROT.value.integer if self.is_signal_present('PPROT') else 0
         self.count += 1
 
         if word_index >= self.num_lines:

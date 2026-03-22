@@ -21,6 +21,7 @@ The original scoreboard incorrectly assumed writes don't need response matching.
 """
 
 from collections import deque
+
 from cocotb.utils import get_sim_time
 
 
@@ -234,11 +235,11 @@ class APBGAXIScoreboard:
 
                 if pwrite_val is not None or paddr_val is not None:
                     if self.log:
-                        self.log.debug(f"GAXI transaction has mixed fields, treating as command based on pwrite/paddr")
+                        self.log.debug("GAXI transaction has mixed fields, treating as command based on pwrite/paddr")
                     self._add_gaxi_command(transaction, time_ns)
                 else:
                     if self.log:
-                        self.log.debug(f"GAXI transaction has mixed fields, treating as response")
+                        self.log.debug("GAXI transaction has mixed fields, treating as response")
                     self._add_gaxi_response(transaction, time_ns)
 
         except Exception as e:
@@ -447,7 +448,6 @@ class APBGAXIScoreboard:
     async def check_scoreboard(self, timeout_ns=1000):
         """Check scoreboard for unmatched transactions."""
         # Wait a bit for any pending transactions
-        import cocotb
         from cocotb.triggers import Timer
         await Timer(timeout_ns, units='ns')
 

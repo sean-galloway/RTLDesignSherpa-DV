@@ -20,17 +20,16 @@ This package provides BFM components for SMBus/I2C verification:
 - SMBusCRC: CRC-8 calculator for PEC
 """
 
-from .smbus_packet import (
-    SMBusPacket,
-    SMBusTransactionType,
-    SMBusCondition,
-)
-
 from .smbus_components import (
     SMBusCRC,
+    SMBusMaster,
     SMBusMonitor,
     SMBusSlave,
-    SMBusMaster,
+)
+from .smbus_packet import (
+    SMBusCondition,
+    SMBusPacket,
+    SMBusTransactionType,
 )
 
 __all__ = [

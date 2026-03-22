@@ -15,6 +15,7 @@
 
 """APB Scoreboard for verifying APB transactions"""
 from collections import defaultdict
+
 from CocoTBFramework.components.apb.apb_packet import APBPacket
 from CocoTBFramework.scoreboards.base_scoreboard import BaseScoreboard, ProtocolTransformer
 

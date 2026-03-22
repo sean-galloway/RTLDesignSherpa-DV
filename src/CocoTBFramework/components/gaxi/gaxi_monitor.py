@@ -22,7 +22,6 @@ eliminating code duplication through inheritance from unified base classes.
 All existing parameters are preserved and used exactly as before.
 """
 
-import cocotb
 from cocotb.triggers import FallingEdge, Timer
 from cocotb.utils import get_sim_time
 

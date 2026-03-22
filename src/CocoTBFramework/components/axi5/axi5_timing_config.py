@@ -20,7 +20,8 @@ Simple timing configuration for AXI5 components using existing FlexRandomizer in
 Provides common timing profiles for AXI5 testing with support for AXI5-specific features.
 """
 
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
 from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
 

@@ -18,17 +18,17 @@ ArbiterMaster with Unified Behavior and Drain/Idle Functionality
 Identical behavior for weighted/unweighted arbiters except weight signal management
 """
 
-import cocotb
-from cocotb.triggers import RisingEdge, Timer, ClockCycles
-from cocotb.clock import Clock
-from cocotb.utils import get_sim_time
-
 from dataclasses import dataclass
-from typing import Dict, Optional, Set, List
 from enum import Enum
+from typing import Dict, List, Set
+
+import cocotb
+from cocotb.triggers import ClockCycles, RisingEdge
+from cocotb.utils import get_sim_time
 
 # Import the existing flex randomizer system
 from .flex_randomizer import FlexRandomizer
+
 
 class ClientState(Enum):
     IDLE = "IDLE"
@@ -348,7 +348,7 @@ class ArbiterMaster:
                         if final_grant_valid:
                             # Something is seriously wrong
                             self.log.error(f"ArbiterMaster({self.title}): FATAL ERROR - grant_valid still active after forced ACK cleanup!{self.get_time_ns_str()}")
-                            self.log.error(f"  This indicates a serious problem with the arbiter ACK protocol implementation")
+                            self.log.error("  This indicates a serious problem with the arbiter ACK protocol implementation")
                             raise RuntimeError(f"ArbiterMaster({self.title}): ACK mode cleanup failed - grant_valid remains active")
                         else:
                             self.log.info(f"ArbiterMaster({self.title}): ACK cleanup successful - grant_valid now clear{self.get_time_ns_str()}")

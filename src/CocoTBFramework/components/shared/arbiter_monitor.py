@@ -18,15 +18,15 @@ Unified Arbiter Monitor supporting both weighted and non-weighted arbiters
 Automatically adapts based on is_weighted parameter with cycle-level grant reporting
 """
 
-import cocotb
 from collections import deque, namedtuple
-from cocotb.triggers import FallingEdge, RisingEdge, Timer
+
+import cocotb
+from cocotb.triggers import FallingEdge, RisingEdge
 from cocotb.utils import get_sim_time
-from cocotb.log import SimLog
 from cocotb_bus.monitors import BusMonitor
+
 # Import the compliance checker
 from .arbiter_compliance import ArbiterCompliance
-
 
 # Define Transaction type for arbiters
 ArbiterTransaction = namedtuple('ArbiterTransaction', [
@@ -1287,7 +1287,7 @@ class ArbiterMonitor(BusMonitor):
         lines.append("=" * 80)
         lines.append(f"Report Generated: {self.get_time_ns_str()}")
         lines.append(f"Monitor Type: {monitor_type} Arbiter Monitor")
-        lines.append(f"Sampling Method: FallingEdge(clock) - signals stable when captured")
+        lines.append("Sampling Method: FallingEdge(clock) - signals stable when captured")
         lines.append(f"Block History Tracking: ENABLED - {len(self.block_arb_history)} entries")
         lines.append(f"Pipeline Delay Cycles: {self.compliance.pipeline_delay_cycles}")
         lines.append(f"Cycle-Level Reporting: {'ENABLED' if self.cycle_level_reporting else 'DISABLED'}")

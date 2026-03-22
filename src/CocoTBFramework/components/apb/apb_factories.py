@@ -16,13 +16,13 @@
 """
 Factory functions for creating and configuring APB components
 """
-from .apb_components import APBMaster, APBSlave, APBMonitor
-from .apb_sequence import APBSequence
+from CocoTBFramework.scoreboards.apb_gaxi_transformer import APBtoGAXITransformer
+from CocoTBFramework.scoreboards.apb_scoreboard import APBScoreboard
 
 from ..shared.flex_randomizer import FlexRandomizer
 from ..shared.memory_model import MemoryModel
-from CocoTBFramework.scoreboards.apb_scoreboard import APBScoreboard
-from CocoTBFramework.scoreboards.apb_gaxi_transformer import APBtoGAXITransformer
+from .apb_components import APBMaster, APBMonitor, APBSlave
+from .apb_sequence import APBSequence
 
 
 def create_apb_master(dut, title, prefix, clock, addr_width=32, data_width=32,

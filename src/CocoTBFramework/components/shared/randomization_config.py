@@ -21,11 +21,11 @@ randomization behavior in protocol verification environments, using
 FlexRandomizer as the underlying randomization engine.
 """
 
-from enum import Enum, auto
-from typing import Dict, List, Any, Optional, Union, Callable, Tuple
-from dataclasses import dataclass, field
 import random
 from collections import defaultdict
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from .flex_randomizer import FlexRandomizer
 

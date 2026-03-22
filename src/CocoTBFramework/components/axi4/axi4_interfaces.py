@@ -25,18 +25,18 @@ and silently disabled otherwise, maintaining full backward compatibility.
 
 import asyncio
 import random
-from typing import List, Dict, Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from cocotb.triggers import RisingEdge
 import cocotb
+from cocotb.triggers import RisingEdge
+
+from CocoTBFramework.components.axi4.axi4_compliance_checker import AXI4ComplianceChecker
+from CocoTBFramework.components.axi4.axi4_field_configs import AXI4FieldConfigHelper
+from CocoTBFramework.components.axi4.axi4_packet import AXI4Packet
 
 # Import GAXI components and field configs
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
-from CocoTBFramework.components.gaxi.gaxi_monitor import GAXIMonitor
-from CocoTBFramework.components.axi4.axi4_field_configs import AXI4FieldConfigHelper
-from CocoTBFramework.components.axi4.axi4_packet import AXI4Packet
-from CocoTBFramework.components.axi4.axi4_compliance_checker import AXI4ComplianceChecker
 
 
 class AXI4MasterRead:
@@ -44,7 +44,7 @@ class AXI4MasterRead:
     AXI4 Master Read Interface - Enhanced with integrated compliance checking.
 
     Manages read address requests (AR) and read data responses (R).
-    
+
     ENHANCEMENT: Automatically includes compliance checking when enabled via environment.
     """
 
@@ -110,7 +110,7 @@ class AXI4MasterRead:
             user_width=self.user_width,
             multi_sig=self.multi_sig
         )
-        
+
         if self.compliance_checker and log:
             log.info("AXI4MasterRead: Compliance checking enabled")
 
@@ -181,7 +181,7 @@ class AXI4MasterRead:
     def get_compliance_report(self) -> Optional[Dict[str, Any]]:
         """
         ENHANCEMENT: Get compliance report if compliance checking is enabled.
-        
+
         Returns:
             Compliance report dictionary or None if compliance checking disabled
         """
@@ -202,7 +202,7 @@ class AXI4MasterWrite:
     AXI4 Master Write Interface - Enhanced with integrated compliance checking.
 
     Manages write address requests (AW), write data (W), and write responses (B).
-    
+
     ENHANCEMENT: Automatically includes compliance checking when enabled via environment.
     """
 
@@ -280,7 +280,7 @@ class AXI4MasterWrite:
             user_width=self.user_width,
             multi_sig=self.multi_sig
         )
-        
+
         if self.compliance_checker and log:
             log.info("AXI4MasterWrite: Compliance checking enabled")
 
@@ -292,7 +292,7 @@ class AXI4MasterWrite:
         """
         # Initialize aw_packet to None to prevent UnboundLocalError
         aw_packet = None
-        
+
         try:
             # Handle data formatting
             if isinstance(data, list):
@@ -373,7 +373,7 @@ class AXI4MasterWrite:
                 data_str = f"data=0x{data:08X}" if isinstance(data, int) else f"data={type(data).__name__}"
                 packet_str = f"aw_packet={'created' if aw_packet is not None else 'not_created'}"
                 self.log.error(f"AXI4 write transaction failed: {addr_str}, {data_str}, {packet_str}, error: {str(e)}")
-            
+
             # Return failure result
             return {
                 'success': False,
@@ -389,7 +389,7 @@ class AXI4MasterWrite:
     def get_compliance_report(self) -> Optional[Dict[str, Any]]:
         """
         ENHANCEMENT: Get compliance report if compliance checking is enabled.
-        
+
         Returns:
             Compliance report dictionary or None if compliance checking disabled
         """
@@ -635,7 +635,6 @@ class AXI4SlaveRead:
         Args:
             ar_packet: AR packet with transaction details
         """
-        from cocotb.triggers import RisingEdge
         transaction_id = getattr(ar_packet, 'id', 0)
 
         # Initialize queue and active flag for this ID if needed
@@ -785,7 +784,7 @@ class AXI4SlaveRead:
     def get_compliance_report(self) -> Optional[Dict[str, Any]]:
         """
         ENHANCEMENT: Get compliance report if compliance checking is enabled.
-        
+
         Returns:
             Compliance report dictionary or None if compliance checking disabled
         """
@@ -989,7 +988,7 @@ class AXI4SlaveWrite:
             if self.log:
                 self.log.debug("AXI4SlaveWrite: W arrived before AW - buffering (AXI4 compliant)")
             self.orphaned_w_packets.append(w_packet)
-            
+
             # If this is a complete burst (last=1), queue it for later matching
             if is_last:
                 # Move all orphaned W packets to transaction queue
@@ -1191,7 +1190,7 @@ class AXI4SlaveWrite:
             pattern = self.ooo_config.get('pattern', [])
             if pattern and txn_sequence < len(pattern):
                 # Pattern[i] tells us which sequence number should complete at position i
-                target_sequence = pattern[txn_sequence]
+                pattern[txn_sequence]
 
                 # Find our position in the pattern
                 try:
@@ -1378,7 +1377,7 @@ class AXI4SlaveWrite:
     def get_compliance_report(self) -> Optional[Dict[str, Any]]:
         """
         ENHANCEMENT: Get compliance report if compliance checking is enabled.
-        
+
         Returns:
             Compliance report dictionary or None if compliance checking disabled
         """

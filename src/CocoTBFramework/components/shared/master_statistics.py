@@ -20,8 +20,8 @@ Provides consistent statistics collection across all master and slave components
 complementing the existing MonitorStatistics class.
 """
 import time
-from typing import Dict, Any, Optional
 from collections import deque
+from typing import Any, Dict
 
 
 class MasterStatistics:

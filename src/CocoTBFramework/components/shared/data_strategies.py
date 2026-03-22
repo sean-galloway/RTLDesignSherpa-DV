@@ -32,8 +32,6 @@ Key Benefits:
 - Uses exact signal handles found by SignalResolver
 """
 
-from typing import Dict, Any, List, Optional
-from cocotb.utils import get_sim_time
 
 
 class DataCollectionStrategy:

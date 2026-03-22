@@ -21,8 +21,9 @@ Maintains backward compatibility - existing testbenches work unchanged.
 """
 
 from collections import deque
-from cocotb.utils import get_sim_time
+
 from cocotb.log import SimLog
+from cocotb.utils import get_sim_time
 
 
 class RoundRobinMaskState:
@@ -111,7 +112,7 @@ class RoundRobinMaskState:
     def reset(self):
         """Reset mask state"""
         if self.debug_enabled:
-            print(f"RoundRobinMaskState.reset: Clearing mask state")
+            print("RoundRobinMaskState.reset: Clearing mask state")
         self.mask_valid = False
         self.last_winner = None
         self.current_mask = 0
@@ -489,9 +490,6 @@ class ArbiterCompliance:
         if not self.rr_mask_state:
             return []
 
-        warnings = []
-        current_time = transaction.timestamp
-        current_winner = transaction.gnt_id
 
         if self.ack_mode:
             return self._check_round_robin_compliance_ack_mode(transaction, active_requests)
@@ -544,7 +542,7 @@ class ArbiterCompliance:
         self.rr_mask_state.update_mask(current_winner)
 
         if self.debug_enabled:
-            self.log.debug(f"  MASK UPDATE AFTER compliance check:")
+            self.log.debug("  MASK UPDATE AFTER compliance check:")
             self.log.debug(f"    Old: mask=0x{old_mask:x}, last_winner={old_last_winner}")
             self.log.debug(f"    New: mask=0x{self.rr_mask_state.current_mask:x}, last_winner={self.rr_mask_state.last_winner}")
 

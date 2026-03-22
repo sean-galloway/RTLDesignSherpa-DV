@@ -20,14 +20,15 @@ Preserves exact API and timing while leveraging shared infrastructure.
 All existing parameters are maintained and used exactly as before.
 """
 
-import cocotb
 from collections import deque
-from cocotb_bus.drivers import BusDriver
+
+import cocotb
 from cocotb.triggers import RisingEdge, Timer
 from cocotb.utils import get_sim_time
+from cocotb_bus.drivers import BusDriver
 
-from .fifo_component_base import FIFOComponentBase
 from ..shared.master_statistics import MasterStatistics
+from .fifo_component_base import FIFOComponentBase
 from .fifo_packet import FIFOPacket
 
 
@@ -250,7 +251,7 @@ class FIFOMaster(FIFOComponentBase, BusDriver):
         self.sent_queue.append(transaction)
 
         # Update stats - UNIFIED
-        bytes_transferred = self._calculate_bytes_transferred(transaction)
+        self._calculate_bytes_transferred(transaction)
 
         # Deassert write
         self._assign_write_value(value=0)

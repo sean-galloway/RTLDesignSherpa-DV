@@ -20,17 +20,18 @@ Simple timing configuration for AXI4 components using existing FlexRandomizer in
 Provides common timing profiles for AXI4 testing.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
 
 def create_axi4_timing_from_profile(profile_name: str) -> Dict[str, Any]:
     """
     Create AXI4 timing configuration from a named profile.
-    
+
     Args:
         profile_name: Timing profile name ('axi4_normal', 'axi4_fast', etc.)
-        
+
     Returns:
         Dictionary with timing configuration
     """
@@ -67,13 +68,13 @@ def create_axi4_timing_from_profile(profile_name: str) -> Dict[str, Any]:
             'r_ready_delay': ([(0, 0), (8, 20)], [0.5, 0.5]),
         }
     }
-    
+
     # Get profile or default to normal
     constraints = timing_profiles.get(profile_name, timing_profiles['axi4_normal'])
-    
+
     # Create FlexRandomizer with the constraints
     randomizer = FlexRandomizer(constraints)
-    
+
     return {
         'profile_name': profile_name,
         'randomizer': randomizer,
@@ -89,7 +90,7 @@ def get_axi4_timing_profiles():
 def create_axi4_randomizer_configs():
     """
     Create randomizer configurations for different test profiles.
-    
+
     Returns:
         Dictionary of randomizer configurations
     """

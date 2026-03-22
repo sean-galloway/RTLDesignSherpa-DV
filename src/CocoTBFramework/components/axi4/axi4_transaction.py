@@ -29,10 +29,7 @@ Key Design Principles:
 """
 
 import time
-import asyncio
-from typing import Dict, List, Optional, Any, Callable
-from ..shared.packet import Packet
-from .axi4_channel import AXI4Channel
+from typing import Optional
 
 
 class AXI4Transaction:

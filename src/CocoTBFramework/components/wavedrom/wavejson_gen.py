@@ -22,9 +22,9 @@ integration with FieldConfig for automatic signal configuration.
 """
 
 import json
-from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 # Required imports - no conditionals
 from ..shared.field_config import FieldConfig, FieldDefinition

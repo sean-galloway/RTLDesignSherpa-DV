@@ -21,9 +21,10 @@ Simple utility functions for creating AXI4 packets that use generic field names
 parameter in GAXI components handles the AXI4 signal mapping.
 """
 
-from typing import Dict, Any, Optional, Tuple
-from CocoTBFramework.components.axi4.axi4_packet import AXI4Packet
+from typing import Optional, Tuple
+
 from CocoTBFramework.components.axi4.axi4_field_configs import AXI4FieldConfigHelper
+from CocoTBFramework.components.axi4.axi4_packet import AXI4Packet
 
 
 def create_simple_read_packet(address: int, id_val: int = 0, burst_len: int = 1,

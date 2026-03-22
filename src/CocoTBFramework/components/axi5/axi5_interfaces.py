@@ -36,15 +36,16 @@ Key Design Principles:
 
 import asyncio
 import random
-from typing import List, Dict, Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from cocotb.triggers import RisingEdge
 import cocotb
+from cocotb.triggers import RisingEdge
+
+from CocoTBFramework.components.axi5.axi5_field_configs import AXI5FieldConfigHelper
 
 # Import GAXI components and AXI5 field configs
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
-from CocoTBFramework.components.axi5.axi5_field_configs import AXI5FieldConfigHelper
 
 
 class AXI5MasterRead:
@@ -1128,7 +1129,7 @@ class AXI5SlaveWrite:
             bytes_per_beat = 1 << size_encoding
             aw_trace = getattr(aw_packet, 'trace', 0)
             aw_tagop = getattr(aw_packet, 'tagop', 0)
-            aw_atop = getattr(aw_packet, 'atop', 0)
+            getattr(aw_packet, 'atop', 0)
 
             # Write data to memory if available
             if self.memory_model:

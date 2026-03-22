@@ -23,7 +23,8 @@ and comparisons with enhanced performance through thread-safe caching.
 UPDATED: Made field cache thread-safe for parallel test execution.
 """
 import threading
-from typing import Dict, Any, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 from .field_config import FieldConfig
 
 
@@ -137,19 +138,23 @@ class _FieldCache:
             self.misses += 1
             if not field_config.has_field(field_name):
                 # Default to hex format if field not found
-                formatter = lambda value: f"0x{value:X}"
+                def formatter(value):
+                    return f"0x{value:X}"
             else:
                 field_def = field_config.get_field(field_name)
                 fmt = field_def.format
                 width = field_def.display_width
 
                 if fmt == 'bin':
-                    formatter = lambda value: f"0b{value:0{width}b}"
+                    def formatter(value):
+                        return f"0b{value:0{width}b}"
                 elif fmt == 'dec':
-                    formatter = lambda value: f"{value:{width}d}"
+                    def formatter(value):
+                        return f"{value:{width}d}"
                 else:
                     # Default to hex
-                    formatter = lambda value: f"0x{value:0{width}X}"
+                    def formatter(value):
+                        return f"0x{value:0{width}X}"
 
             # Store in cache
             self.field_formatters[cache_key] = formatter

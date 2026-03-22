@@ -14,9 +14,10 @@
 # Created: 2025-10-18
 
 """Generic Packet Factory - Works across all protocols (GAXI, FIFO, APB, etc.)"""
-from typing import Type, Optional, Dict, Any, Union, List, Callable
-from .packet import Packet
+from typing import Any, Callable, Dict, List, Optional, Type
+
 from .field_config import FieldConfig
+from .packet import Packet
 
 
 class PacketFactory:

@@ -20,13 +20,13 @@ Provides utility functions for creating temporal events, patterns, and annotatio
 with FieldConfig support and protocol awareness.
 """
 
-from typing import List, Dict, Any, Optional, Union
-from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
+
+from ..shared.field_config import FieldConfig, FieldDefinition
 
 # Required imports - no conditionals
-from .constraint_solver import SignalTransition, SignalStatic, TemporalEvent, TemporalAnnotation
-from ..shared.field_config import FieldConfig, FieldDefinition
-from .wavejson_gen import WaveJSONGenerator, create_wavejson_from_packet
+from .constraint_solver import SignalStatic, SignalTransition, TemporalAnnotation, TemporalEvent
+from .wavejson_gen import WaveJSONGenerator
 
 
 def create_transition_pattern(signal_name: str, from_value: int, to_value: int) -> SignalTransition:
@@ -133,7 +133,7 @@ def _create_field_definition_from_signal(field_name: str, full_signal_name: str,
                                         addr_width: int) -> FieldDefinition:
     """Create FieldDefinition from signal name with protocol awareness"""
     signal_lower = field_name.lower()
-    full_signal_lower = full_signal_name.lower()
+    full_signal_name.lower()
 
     # Protocol-specific field definitions
     if protocol_hint.lower() == "apb":

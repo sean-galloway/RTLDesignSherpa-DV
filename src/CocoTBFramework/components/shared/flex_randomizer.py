@@ -13,12 +13,11 @@
 # Author: sean galloway
 # Created: 2025-10-18
 
+import inspect
 import random
 import threading
-import traceback
-import inspect
 from collections import deque
-from typing import Dict, List, Tuple, Callable, Any, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 
 class FlexRandomizerError(Exception):
@@ -40,7 +39,7 @@ def _get_caller_info():
     """Get information about where FlexRandomizer was called from."""
     try:
         # Walk up the stack to find the first frame outside this file
-        current_frame = inspect.currentframe()
+        inspect.currentframe()
         for frame_info in inspect.stack():
             filename = frame_info.filename
             function_name = frame_info.function

@@ -49,13 +49,15 @@ Usage:
 """
 
 import os
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Dict, List
+
 import cocotb
 from cocotb.triggers import RisingEdge
 
 from CocoTBFramework.components.gaxi.gaxi_monitor import GAXIMonitor
+
 from .axi5_field_configs import AXI5FieldConfigHelper
 from .axi5_packet import AXI5Packet
 

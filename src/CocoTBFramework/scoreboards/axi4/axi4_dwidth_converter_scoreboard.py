@@ -22,7 +22,6 @@ Verification Strategy:
 - Phase 2+: Memory model integration for out-of-order, multi-ID scenarios
 """
 
-from collections import deque
 
 
 class AXI4DWidthConverterScoreboard:

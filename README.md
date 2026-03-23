@@ -123,7 +123,7 @@ from CocoTBFramework.components.axis4.axis_packet import AXISPacket
 
 ### Generic AXI (GAXI)
 
-Lightweight valid/ready handshake protocol for validating individual FIFO-based interfaces on very small internal blocks. Includes built-in coverage hooks and statistics tracking.
+Lightweight valid/ready handshake protocol for validating individual FIFO-based interfaces on very small internal blocks. Interfaces can carry data packed into fields within a single bus, or have many discrete signals. Includes built-in coverage hooks and statistics tracking.
 
 ```python
 from CocoTBFramework.components.gaxi import GAXIMaster, GAXISlave, GAXIMonitor

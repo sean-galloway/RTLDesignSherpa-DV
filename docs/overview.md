@@ -154,7 +154,7 @@ The framework provides comprehensive protocol support across multiple industry-s
 #### Standard Protocol Support
 - **APB (Advanced Peripheral Bus)**: Complete ARM AMBA APB implementation with multi-slave support
 - **AXI4**: Full AXI4 protocol with ID tracking, channel separation, and out-of-order support
-- **GAXI (Generic AXI-like)**: Simplified AXI interface for easier adoption and custom implementations
+- **GAXI (Generic AXI-like)**: Lightweight valid/ready protocol for validating individual FIFO-based interfaces on very small internal blocks
 - **FIFO**: Buffer and queue protocols with flow control and multi-field support
 
 #### Protocol Features

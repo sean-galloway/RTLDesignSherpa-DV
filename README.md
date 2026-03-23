@@ -44,7 +44,7 @@ CocoTBFramework/
 │   ├── axis4/           # AXI-Stream
 │   ├── axis5/           # AXI-Stream v5
 │   ├── fifo/            # Generic FIFO
-│   ├── gaxi/            # Generic AXI infrastructure
+│   ├── gaxi/            # GAXI — validate FIFO-based interfaces on small blocks
 │   ├── smbus/           # System Management Bus
 │   ├── uart/            # UART serial
 │   ├── wavedrom/        # Waveform visualization
@@ -123,7 +123,7 @@ from CocoTBFramework.components.axis4.axis_packet import AXISPacket
 
 ### Generic AXI (GAXI)
 
-Protocol-agnostic AXI infrastructure supporting multiple protocols through unified interfaces. Includes built-in coverage hooks and statistics tracking.
+Lightweight valid/ready handshake protocol for validating individual FIFO-based interfaces on very small internal blocks. Includes built-in coverage hooks and statistics tracking.
 
 ```python
 from CocoTBFramework.components.gaxi import GAXIMaster, GAXISlave, GAXIMonitor

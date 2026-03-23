@@ -36,7 +36,7 @@ This directory contains the core verification components for the CocoTBFramework
 - [**AXIL4 Components**](axil4/index.md) - AXI4-Lite protocol components optimized for register-oriented memory-mapped interfaces
 - [**AXIS4 Components**](axis4/index.md) - AXI4-Stream protocol components for packet-based streaming data verification
 - [**FIFO Components**](fifo/components_fifo_index.md) - First-In-First-Out protocol components for buffer and queue verification
-- [**GAXI Components**](gaxi/components_gaxi_index.md) - Generic AXI-like protocol components with simplified interface
+- [**GAXI Components**](gaxi/components_gaxi_index.md) - Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
 
 ### Serial Protocols
 - [**UART Components**](uart/uart_components.md) - Universal Asynchronous Receiver/Transmitter (UART) protocol components with 8N1 support
@@ -125,7 +125,7 @@ graph TB
 - **AXI4**: Full AXI4 memory-mapped protocol with burst transactions and outstanding operations
 - **AXIL4**: AXI4-Lite simplified protocol optimized for register access and configuration
 - **AXIS4**: AXI4-Stream protocol for high-performance packet-based streaming data
-- **GAXI**: Generic AXI-like interface with simplified handshaking
+- **GAXI**: Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
 - **FIFO**: Buffer and queue protocols with flow control
 - **Extensible**: Framework for adding new protocols
 

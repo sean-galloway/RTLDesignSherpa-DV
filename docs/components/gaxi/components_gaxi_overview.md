@@ -23,7 +23,7 @@
 
 # GAXI Components Overview
 
-The GAXI (Generic AXI) components provide a simplified, high-performance AXI-like protocol implementation for verification environments. These components are designed to eliminate code duplication while maintaining exact timing compatibility and providing enhanced debugging capabilities.
+The GAXI (Generic AXI) components provide a lightweight, valid/ready handshake protocol for validating individual FIFO-based interfaces on very small internal blocks. These components are designed to eliminate code duplication while maintaining exact timing compatibility and providing enhanced debugging capabilities.
 
 ## Architecture Overview
 

@@ -36,7 +36,7 @@ Welcome to the CocoTBFramework - a comprehensive verification framework built on
 - [**Components**](components/components_index.md) - Protocol-specific verification components including masters, slaves, monitors, and supporting utilities
   - **APB**: Advanced Peripheral Bus protocol components
   - **FIFO**: First-In-First-Out buffer protocol components  
-  - **GAXI**: Generic AXI-like protocol components
+  - **GAXI**: Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
   - **Misc**: Specialized monitoring components
   - **Shared**: Common infrastructure used across all protocols
 
@@ -172,7 +172,7 @@ graph TB
 ### 🎯 **Protocol Coverage**
 - **APB**: Advanced Peripheral Bus with multi-slave support and register testing
 - **FIFO**: Buffer protocols with flow control and multi-field support
-- **GAXI**: Generic AXI-like interface with simplified handshaking
+- **GAXI**: Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
 - **AXI4**: Full AXI4 protocol support with ID tracking and channel separation
 - **Cross-Protocol**: Bridge verification and protocol transformation
 

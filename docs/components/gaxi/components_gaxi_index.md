@@ -23,7 +23,7 @@
 
 # GAXI Components Index
 
-This directory contains the GAXI (Generic AXI) protocol components for the CocoTBFramework. These components provide a simplified AXI-like interface for verification environments.
+This directory contains the GAXI (Generic AXI) protocol components for the CocoTBFramework. GAXI provides a lightweight valid/ready handshake protocol for validating individual FIFO-based interfaces on very small internal blocks.
 
 ## Directory Structure
 

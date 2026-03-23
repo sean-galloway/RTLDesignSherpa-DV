@@ -134,7 +134,7 @@ The APB components provide comprehensive support for ARM's Advanced Peripheral B
 - Comprehensive statistics and performance monitoring
 
 ### GAXI (Generic AXI-like)
-GAXI components provide a simplified AXI-like interface that's easier to use while maintaining AXI semantics:
+GAXI components provide a lightweight valid/ready handshake protocol for validating individual FIFO-based interfaces on very small internal blocks:
 
 **Core Components**:
 - **GAXIMaster**: Drives GAXI transactions with pipeline debugging and statistics

@@ -50,9 +50,14 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.8.0",
 ]
+docs = [
+    "mkdocs-material>=9.5",
+    "pymdown-extensions>=10.0",
+]
 
 [project.urls]
-Homepage = "https://github.com/sean-galloway/RTLDesignSherpa-DV"
+Homepage = "https://sean-galloway.github.io/RTLDesignSherpa-DV/"
+Documentation = "https://sean-galloway.github.io/RTLDesignSherpa-DV/"
 Repository = "https://github.com/sean-galloway/RTLDesignSherpa-DV"
 Issues = "https://github.com/sean-galloway/RTLDesignSherpa-DV/issues"
 

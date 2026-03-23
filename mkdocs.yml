@@ -1,0 +1,131 @@
+site_name: CocoTB Framework
+site_description: Reusable CocoTB verification infrastructure for RTL testing
+site_url: https://sean-galloway.github.io/RTLDesignSherpa-DV/
+repo_url: https://github.com/sean-galloway/RTLDesignSherpa-DV
+repo_name: RTLDesignSherpa-DV
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Overview: overview.md
+
+  - Components:
+    - Overview: components/components_overview.md
+    - Index: components/components_index.md
+
+    - Shared Utilities:
+      - Overview: components/shared/components_shared_overview.md
+      - Packet: components/shared/components_shared_packet.md
+      - Packet Factory: components/shared/components_shared_packet_factory.md
+      - Field Config: components/shared/components_shared_field_config.md
+      - Flex Randomizer: components/shared/components_shared_flex_randomizer.md
+      - Flex Config Gen: components/shared/components_shared_flex_config_gen.md
+      - Randomization Config: components/shared/components_shared_randomization_config.md
+      - Data Strategies: components/shared/components_shared_data_strategies.md
+      - Memory Model: components/shared/components_shared_memory_model.md
+      - Master Statistics: components/shared/components_shared_master_statistics.md
+      - Monitor Statistics: components/shared/components_shared_monitor_statistics.md
+      - Protocol Error Handler: components/shared/components_shared_protocol_error_handler.md
+      - Signal Mapping Helper: components/shared/components_shared_signal_mapping_helper.md
+      - Debug Object: components/shared/components_shared_debug_object.md
+
+    - AXI4:
+      - Overview: components/axi4/components_axi4_overview.md
+
+    - AXI4-Lite:
+      - Overview: components/axil4/components_axil4_overview.md
+
+    - APB:
+      - Overview: components/apb/components_apb_overview.md
+      - Components: components/apb/components_apb_apb_components.md
+      - Packet: components/apb/components_apb_apb_packet.md
+      - Sequence: components/apb/components_apb_apb_sequence.md
+
+    - AXI-Stream:
+      - Overview: components/axis4/components_axis4_overview.md
+      - Master: components/axis4/axis_master.md
+      - Slave: components/axis4/axis_slave.md
+      - Packet: components/axis4/axis_packet.md
+      - Field Configs: components/axis4/axis_field_configs.md
+
+    - GAXI:
+      - Overview: components/gaxi/components_gaxi_overview.md
+      - Master: components/gaxi/components_gaxi_gaxi_master.md
+      - Slave: components/gaxi/components_gaxi_gaxi_slave.md
+      - Monitor: components/gaxi/components_gaxi_gaxi_monitor.md
+      - Monitor Base: components/gaxi/components_gaxi_gaxi_monitor_base.md
+      - Component Base: components/gaxi/components_gaxi_gaxi_component_base.md
+      - Packet: components/gaxi/components_gaxi_gaxi_packet.md
+      - Sequence: components/gaxi/components_gaxi_gaxi_sequence.md
+      - Command Handler: components/gaxi/components_gaxi_gaxi_command_handler.md
+      - Factories: components/gaxi/components_gaxi_gaxi_factories.md
+
+    - FIFO:
+      - Overview: components/fifo/components_fifo_overview.md
+      - Master: components/fifo/components_fifo_fifo_master.md
+      - Slave: components/fifo/components_fifo_fifo_slave.md
+      - Monitor: components/fifo/components_fifo_fifo_monitor.md
+      - Monitor Base: components/fifo/components_fifo_fifo_monitor_base.md
+      - Component Base: components/fifo/components_fifo_fifo_component_base.md
+      - Packet: components/fifo/components_fifo_fifo_packet.md
+      - Sequence: components/fifo/components_fifo_fifo_sequence.md
+
+    - UART: components/uart/uart_components.md
+
+    - Arbiter:
+      - Overview: components/misc/components_misc_overview.md
+      - Arbiter Monitor: components/misc/components_misc_arbiter_monitor.md
+
+    - Wavedrom:
+      - Quick Start: components/wavedrom/wavedrom_quick_start.md
+      - Requirements: components/wavedrom/wavedrom_requirements.md
+      - Protocol Presets: components/wavedrom/wavedrom_protocol_presets.md
+      - Auto Binding: components/wavedrom/wavedrom_auto_binding.md
+      - Segmented Capture: components/wavedrom/wavedrom_segmented_capture.md
+
+  - Scoreboards:
+    - Overview: scoreboards/scoreboards_overview.md
+    - Base Scoreboard: scoreboards/scoreboards_base_scoreboard.md
+    - APB Scoreboard: scoreboards/scoreboards_apb_scoreboard.md
+    - AXI4 Scoreboard: scoreboards/scoreboards_axi4_scoreboard.md
+    - FIFO Scoreboard: scoreboards/scoreboards_fifo_scoreboard.md
+    - GAXI Scoreboard: scoreboards/scoreboards_gaxi_scoreboard.md
+    - APB-GAXI Scoreboard: scoreboards/scoreboards_apb_gaxi_scoreboard.md
+    - APB-GAXI Transformer: scoreboards/scoreboards_apb_gaxi_transformer.md

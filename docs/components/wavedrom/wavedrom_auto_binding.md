@@ -45,9 +45,13 @@ The WaveDrom infrastructure has been modernized to use **automatic signal discov
 
 ## Quick Start
 
+!!! note "Wavedrom User Examples"
+    The protocol-specific wavedrom user examples (`GAXIWaveDromTemplate`, `APBWaveDromTemplate`, etc.) are located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository under `tbclasses/wavedrom_user/`.
+
 ### GAXI WaveDrom (Simplest Case)
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import GAXIWaveDromTemplate
 
 @cocotb.test()
@@ -71,6 +75,7 @@ async def my_test(dut):
 ### APB WaveDrom
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/apb.py)
 from CocoTBFramework.tbclasses.wavedrom_user.apb import APBWaveDromTemplate
 
 @cocotb.test()
@@ -535,10 +540,10 @@ wave = GAXIWaveDromTemplate(
 
 ## See Also
 
-- **SignalResolver Documentation**: `bin/CocoTBFramework/components/shared/signal_mapping_helper.py`
-- **Constraint Solver**: `bin/CocoTBFramework/components/wavedrom/constraint_solver.py`
-- **GAXI Constraints**: `bin/CocoTBFramework/tbclasses/wavedrom_user/gaxi.py`
-- **APB Constraints**: `bin/CocoTBFramework/tbclasses/wavedrom_user/apb.py`
+- **SignalResolver Documentation**: `src/CocoTBFramework/components/shared/signal_mapping_helper.py` (this repo)
+- **Constraint Solver**: `src/CocoTBFramework/components/wavedrom/constraint_solver.py` (this repo)
+- **GAXI Constraints**: Located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repo under `tbclasses/wavedrom_user/gaxi.py`
+- **APB Constraints**: Located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repo under `tbclasses/wavedrom_user/apb.py`
 
 ---
 

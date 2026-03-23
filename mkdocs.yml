@@ -68,9 +68,22 @@ nav:
 
     - AXI4:
       - Overview: components/axi4/components_axi4_overview.md
+      - Interfaces: components/axi4/components_axi4_interfaces.md
+      - Packet: components/axi4/components_axi4_packet.md
+      - Compliance Checker: components/axi4/components_axi4_compliance.md
+      - Randomization: components/axi4/components_axi4_randomization.md
+
+    - AXI5:
+      - Overview: components/axi5/components_axi5_overview.md
+      - Interfaces: components/axi5/components_axi5_interfaces.md
+      - Packet: components/axi5/components_axi5_packet.md
+      - Compliance Checker: components/axi5/components_axi5_compliance.md
 
     - AXI4-Lite:
       - Overview: components/axil4/components_axil4_overview.md
+      - Interfaces: components/axil4/components_axil4_interfaces.md
+      - Packet: components/axil4/components_axil4_packet.md
+      - Compliance Checker: components/axil4/components_axil4_compliance.md
 
     - APB:
       - Overview: components/apb/components_apb_overview.md
@@ -78,12 +91,22 @@ nav:
       - Packet: components/apb/components_apb_apb_packet.md
       - Sequence: components/apb/components_apb_apb_sequence.md
 
+    - APB5:
+      - Overview: components/apb5/components_apb5_overview.md
+      - Components: components/apb5/components_apb5_components.md
+      - Packet: components/apb5/components_apb5_packet.md
+
     - AXI-Stream:
       - Overview: components/axis4/components_axis4_overview.md
       - Master: components/axis4/axis_master.md
       - Slave: components/axis4/axis_slave.md
       - Packet: components/axis4/axis_packet.md
       - Field Configs: components/axis4/axis_field_configs.md
+
+    - AXI-Stream v5:
+      - Overview: components/axis5/components_axis5_overview.md
+      - Components: components/axis5/components_axis5_components.md
+      - Packet: components/axis5/components_axis5_packet.md
 
     - GAXI:
       - Overview: components/gaxi/components_gaxi_overview.md
@@ -106,6 +129,10 @@ nav:
       - Component Base: components/fifo/components_fifo_fifo_component_base.md
       - Packet: components/fifo/components_fifo_fifo_packet.md
       - Sequence: components/fifo/components_fifo_fifo_sequence.md
+
+    - SMBus:
+      - Overview: components/smbus/components_smbus_overview.md
+      - Components: components/smbus/components_smbus_components.md
 
     - UART: components/uart/uart_components.md
 

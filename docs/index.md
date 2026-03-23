@@ -89,7 +89,7 @@ assert error_count == 0, f"Verification failed with {error_count} errors"
 
 ### Complete Testbench
 ```python
-# Use high-level testbench classes
+# Use high-level testbench classes (from the RTLDesignSherpa main repo)
 from CocoTBFramework.tbclasses.gaxi.gaxi_buffer import GaxiBufferTB
 
 @cocotb.test()
@@ -217,6 +217,7 @@ for packet in sequence:
 ### System-Level Verification
 ```python
 # Complete system verification with multiple protocols
+# TBBase is located in the RTLDesignSherpa main repo (tbclasses/misc/tbbase.py)
 from CocoTBFramework.tbclasses.misc.tbbase import TBBase
 from CocoTBFramework.scoreboards.apb_gaxi_scoreboard import APBGAXIScoreboard
 

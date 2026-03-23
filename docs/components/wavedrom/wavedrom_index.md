@@ -65,6 +65,7 @@ The WaveDrom infrastructure provides automated timing diagram generation for dig
 ## Quick Example
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import GAXIWaveDromTemplate
 
 @cocotb.test()
@@ -101,6 +102,9 @@ async def my_test(dut):
 | **AXI-Stream** | `AXISPresets` (manual setup) | ✅ Ready | basic_handshake, comprehensive, performance, debug |
 
 *Note: AXI4/AXIL4/AXIS do not yet have Template classes but use the same setup pattern with `setup_*_constraints_with_boundaries()`*
+
+!!! note "Wavedrom User Examples"
+    The protocol-specific wavedrom user examples (gaxi.py, apb.py, etc.) are located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository under `tbclasses/wavedrom_user/`.
 
 ---
 
@@ -140,15 +144,15 @@ graph TB
 ## File Locations
 
 ### Source Code
-- **Constraint Solver**: `bin/CocoTBFramework/components/wavedrom/constraint_solver.py`
-- **WaveJSON Generator**: `bin/CocoTBFramework/components/wavedrom/wavejson_gen.py`
-- **Signal Binder**: `bin/CocoTBFramework/components/wavedrom/signal_binder.py`
-- **Protocol Presets**:
-  - `bin/CocoTBFramework/tbclasses/wavedrom_user/gaxi.py`
-  - `bin/CocoTBFramework/tbclasses/wavedrom_user/apb.py`
-  - `bin/CocoTBFramework/tbclasses/wavedrom_user/axi4.py`
-  - `bin/CocoTBFramework/tbclasses/wavedrom_user/axil4.py`
-  - `bin/CocoTBFramework/tbclasses/wavedrom_user/axis.py`
+- **Constraint Solver**: `src/CocoTBFramework/components/wavedrom/constraint_solver.py` (this repo)
+- **WaveJSON Generator**: `src/CocoTBFramework/components/wavedrom/wavejson_gen.py` (this repo)
+- **Signal Binder**: `src/CocoTBFramework/components/wavedrom/signal_binder.py` (this repo)
+- **Protocol Presets** (located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repo):
+  - `tbclasses/wavedrom_user/gaxi.py`
+  - `tbclasses/wavedrom_user/apb.py`
+  - `tbclasses/wavedrom_user/axi4.py`
+  - `tbclasses/wavedrom_user/axil4.py`
+  - `tbclasses/wavedrom_user/axis.py`
 
 ### Example Tests
 - **GAXI Comprehensive**: `val/amba/test_gaxi_wavedrom_example.py`

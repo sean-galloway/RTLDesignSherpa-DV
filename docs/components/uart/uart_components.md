@@ -25,7 +25,7 @@
 
 # UART BFM Components
 
-**Package:** `bin/CocoTBFramework/components/uart/`
+**Package:** `src/CocoTBFramework/components/uart/`
 **Last Updated:** 2025-11-09
 
 ---
@@ -436,6 +436,7 @@ Common Baud Rates:
 ### Complete UART Bridge Testbench
 
 ```python
+# TBBase is located in the RTLDesignSherpa main repo (tbclasses/shared/tbbase.py)
 from CocoTBFramework.tbclasses.shared.tbbase import TBBase
 from CocoTBFramework.components.uart import UARTMaster, UARTMonitor
 
@@ -513,7 +514,7 @@ class UARTBridgeTB(TBBase):
 
 ### Unit Tests
 
-Located in: `bin/CocoTBFramework/components/uart/test_uart_components.py`
+Located in: `tests/` directory
 
 **Test Coverage:**
 - Byte transmission accuracy
@@ -526,7 +527,7 @@ Located in: `bin/CocoTBFramework/components/uart/test_uart_components.py`
 ### Running Tests
 
 ```bash
-cd bin/CocoTBFramework/components/uart
+cd tests
 pytest test_uart_components.py -v
 ```
 
@@ -594,7 +595,7 @@ None currently documented.
 **Internal:**
 - Converters Project - Usage example
 - [CocoTB Framework Overview](../components_overview.md)
-- TBBase *(see tbclasses/misc)*
+- TBBase (located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repo under `tbclasses/shared/tbbase.py`)
 
 **External:**
 - [UART Wikipedia](https://en.wikipedia.org/wiki/Universal_asynchronous_receiver-transmitter)

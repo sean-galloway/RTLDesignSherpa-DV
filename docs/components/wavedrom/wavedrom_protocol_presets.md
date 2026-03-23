@@ -41,7 +41,8 @@ Protocol presets provide pre-configured temporal constraints for standard bus pr
 | **AXI4-Lite** | `axil4.py` | *(manual setup)* | ✅ Ready |
 | **AXI-Stream** | `axis.py` | *(manual setup)* | ✅ Ready |
 
-*Location: `bin/CocoTBFramework/tbclasses/wavedrom_user/`*
+!!! note "Wavedrom User Examples"
+    The protocol-specific wavedrom user examples (gaxi.py, apb.py, etc.) are located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository under `tbclasses/wavedrom_user/`.
 
 ---
 
@@ -58,6 +59,7 @@ Protocol presets provide pre-configured temporal constraints for standard bus pr
 **Use Case:** Quick verification that transactions occur
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import GAXIWaveDromTemplate
 
 gaxi_wave = GAXIWaveDromTemplate(
@@ -108,6 +110,7 @@ preset="debug"
 ### Field Configuration
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import get_gaxi_field_config
 
 # Simple data-only
@@ -141,6 +144,7 @@ config = get_gaxi_field_config(
 **Use Case:** Basic read/write verification
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/apb.py)
 from CocoTBFramework.tbclasses.wavedrom_user.apb import APBWaveDromTemplate
 
 apb_wave = APBWaveDromTemplate(
@@ -237,6 +241,7 @@ config = get_apb_field_config(
 **Use Case:** Write transaction verification
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/axi4.py)
 from CocoTBFramework.tbclasses.wavedrom_user.axi4 import setup_axi4_constraints_with_boundaries
 
 setup_axi4_constraints_with_boundaries(
@@ -304,6 +309,7 @@ w_config = field_configs['W']
 
 ```python
 from CocoTBFramework.components.wavedrom.constraint_solver import TemporalConstraintSolver
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/axi4.py)
 from CocoTBFramework.tbclasses.wavedrom_user.axi4 import setup_axi4_constraints_with_boundaries
 
 wave_solver = TemporalConstraintSolver(dut=dut, log=dut._log)
@@ -344,6 +350,7 @@ Same as AXI4: `write_basic`, `read_basic`, `comprehensive`, `debug`
 ### Field Configuration
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/axil4.py)
 from CocoTBFramework.tbclasses.wavedrom_user.axil4 import get_axil4_channel_field_config
 
 aw_config = get_axil4_channel_field_config('AW', addr_width=32, data_width=32)
@@ -356,6 +363,7 @@ r_config = get_axil4_channel_field_config('R', addr_width=32, data_width=32)
 ### Setup Function
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/axil4.py)
 from CocoTBFramework.tbclasses.wavedrom_user.axil4 import setup_axil4_constraints_with_boundaries
 
 setup_axil4_constraints_with_boundaries(
@@ -382,6 +390,7 @@ setup_axil4_constraints_with_boundaries(
 **Use Case:** Verify stream is flowing
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/axis.py)
 from CocoTBFramework.tbclasses.wavedrom_user.axis import setup_axis_constraints_with_boundaries
 
 setup_axis_constraints_with_boundaries(
@@ -434,6 +443,7 @@ preset_name="debug"
 ### Field Configuration
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/axis.py)
 from CocoTBFramework.tbclasses.wavedrom_user.axis import get_axis_field_config
 
 # Simple stream
@@ -476,6 +486,7 @@ config = get_axis_field_config(
 ### Example: Custom GAXI Preset
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import (
     create_gaxi_handshake_constraint,
     create_gaxi_stall_constraint

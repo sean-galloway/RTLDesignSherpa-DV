@@ -39,6 +39,9 @@ wavedrom-cli --version
 
 ---
 
+!!! note "Wavedrom User Examples"
+    The protocol-specific wavedrom user examples (gaxi.py, apb.py, etc.) are located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository under `tbclasses/wavedrom_user/`.
+
 ## Method 1: Template Class (Easiest)
 
 ### GAXI Protocol
@@ -47,6 +50,7 @@ wavedrom-cli --version
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import GAXIWaveDromTemplate
 
 @cocotb.test()
@@ -89,6 +93,7 @@ async def gaxi_test(dut):
 ### APB Protocol
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/apb.py)
 from CocoTBFramework.tbclasses.wavedrom_user.apb import APBWaveDromTemplate
 
 @cocotb.test()
@@ -115,6 +120,7 @@ async def apb_test(dut):
 ### Step 1: Create Field Config
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import get_gaxi_field_config
 
 # Define data fields
@@ -128,6 +134,7 @@ field_config = get_gaxi_field_config(
 ### Step 2: Create WaveJSON Generator
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import create_gaxi_wavejson_generator
 
 wave_generator = create_gaxi_wavejson_generator(
@@ -167,6 +174,7 @@ wave_solver.auto_bind_signals(
 ### Step 5: Setup Constraints
 
 ```python
+# Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
 from CocoTBFramework.tbclasses.wavedrom_user.gaxi import setup_gaxi_constraints_with_boundaries
 
 setup_gaxi_constraints_with_boundaries(

@@ -251,11 +251,31 @@ error_count = bridge_sb.report()
 
 ## Getting Started
 
-### Installation and Setup
-1. **Clone Framework**: Get the CocoTBFramework repository
-2. **Install Dependencies**: CocoTB, NumPy, and other required packages
-3. **Set Environment**: Configure PYTHONPATH and simulator settings
-4. **Run Examples**: Execute provided example tests to verify setup
+### Installation
+
+Install from PyPI:
+
+```bash
+pip install cocotb-framework
+```
+
+With all optional dependencies:
+
+```bash
+pip install cocotb-framework[all]
+```
+
+For development:
+
+```bash
+git clone https://github.com/sean-galloway/RTLDesignSherpa-DV.git
+cd RTLDesignSherpa-DV
+pip install -e ".[dev,all]"
+```
+
+### Setup
+1. **Set Environment**: Configure PYTHONPATH and simulator settings
+2. **Run Examples**: Execute provided example tests to verify setup
 
 ### Basic Workflow
 1. **Choose Components**: Select appropriate protocol components for your design

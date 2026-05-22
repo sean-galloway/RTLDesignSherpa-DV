@@ -25,30 +25,31 @@ CHANGES:
 This file is ready to replace the existing axil4_interfaces.py
 """
 
-from typing import Any, Dict, Optional
+import asyncio
+from typing import List, Dict, Any, Optional, Union
 
-import cocotb
 from cocotb.triggers import RisingEdge
-
-from CocoTBFramework.components.axil4.axil4_compliance_checker import AXIL4ComplianceChecker
-from CocoTBFramework.components.axil4.axil4_field_configs import AXIL4FieldConfigHelper
-from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
+import cocotb
 
 # Import GAXI components and field configs
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
+from CocoTBFramework.components.gaxi.gaxi_monitor import GAXIMonitor
+from CocoTBFramework.components.axil4.axil4_field_configs import AXIL4FieldConfigHelper
+from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
+from CocoTBFramework.components.axil4.axil4_compliance_checker import AXIL4ComplianceChecker
 
 
 class AXIL4MasterRead:
     """
     AXIL4 Master Read Interface - Specification compliant with perfect API consistency.
-
+    
     PROVIDES IDENTICAL API TO AXI4MasterRead:
     - read_transaction() - Core transaction method
     - simple_read() - Original AXIL4 method (backward compatibility)
     - single_read() - NEW: Matches AXI4 API exactly
     - read_register() - NEW: Semantic alias for register access
-
+    
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
@@ -104,7 +105,7 @@ class AXIL4MasterRead:
             multi_sig=self.multi_sig
             # SIMPLIFIED: No user_width parameter
         )
-
+        
         if self.compliance_checker and log:
             log.info("AXIL4MasterRead: Compliance checking enabled")
 
@@ -194,13 +195,13 @@ class AXIL4MasterRead:
 class AXIL4MasterWrite:
     """
     AXIL4 Master Write Interface - Specification compliant with perfect API consistency.
-
+    
     PROVIDES IDENTICAL API TO AXI4MasterWrite:
     - write_transaction() - Core transaction method
     - simple_write() - Original AXIL4 method (backward compatibility)
     - single_write() - NEW: Matches AXI4 API exactly
     - write_register() - NEW: Semantic alias for register access
-
+    
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
@@ -270,11 +271,11 @@ class AXIL4MasterWrite:
             multi_sig=self.multi_sig
             # SIMPLIFIED: No user_width parameter
         )
-
+        
         if self.compliance_checker and log:
             log.info("AXIL4MasterWrite: Compliance checking enabled")
 
-    async def write_transaction(self, address: int, data: int, strb: Optional[int] = None,
+    async def write_transaction(self, address: int, data: int, strb: Optional[int] = None, 
                               **transaction_kwargs) -> int:
         """
         High-level write transaction - always single transfer for AXIL4.
@@ -294,7 +295,7 @@ class AXIL4MasterWrite:
             prot=transaction_kwargs.get('prot', 0)
             # SIMPLIFIED: No user field handling
         )
-
+        
         w_packet = self.w_channel.create_packet(
             data=data,
             strb=strb
@@ -306,7 +307,7 @@ class AXIL4MasterWrite:
         expected_b_count = initial_b_count + 1
 
         # Send AW and W (can be concurrent in AXIL4)
-
+        
         await self.aw_channel.send(aw_packet),
         await self.w_channel.send(w_packet)
 
@@ -378,7 +379,7 @@ class AXIL4MasterWrite:
 class AXIL4SlaveRead:
     """
     AXIL4 Slave Read Interface - Simplified and specification compliant.
-
+    
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
@@ -394,6 +395,14 @@ class AXIL4SlaveRead:
 
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')
+
+        # Base address offset (for memory-mapped slaves).
+        # Mirrors AXI4SlaveRead. Incoming ARADDR is absolute (post-bridge
+        # decode); subtract base_addr before indexing into memory_model
+        # which expects 0-based offsets. Without this, a slave at a
+        # non-zero base address overruns its sized memory and returns
+        # 0xDEADDEAD/SLVERR.
+        self.base_addr = kwargs.get('base_addr', 0)
         self.response_delay_cycles = kwargs.get('response_delay', 1)
 
         # AR Channel - GAXISlave drives arready and receives AR requests
@@ -440,7 +449,7 @@ class AXIL4SlaveRead:
         )
 
         if self.log:
-            self.log.info("AXIL4SlaveRead initialized: AR callback linked to R master")
+            self.log.info(f"AXIL4SlaveRead initialized: AR callback linked to R master")
             if self.compliance_checker:
                 self.log.info("AXIL4SlaveRead: Compliance checking enabled")
 
@@ -469,19 +478,21 @@ class AXIL4SlaveRead:
 
             if self.memory_model:
                 try:
+                    # Translate absolute AR address → 0-based memory offset.
+                    memory_offset = address - self.base_addr
                     # Read bytes from memory model
                     bytes_per_transfer = self.data_width // 8
-                    data_bytes = self.memory_model.read(address, bytes_per_transfer)
+                    data_bytes = self.memory_model.read(memory_offset, bytes_per_transfer)
                     # Convert to integer using memory model's utility
                     data = self.memory_model.bytearray_to_integer(data_bytes)
                     resp = 0  # OKAY
 
                     if self.log:
                         self.log.debug(f"AXIL4SlaveRead: Read from memory - "
-                                    f"addr=0x{address:08X}, data=0x{data:08X}")
+                                    f"addr=0x{address:08X} offset=0x{memory_offset:08X}, data=0x{data:08X}")
                 except Exception as e:
                     if self.log:
-                        self.log.warning(f"Memory read failed at 0x{address:08X}: {e}")
+                        self.log.warning(f"Memory read failed at 0x{address:08X} (offset 0x{address-self.base_addr:08X}): {e}")
                     data = 0xDEADDEAD
                     resp = 2  # SLVERR
             else:
@@ -496,7 +507,7 @@ class AXIL4SlaveRead:
             )
 
             await self.r_channel.send(r_packet)
-
+            
             if self.log:
                 self.log.debug(f"AXIL4SlaveRead: R response sent - data=0x{data:08X}, resp={resp}")
 
@@ -521,7 +532,7 @@ class AXIL4SlaveRead:
 class AXIL4SlaveWrite:
     """
     AXIL4 Slave Write Interface - Simplified and specification compliant.
-
+    
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
@@ -538,6 +549,10 @@ class AXIL4SlaveWrite:
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')
         self.response_delay_cycles = kwargs.get('response_delay', 1)
+
+        # Base address offset (mirrors AXI4SlaveWrite). Subtracted from
+        # incoming absolute AWADDR before indexing into memory_model.
+        self.base_addr = kwargs.get('base_addr', 0)
 
         # AW Channel - GAXISlave drives awready and receives AW requests
         self.aw_channel = GAXISlave(
@@ -602,38 +617,47 @@ class AXIL4SlaveWrite:
         )
 
         if self.log:
-            self.log.info("AXIL4SlaveWrite initialized: AW/W callbacks linked to B master")
+            self.log.info(f"AXIL4SlaveWrite initialized: AW/W callbacks linked to B master")
             if self.compliance_checker:
                 self.log.info("AXIL4SlaveWrite: Compliance checking enabled")
 
     def _aw_callback(self, aw_packet):
-        """Handle AW packet reception."""
+        """Handle AW packet reception.
+
+        Single-depth pending_aw silently breaks when the upstream
+        bursts get decomposed by an axi4_to_axil4_wr shim -- two AWs
+        and two Ws arrive in interleaved order and the previous
+        burst's residual W gets mis-matched to the new AW. Use FIFO
+        queues for both sides and match strictly in arrival order
+        (AXI4SlaveWrite uses the same pattern)."""
         if self.log:
             self.log.debug(f"AXIL4SlaveWrite: AW packet received - addr=0x{getattr(aw_packet, 'addr', 0):08X}")
 
-        self.pending_aw = aw_packet
+        if not hasattr(self, '_aw_queue'):
+            self._aw_queue = []
+            self._w_queue = []
+        self._aw_queue.append(aw_packet)
         self._try_complete_transaction()
 
     def _w_callback(self, w_packet):
-        """Handle W packet reception."""
+        """Handle W packet reception. See _aw_callback for FIFO rationale."""
         if self.log:
             self.log.debug(f"AXIL4SlaveWrite: W packet received - data=0x{getattr(w_packet, 'data', 0):08X}")
 
-        self.pending_w = w_packet
+        if not hasattr(self, '_aw_queue'):
+            self._aw_queue = []
+            self._w_queue = []
+        self._w_queue.append(w_packet)
         self._try_complete_transaction()
 
     def _try_complete_transaction(self):
-        """Check if we can complete a transaction (have both AW and W)."""
-        if self.pending_aw is not None and self.pending_w is not None:
-            # We have both AW and W - start response generation
-            aw_packet = self.pending_aw
-            w_packet = self.pending_w
-
-            # Clear pending
-            self.pending_aw = None
-            self.pending_w = None
-
-            # Schedule B response generation
+        """Match queued AWs and Ws in arrival order, drain as many
+        complete pairs as available."""
+        if not hasattr(self, '_aw_queue'):
+            return
+        while self._aw_queue and self._w_queue:
+            aw_packet = self._aw_queue.pop(0)
+            w_packet = self._w_queue.pop(0)
             cocotb.start_soon(self._generate_write_response(aw_packet, w_packet))
 
     async def _generate_write_response(self, aw_packet, w_packet):
@@ -654,6 +678,8 @@ class AXIL4SlaveWrite:
 
             if self.memory_model:
                 try:
+                    # Translate absolute AWADDR → 0-based memory offset.
+                    memory_offset = address - self.base_addr
                     # Apply write strobes
                     data_bytes = self.data_width // 8
 
@@ -661,7 +687,7 @@ class AXIL4SlaveWrite:
                     for byte_idx in range(data_bytes):
                         if strb & (1 << byte_idx):
                             byte_data = (data >> (byte_idx * 8)) & 0xFF
-                            byte_addr = address + byte_idx
+                            byte_addr = memory_offset + byte_idx
 
                             # Convert to proper bytearray format for memory model
                             data_bytearray = bytearray([byte_data])
@@ -669,7 +695,7 @@ class AXIL4SlaveWrite:
 
                     if self.log:
                         self.log.debug(f"AXIL4SlaveWrite: Wrote to memory - "
-                                    f"addr=0x{address:08X}, data=0x{data:08X}, strb=0x{strb:X}")
+                                    f"addr=0x{address:08X} offset=0x{memory_offset:08X}, data=0x{data:08X}, strb=0x{strb:X}")
                 except Exception as e:
                     if self.log:
                         self.log.warning(f"Memory write failed at 0x{address:08X}: {e}")
@@ -681,7 +707,7 @@ class AXIL4SlaveWrite:
                 # SIMPLIFIED: No user field
             )
             await self.b_channel.send(b_packet)
-
+            
             if self.log:
                 self.log.debug(f"AXIL4SlaveWrite: B response sent - resp={resp}")
 

@@ -35,11 +35,12 @@ Key Design Principles:
 """
 
 import asyncio
+import collections
 import random
 from typing import Any, Dict, List, Optional, Union
 
 import cocotb
-from cocotb.triggers import RisingEdge
+from cocotb.triggers import Lock, RisingEdge
 
 from CocoTBFramework.components.axi5.axi5_field_configs import AXI5FieldConfigHelper
 
@@ -136,6 +137,21 @@ class AXI5MasterRead:
         # Timeout configuration
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
 
+        # Per-ID response FIFO for concurrent read_transaction() pickup.
+        # Positional indexing into self.r_channel._recvQ races when callers
+        # use cocotb.start_soon to dispatch overlapping transactions: every
+        # coroutine snapshots initial_count=0 and reads _recvQ[0] as "theirs".
+        # Routing each R beat into a per-ID deque via callback eliminates the
+        # race -- AXI5 (like AXI4) guarantees same-ID R beats arrive in order.
+        # Mirrors the FIFO matching introduced for AXIL4SlaveWrite in 2e7e825.
+        self._response_by_id = collections.defaultdict(collections.deque)
+        self.r_channel.add_callback(self._on_r_response)
+
+    def _on_r_response(self, pkt):
+        """Route incoming R beat into its per-ID deque (see __init__ rationale)."""
+        pkt_id = getattr(pkt, 'id', 0)
+        self._response_by_id[pkt_id].append(pkt)
+
     async def read_transaction(
         self,
         address: int,
@@ -168,11 +184,13 @@ class AXI5MasterRead:
         Returns:
             List of response dictionaries with data and AXI5-specific info
         """
+        txn_id = transaction_kwargs.get('id', 0)
+
         # Create AR packet with AXI5 fields
         ar_packet = self.ar_channel.create_packet(
             addr=address,
             len=burst_len - 1,
-            id=transaction_kwargs.get('id', 0),
+            id=txn_id,
             size=transaction_kwargs.get('size', 2),
             burst=transaction_kwargs.get('burst', 1),
             lock=transaction_kwargs.get('lock', 0),
@@ -190,30 +208,29 @@ class AXI5MasterRead:
             tagop=transaction_kwargs.get('tagop', 0),
         )
 
-        # Record initial queue state
-        initial_count = len(self.r_channel._recvQ)
-        expected_count = initial_count + burst_len
-
         # Send read address
         await self.ar_channel.send(ar_packet)
 
-        # Wait for R responses
+        # Wait for burst_len R beats in this transaction's ID deque.
+        # See __init__ for concurrency rationale.
+        id_queue = self._response_by_id[txn_id]
         cycles_waited = 0
-        while len(self.r_channel._recvQ) < expected_count:
+        while len(id_queue) < burst_len:
             await RisingEdge(self.clock)
             cycles_waited += 1
 
             if cycles_waited > self.timeout_cycles:
-                received = len(self.r_channel._recvQ) - initial_count
+                received = len(id_queue)
                 raise TimeoutError(
                     f"AXI5 read timeout after {cycles_waited} cycles: "
-                    f"got {received} of {burst_len} responses at address 0x{address:08X}"
+                    f"got {received} of {burst_len} responses at address 0x{address:08X} "
+                    f"(id={txn_id})"
                 )
 
-        # Extract data and AXI5-specific info from response packets
+        # Drain burst_len beats from this ID's queue
         responses = []
         for i in range(burst_len):
-            packet = self.r_channel._recvQ[initial_count + i]
+            packet = id_queue.popleft()
 
             response = {
                 'data': getattr(packet, 'data', 0),
@@ -356,6 +373,25 @@ class AXI5MasterWrite:
         # Timeout configuration
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
 
+        # Per-ID B-response FIFO for concurrent write_transaction() pickup.
+        # See AXI5MasterRead.__init__ for race rationale. AXI5 guarantees one
+        # B response per AW transaction and same-ID B responses arrive in
+        # order, so a deque per ID is sufficient.
+        self._response_by_id = collections.defaultdict(collections.deque)
+        self.b_channel.add_callback(self._on_b_response)
+
+        # AW+W issuance lock (see AXI4MasterWrite.__init__ for rationale).
+        # AXI5 W has no ID; W beats are matched to AWs by arrival order
+        # plus WLAST counting -- so concurrent write_transaction calls must
+        # serialize their AW+W critical section to keep each transaction's
+        # W stream wire-contiguous.
+        self._aw_w_lock = Lock(name=f"AW_W_Lock{self.ifc_name}")
+
+    def _on_b_response(self, pkt):
+        """Route incoming B response into its per-ID deque."""
+        pkt_id = getattr(pkt, 'id', 0)
+        self._response_by_id[pkt_id].append(pkt)
+
     async def write_transaction(
         self,
         address: int,
@@ -409,11 +445,13 @@ class AXI5MasterWrite:
                     burst_len = 1
                 data_list = [data] * burst_len
 
+            txn_id = transaction_kwargs.get('id', 0)
+
             # Create AW packet with AXI5 fields
             aw_packet = self.aw_channel.create_packet(
                 addr=address,
                 len=burst_len - 1,
-                id=transaction_kwargs.get('id', 0),
+                id=txn_id,
                 size=transaction_kwargs.get('size', 2),
                 burst=transaction_kwargs.get('burst', 1),
                 lock=transaction_kwargs.get('lock', 0),
@@ -432,43 +470,47 @@ class AXI5MasterWrite:
                 tag=transaction_kwargs.get('tag', 0),
             )
 
-            # Send address
-            await self.aw_channel.send(aw_packet)
+            # Serialize AW+W issuance so concurrent same-ID write_transaction
+            # calls don't interleave W beats on the wire (see __init__).
+            async with self._aw_w_lock:
+                # Send address
+                await self.aw_channel.send(aw_packet)
 
-            # Send data beats with AXI5 fields
-            strb_width = self.data_width // 8
-            default_strb = (1 << strb_width) - 1
+                # Send data beats with AXI5 fields
+                strb_width = self.data_width // 8
+                default_strb = (1 << strb_width) - 1
 
-            for i, data_value in enumerate(data_list):
-                w_packet = self.w_channel.create_packet(
-                    data=data_value,
-                    last=1 if i == len(data_list) - 1 else 0,
-                    strb=transaction_kwargs.get('strb', default_strb),
-                    user=transaction_kwargs.get('wuser', 0),
-                    # AXI5-specific fields
-                    poison=transaction_kwargs.get('poison', 0),
-                    tag=transaction_kwargs.get('wtag', 0),
-                    tagupdate=transaction_kwargs.get('tagupdate', 0),
-                )
-                await self.w_channel.send(w_packet)
+                for i, data_value in enumerate(data_list):
+                    w_packet = self.w_channel.create_packet(
+                        data=data_value,
+                        last=1 if i == len(data_list) - 1 else 0,
+                        strb=transaction_kwargs.get('strb', default_strb),
+                        user=transaction_kwargs.get('wuser', 0),
+                        # AXI5-specific fields
+                        poison=transaction_kwargs.get('poison', 0),
+                        tag=transaction_kwargs.get('wtag', 0),
+                        tagupdate=transaction_kwargs.get('tagupdate', 0),
+                    )
+                    await self.w_channel.send(w_packet)
 
-            # Wait for write response
-            initial_b_count = len(self.b_channel._recvQ)
-            expected_b_count = initial_b_count + 1
-
+            # Wait for B response in this transaction's ID deque.
+            # See AXI5MasterRead.read_transaction for concurrency rationale --
+            # positional _recvQ indexing races under cocotb.start_soon.
+            id_queue = self._response_by_id[txn_id]
             cycles_waited = 0
-            while len(self.b_channel._recvQ) < expected_b_count:
+            while len(id_queue) < 1:
                 await RisingEdge(self.clock)
                 cycles_waited += 1
 
                 if cycles_waited > self.timeout_cycles:
                     raise TimeoutError(
                         f"AXI5 write timeout after {cycles_waited} cycles: "
-                        f"waiting for B response at address 0x{address:08X}"
+                        f"waiting for B response at address 0x{address:08X} "
+                        f"(id={txn_id})"
                     )
 
-            # Get B response packet
-            b_response = self.b_channel._recvQ[initial_b_count]
+            # Pop our B response from this ID's queue
+            b_response = id_queue.popleft()
 
             result = {
                 'success': True,

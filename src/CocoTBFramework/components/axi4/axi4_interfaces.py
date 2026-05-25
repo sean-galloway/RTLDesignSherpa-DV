@@ -24,11 +24,12 @@ and silently disabled otherwise, maintaining full backward compatibility.
 """
 
 import asyncio
+import collections
 import random
 from typing import Any, Dict, List, Optional, Union
 
 import cocotb
-from cocotb.triggers import RisingEdge
+from cocotb.triggers import Lock, RisingEdge
 
 from CocoTBFramework.components.axi4.axi4_compliance_checker import AXI4ComplianceChecker
 from CocoTBFramework.components.axi4.axi4_field_configs import AXI4FieldConfigHelper
@@ -114,16 +115,40 @@ class AXI4MasterRead:
         if self.compliance_checker and log:
             log.info("AXI4MasterRead: Compliance checking enabled")
 
+        # Per-ID response FIFO for concurrent read_transaction() pickup.
+        # Positional indexing into self.r_channel._recvQ races when callers
+        # use cocotb.start_soon to dispatch overlapping transactions: every
+        # coroutine snapshots initial_count=0 and reads _recvQ[0] as "theirs".
+        # Routing each R beat into a per-ID deque via callback eliminates the
+        # race -- AXI4 guarantees same-ID R beats arrive in order, so a deque
+        # per ID is sufficient. (Cross-ID interleaving is handled by keying on
+        # ID.) Mirrors the FIFO matching introduced for AXIL4SlaveWrite in
+        # 2e7e825.
+        self._response_by_id = collections.defaultdict(collections.deque)
+        self.r_channel.add_callback(self._on_r_response)
+
+    def _on_r_response(self, pkt):
+        """Route incoming R beat into its per-ID deque (see __init__ rationale)."""
+        pkt_id = getattr(pkt, 'id', 0)
+        self._response_by_id[pkt_id].append(pkt)
+
     async def read_transaction(self, address: int, burst_len: int = 1, **transaction_kwargs) -> List[int]:
         """
         High-level read transaction using generic field names.
-        UNCHANGED: All existing functionality preserved.
+
+        Concurrency-safe: pickup is keyed on transaction ID via
+        self._response_by_id (populated by _on_r_response callback).
+        Sequential callers behave identically -- with only one outstanding
+        transaction per ID, the per-ID deque sees the same packets in the
+        same order as the previous positional _recvQ[initial_count + i].
         """
+        txn_id = transaction_kwargs.get('id', 0)
+
         # Create AR packet with GENERIC field names
         ar_packet = self.ar_channel.create_packet(
             addr=address,
             len=burst_len - 1,
-            id=transaction_kwargs.get('id', 0),
+            id=txn_id,
             size=transaction_kwargs.get('size', 2),
             burst=transaction_kwargs.get('burst_type', 1),
             lock=transaction_kwargs.get('lock', 0),
@@ -135,29 +160,26 @@ class AXI4MasterRead:
             if k in ['user'] and hasattr(ar_packet, k)}
         )
 
-        # Record initial queue state
-        initial_count = len(self.r_channel._recvQ)
-        expected_count = initial_count + burst_len
-
         # Send read address
         await self.ar_channel.send(ar_packet)
 
-        # Wait for R responses using clock edges
+        # Wait for burst_len R beats in our ID's deque
+        id_queue = self._response_by_id[txn_id]
         cycles_waited = 0
-
-        while len(self.r_channel._recvQ) < expected_count:
+        while len(id_queue) < burst_len:
             await RisingEdge(self.clock)
             cycles_waited += 1
 
             if cycles_waited > self.timeout_cycles:
-                received = len(self.r_channel._recvQ) - initial_count
+                received = len(id_queue)
                 raise TimeoutError(f"AXI4 read timeout after {cycles_waited} cycles: "
-                                    f"got {received} of {burst_len} responses at address 0x{address:08X}")
+                                    f"got {received} of {burst_len} responses at address 0x{address:08X} "
+                                    f"(id={txn_id})")
 
-        # Extract data from new packets using GENERIC field names
+        # Drain burst_len beats from this ID's queue
         read_data = []
-        for i in range(burst_len):
-            packet = self.r_channel._recvQ[initial_count + i]
+        for _ in range(burst_len):
+            packet = id_queue.popleft()
             data_value = getattr(packet, 'data', 0)
             read_data.append(data_value)
 
@@ -284,6 +306,30 @@ class AXI4MasterWrite:
         if self.compliance_checker and log:
             log.info("AXI4MasterWrite: Compliance checking enabled")
 
+        # Per-ID B-response FIFO for concurrent write_transaction() pickup.
+        # See AXI4MasterRead.__init__ for race rationale. AXI4 guarantees one
+        # B response per AW transaction and same-ID B responses arrive in
+        # order, so a deque per ID is sufficient.
+        self._response_by_id = collections.defaultdict(collections.deque)
+        self.b_channel.add_callback(self._on_b_response)
+
+        # AW+W issuance lock. AXI4 requires W beats to arrive in the order
+        # of their corresponding AWs (matched by AWLEN/WLAST -- W has no ID).
+        # Without serialization, two concurrent write_transaction() calls
+        # interleave W beats on the wire: AW0's burst gets AW1's W data
+        # and vice versa. Lock the entire (send AW, send all W beats)
+        # critical section so each transaction's W stream is wire-contiguous.
+        # Sequential callers see an uncontended lock -- no behavior change.
+        # NOTE: cocotb.triggers.Lock (not asyncio.Lock) -- cocotb's scheduler
+        # is not asyncio, so asyncio.Lock() raises NoneType.create_future on
+        # acquire because there's no running asyncio loop.
+        self._aw_w_lock = Lock(name=f"AW_W_Lock{self.ifc_name}")
+
+    def _on_b_response(self, pkt):
+        """Route incoming B response into its per-ID deque."""
+        pkt_id = getattr(pkt, 'id', 0)
+        self._response_by_id[pkt_id].append(pkt)
+
     async def write_transaction(self, address: int, data: Union[int, List[int]],
                             burst_len: Optional[int] = None, **transaction_kwargs) -> Dict[str, Any]:
         """
@@ -306,11 +352,13 @@ class AXI4MasterWrite:
                     burst_len = 1
                 data_list = [data] * burst_len
 
+            txn_id = transaction_kwargs.get('id', 0)
+
             # Create AW packet with GENERIC field names
             aw_packet = self.aw_channel.create_packet(
                 addr=address,
                 len=burst_len - 1,
-                id=transaction_kwargs.get('id', 0),
+                id=txn_id,
                 size=transaction_kwargs.get('size', 2),
                 burst=transaction_kwargs.get('burst_type', 1),
                 lock=transaction_kwargs.get('lock', 0),
@@ -322,37 +370,41 @@ class AXI4MasterWrite:
                 if k in ['user'] and hasattr(aw_packet, k)}
             )
 
-            # Send address
-            await self.aw_channel.send(aw_packet)
+            # Serialize AW+W issuance so concurrent same-ID write_transaction
+            # calls don't interleave W beats on the wire (see __init__).
+            async with self._aw_w_lock:
+                # Send address
+                await self.aw_channel.send(aw_packet)
 
-            # Send data beats using GENERIC field names
-            strb_width = self.data_width // 8
-            default_strb = (1 << strb_width) - 1  # All bytes enabled
+                # Send data beats using GENERIC field names
+                strb_width = self.data_width // 8
+                default_strb = (1 << strb_width) - 1  # All bytes enabled
 
-            for i, data_value in enumerate(data_list):
-                w_packet = self.w_channel.create_packet(
-                    data=data_value,
-                    last=1 if i == len(data_list) - 1 else 0,
-                    strb=transaction_kwargs.get('strb', default_strb),
-                    **{k: v for k, v in transaction_kwargs.items() if k.startswith('w')}
-                )
-                await self.w_channel.send(w_packet)
+                for i, data_value in enumerate(data_list):
+                    w_packet = self.w_channel.create_packet(
+                        data=data_value,
+                        last=1 if i == len(data_list) - 1 else 0,
+                        strb=transaction_kwargs.get('strb', default_strb),
+                        **{k: v for k, v in transaction_kwargs.items() if k.startswith('w')}
+                    )
+                    await self.w_channel.send(w_packet)
 
-            # Wait for write response using _recvQ pattern (same as read master)
-            initial_b_count = len(self.b_channel._recvQ)
-            expected_b_count = initial_b_count + 1  # Expecting 1 B response
-
+            # Wait for B response in this transaction's ID deque.
+            # See AXI4MasterRead.read_transaction for concurrency rationale --
+            # positional _recvQ indexing races under cocotb.start_soon.
+            id_queue = self._response_by_id[txn_id]
             cycles_waited = 0
-            while len(self.b_channel._recvQ) < expected_b_count:
+            while len(id_queue) < 1:
                 await RisingEdge(self.clock)
                 cycles_waited += 1
 
                 if cycles_waited > self.timeout_cycles:
                     raise TimeoutError(f"AXI4 write timeout after {cycles_waited} cycles: "
-                                        f"waiting for B response at address 0x{address:08X}")
+                                        f"waiting for B response at address 0x{address:08X} "
+                                        f"(id={txn_id})")
 
-            # Get the B response packet
-            b_response = self.b_channel._recvQ[initial_b_count]
+            # Pop our B response from this ID's queue
+            b_response = id_queue.popleft()
 
             # Check for errors using GENERIC field names
             if hasattr(b_response, 'resp') and b_response.resp != 0:

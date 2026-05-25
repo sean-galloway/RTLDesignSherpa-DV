@@ -26,9 +26,10 @@ This file is ready to replace the existing axil4_interfaces.py
 """
 
 import asyncio
+import collections
 from typing import List, Dict, Any, Optional, Union
 
-from cocotb.triggers import RisingEdge
+from cocotb.triggers import Event, Lock, RisingEdge
 import cocotb
 
 # Import GAXI components and field configs
@@ -109,10 +110,40 @@ class AXIL4MasterRead:
         if self.compliance_checker and log:
             log.info("AXIL4MasterRead: Compliance checking enabled")
 
+        # Per-call response waiters for concurrent read_transaction() pickup.
+        # AXIL4 has no AID/RID, so we can't key on ID like AXI4/AXI5. Instead
+        # we register one (event, slot) per pending call and the callback
+        # routes each arriving R into the next waiter in FIFO order (matching
+        # AXIL4 channel-level semantics). Positional indexing into
+        # self.r_channel._recvQ races when callers use cocotb.start_soon:
+        # every coroutine snapshots initial_count=0 and reads _recvQ[0] as
+        # "theirs". Mirrors the FIFO matching introduced for AXIL4SlaveWrite
+        # in 2e7e825.
+        self._response_waiters = collections.deque()
+        self.r_channel.add_callback(self._on_r_response)
+
+    def _on_r_response(self, pkt):
+        """Route incoming R into the next pending waiter (FIFO).
+
+        If no waiter is registered the response is unexpected -- log and
+        drop (the packet still lives in _recvQ for forensic inspection)."""
+        if self._response_waiters:
+            evt, slot = self._response_waiters.popleft()
+            slot.append(pkt)
+            evt.set()
+        elif self.log:
+            self.log.warning(f"AXIL4MasterRead: R response with no pending "
+                             f"waiter (dropped from pickup, retained in _recvQ)")
+
     async def read_transaction(self, address: int, **transaction_kwargs) -> int:
         """
         High-level read transaction - always single transfer for AXIL4.
-        CORE METHOD: Unchanged implementation.
+
+        Concurrency-safe: each call registers its own (event, slot) pair on
+        self._response_waiters BEFORE issuing AR, so the next-arriving R is
+        guaranteed to be routed to this caller (FIFO). Sequential callers
+        behave identically: with one outstanding transaction there's exactly
+        one waiter and exactly one R.
         """
         if self.log:
             self.log.debug(f"AXIL4MasterRead: Starting read transaction addr=0x{address:08X}")
@@ -124,24 +155,42 @@ class AXIL4MasterRead:
             # SIMPLIFIED: No user field handling
         )
 
-        # Record initial queue state
-        initial_count = len(self.r_channel._recvQ)
-        expected_count = initial_count + 1
+        # Register our waiter BEFORE sending AR so we can't miss a fast response
+        evt = Event()
+        slot = []
+        waiter = (evt, slot)
+        self._response_waiters.append(waiter)
 
-        # Send read address
-        await self.ar_channel.send(ar_packet)
+        try:
+            # Send read address
+            await self.ar_channel.send(ar_packet)
 
-        # Wait for R response
-        cycles_waited = 0
-        while len(self.r_channel._recvQ) < expected_count:
-            await RisingEdge(self.clock)
-            cycles_waited += 1
+            # Wait for our R response via event + clock-edge polling for timeout
+            cycles_waited = 0
+            while not slot:
+                await RisingEdge(self.clock)
+                cycles_waited += 1
 
-            if cycles_waited > self.timeout_cycles:
-                raise TimeoutError(f"AXIL4 read timeout after {cycles_waited} cycles at address 0x{address:08X}")
+                if cycles_waited > self.timeout_cycles:
+                    # Best-effort waiter removal (may have been popped already)
+                    try:
+                        self._response_waiters.remove(waiter)
+                    except ValueError:
+                        pass
+                    raise TimeoutError(
+                        f"AXIL4 read timeout after {cycles_waited} cycles at address 0x{address:08X}"
+                    )
+        except Exception:
+            # On any failure, ensure waiter is removed so a late response
+            # doesn't get mis-routed to a future caller.
+            try:
+                self._response_waiters.remove(waiter)
+            except ValueError:
+                pass
+            raise
 
-        # Extract data from response packet
-        packet = self.r_channel._recvQ[initial_count]
+        # Extract data from our routed response packet
+        packet = slot[0]
         data_value = getattr(packet, 'data', 0)
 
         # Check for errors
@@ -275,7 +324,32 @@ class AXIL4MasterWrite:
         if self.compliance_checker and log:
             log.info("AXIL4MasterWrite: Compliance checking enabled")
 
-    async def write_transaction(self, address: int, data: int, strb: Optional[int] = None, 
+        # Per-call B-response waiters for concurrent write_transaction()
+        # pickup. See AXIL4MasterRead.__init__ for race rationale. AXIL4 has
+        # no BID so we use a FIFO waiter list keyed only on arrival order.
+        self._response_waiters = collections.deque()
+        self.b_channel.add_callback(self._on_b_response)
+
+        # AW+W issuance lock. Concurrent write_transaction calls would
+        # otherwise interleave AW and W on the wire in a way that defeats
+        # the FIFO B pickup -- and on slaves that pair AW+W positionally
+        # the data ends up matched to the wrong address. Lock the AW+W
+        # critical section per transaction. Sequential callers see an
+        # uncontended lock; no behavior change. cocotb.triggers.Lock (not
+        # asyncio.Lock) -- cocotb's scheduler is not asyncio.
+        self._aw_w_lock = Lock(name="AXIL4MasterWrite_AW_W_Lock")
+
+    def _on_b_response(self, pkt):
+        """Route incoming B into the next pending waiter (FIFO)."""
+        if self._response_waiters:
+            evt, slot = self._response_waiters.popleft()
+            slot.append(pkt)
+            evt.set()
+        elif self.log:
+            self.log.warning(f"AXIL4MasterWrite: B response with no pending "
+                             f"waiter (dropped from pickup, retained in _recvQ)")
+
+    async def write_transaction(self, address: int, data: int, strb: Optional[int] = None,
                               **transaction_kwargs) -> int:
         """
         High-level write transaction - always single transfer for AXIL4.
@@ -302,26 +376,54 @@ class AXIL4MasterWrite:
             # SIMPLIFIED: No user field handling
         )
 
-        # Record initial B queue state
-        initial_b_count = len(self.b_channel._recvQ)
-        expected_b_count = initial_b_count + 1
+        # Serialize AW+W issuance AND waiter registration so concurrent calls
+        # have the same waiter-registration order as wire-issuance order.
+        # The lock guarantees no two callers interleave their (register,
+        # send AW, send W) sequence -- the FIFO B-pickup then matches the
+        # FIFO AW issuance.
+        async with self._aw_w_lock:
+            # Register our B waiter BEFORE sending AW/W (see read_transaction
+            # rationale -- guarantees we can't miss a fast response).
+            evt = Event()
+            slot = []
+            waiter = (evt, slot)
+            self._response_waiters.append(waiter)
 
-        # Send AW and W (can be concurrent in AXIL4)
-        
-        await self.aw_channel.send(aw_packet),
-        await self.w_channel.send(w_packet)
+            try:
+                # Send AW and W (can be concurrent in AXIL4)
+                await self.aw_channel.send(aw_packet)
+                await self.w_channel.send(w_packet)
+            except Exception:
+                try:
+                    self._response_waiters.remove(waiter)
+                except ValueError:
+                    pass
+                raise
 
-        # Wait for B response
-        cycles_waited = 0
-        while len(self.b_channel._recvQ) < expected_b_count:
-            await RisingEdge(self.clock)
-            cycles_waited += 1
+        try:
+            # Wait for our B response via event + clock-edge polling for timeout
+            cycles_waited = 0
+            while not slot:
+                await RisingEdge(self.clock)
+                cycles_waited += 1
 
-            if cycles_waited > self.timeout_cycles:
-                raise TimeoutError(f"AXIL4 write timeout after {cycles_waited} cycles at address 0x{address:08X}")
+                if cycles_waited > self.timeout_cycles:
+                    try:
+                        self._response_waiters.remove(waiter)
+                    except ValueError:
+                        pass
+                    raise TimeoutError(
+                        f"AXIL4 write timeout after {cycles_waited} cycles at address 0x{address:08X}"
+                    )
+        except Exception:
+            try:
+                self._response_waiters.remove(waiter)
+            except ValueError:
+                pass
+            raise
 
-        # Get the B response packet
-        b_response = self.b_channel._recvQ[initial_b_count]
+        # Get our routed B response packet
+        b_response = slot[0]
         resp_code = getattr(b_response, 'resp', 0)
 
         # Check for errors

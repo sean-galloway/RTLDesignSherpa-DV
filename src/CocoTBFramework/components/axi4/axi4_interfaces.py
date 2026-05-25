@@ -23,7 +23,6 @@ The compliance checker is automatically enabled when AXI4_COMPLIANCE_CHECK=1 is 
 and silently disabled otherwise, maintaining full backward compatibility.
 """
 
-import asyncio
 import collections
 import random
 from typing import Any, Dict, List, Optional, Union
@@ -964,7 +963,7 @@ class AXI4SlaveWrite:
         self.w_transaction_queue = []   # Queue of complete W burst sequences
 
         # Lock to prevent race condition in transaction completion
-        self.completion_locks = {}      # id -> asyncio.Lock
+        self.completion_locks = {}      # id -> cocotb.triggers.Lock
 
         # ENHANCEMENT: Integrate compliance checker automatically
         self.compliance_checker = AXI4ComplianceChecker.create_if_enabled(
@@ -1305,19 +1304,17 @@ class AXI4SlaveWrite:
 
     async def _complete_write_transaction(self, transaction_id):
             """Complete write transaction and send B response using generic field names."""
-            # Create lock for this transaction ID if it doesn't exist
-            #
-            # TODO(cocotb-lock): asyncio.Lock() is the wrong primitive under
-            #   cocotb — cocotb's scheduler is not an asyncio loop, so
-            #   acquire() raises 'NoneType has no attribute create_future'
-            #   on first contended use. Switch to cocotb.triggers.Lock (and
-            #   drop the manual `asyncio.Lock()` instantiation). The fix is
-            #   trivial; left untouched here because uncontended single-
-            #   transaction workflows happen to not exercise the path, so
-            #   nothing has triggered it yet. Same class of bug as fixed in
-            #   commit e5ebf7b for the master-side BFMs.
+            # Per-ID lock to make the "check pending_transactions then send B"
+            # sequence atomic against concurrent completion attempts for the
+            # same ID (which can happen when overlapping bursts share IDs).
+            # cocotb.triggers.Lock — NOT asyncio.Lock — because cocotb's
+            # scheduler is not an asyncio loop; asyncio.Lock().acquire()
+            # crashes on first contended use ('NoneType has no attribute
+            # create_future'). Same fix landed for the master-side BFMs in
+            # commit e5ebf7b.
             if transaction_id not in self.completion_locks:
-                self.completion_locks[transaction_id] = asyncio.Lock()
+                self.completion_locks[transaction_id] = Lock(
+                    name=f"AXI4SlaveWrite_completion_id{transaction_id}")
 
             # Use lock to ensure atomic check-and-set of completing flag
             async with self.completion_locks[transaction_id]:

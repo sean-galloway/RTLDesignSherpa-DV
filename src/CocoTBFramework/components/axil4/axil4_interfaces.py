@@ -25,7 +25,6 @@ CHANGES:
 This file is ready to replace the existing axil4_interfaces.py
 """
 
-import asyncio
 import collections
 from typing import List, Dict, Any, Optional, Union
 

@@ -34,7 +34,6 @@ Key Design Principles:
 5. AXI5-specific signal handling
 """
 
-import asyncio
 import collections
 import random
 from typing import Any, Dict, List, Optional, Union
@@ -1132,8 +1131,13 @@ class AXI5SlaveWrite:
 
     async def _complete_write_transaction(self, transaction_id):
         """Complete write transaction and send B response."""
+        # cocotb.triggers.Lock (not asyncio.Lock) — cocotb's scheduler is
+        # not an asyncio loop; asyncio.Lock().acquire() crashes on first
+        # contended use. Same fix as AXI4SlaveWrite, and the master-side
+        # BFM fix in commit e5ebf7b.
         if transaction_id not in self.completion_locks:
-            self.completion_locks[transaction_id] = asyncio.Lock()
+            self.completion_locks[transaction_id] = Lock(
+                name=f"AXI5SlaveWrite_completion_id{transaction_id}")
 
         async with self.completion_locks[transaction_id]:
             if transaction_id not in self.pending_transactions:

@@ -1306,6 +1306,16 @@ class AXI4SlaveWrite:
     async def _complete_write_transaction(self, transaction_id):
             """Complete write transaction and send B response using generic field names."""
             # Create lock for this transaction ID if it doesn't exist
+            #
+            # TODO(cocotb-lock): asyncio.Lock() is the wrong primitive under
+            #   cocotb — cocotb's scheduler is not an asyncio loop, so
+            #   acquire() raises 'NoneType has no attribute create_future'
+            #   on first contended use. Switch to cocotb.triggers.Lock (and
+            #   drop the manual `asyncio.Lock()` instantiation). The fix is
+            #   trivial; left untouched here because uncontended single-
+            #   transaction workflows happen to not exercise the path, so
+            #   nothing has triggered it yet. Same class of bug as fixed in
+            #   commit e5ebf7b for the master-side BFMs.
             if transaction_id not in self.completion_locks:
                 self.completion_locks[transaction_id] = asyncio.Lock()
 

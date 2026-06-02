@@ -26,30 +26,30 @@ This file is ready to replace the existing axil4_interfaces.py
 """
 
 import collections
-from typing import List, Dict, Any, Optional, Union
+from typing import Any, Dict, Optional
 
-from cocotb.triggers import Event, Lock, RisingEdge
 import cocotb
+from cocotb.triggers import Event, Lock, RisingEdge
+
+from CocoTBFramework.components.axil4.axil4_compliance_checker import AXIL4ComplianceChecker
+from CocoTBFramework.components.axil4.axil4_field_configs import AXIL4FieldConfigHelper
+from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
 
 # Import GAXI components and field configs
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
-from CocoTBFramework.components.gaxi.gaxi_monitor import GAXIMonitor
-from CocoTBFramework.components.axil4.axil4_field_configs import AXIL4FieldConfigHelper
-from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
-from CocoTBFramework.components.axil4.axil4_compliance_checker import AXIL4ComplianceChecker
 
 
 class AXIL4MasterRead:
     """
     AXIL4 Master Read Interface - Specification compliant with perfect API consistency.
-    
+
     PROVIDES IDENTICAL API TO AXI4MasterRead:
     - read_transaction() - Core transaction method
     - simple_read() - Original AXIL4 method (backward compatibility)
     - single_read() - NEW: Matches AXI4 API exactly
     - read_register() - NEW: Semantic alias for register access
-    
+
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
@@ -105,7 +105,7 @@ class AXIL4MasterRead:
             multi_sig=self.multi_sig
             # SIMPLIFIED: No user_width parameter
         )
-        
+
         if self.compliance_checker and log:
             log.info("AXIL4MasterRead: Compliance checking enabled")
 
@@ -131,8 +131,8 @@ class AXIL4MasterRead:
             slot.append(pkt)
             evt.set()
         elif self.log:
-            self.log.warning(f"AXIL4MasterRead: R response with no pending "
-                             f"waiter (dropped from pickup, retained in _recvQ)")
+            self.log.warning("AXIL4MasterRead: R response with no pending "
+                             "waiter (dropped from pickup, retained in _recvQ)")
 
     async def read_transaction(self, address: int, **transaction_kwargs) -> int:
         """
@@ -243,13 +243,13 @@ class AXIL4MasterRead:
 class AXIL4MasterWrite:
     """
     AXIL4 Master Write Interface - Specification compliant with perfect API consistency.
-    
+
     PROVIDES IDENTICAL API TO AXI4MasterWrite:
     - write_transaction() - Core transaction method
     - simple_write() - Original AXIL4 method (backward compatibility)
     - single_write() - NEW: Matches AXI4 API exactly
     - write_register() - NEW: Semantic alias for register access
-    
+
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
@@ -319,7 +319,7 @@ class AXIL4MasterWrite:
             multi_sig=self.multi_sig
             # SIMPLIFIED: No user_width parameter
         )
-        
+
         if self.compliance_checker and log:
             log.info("AXIL4MasterWrite: Compliance checking enabled")
 
@@ -345,8 +345,8 @@ class AXIL4MasterWrite:
             slot.append(pkt)
             evt.set()
         elif self.log:
-            self.log.warning(f"AXIL4MasterWrite: B response with no pending "
-                             f"waiter (dropped from pickup, retained in _recvQ)")
+            self.log.warning("AXIL4MasterWrite: B response with no pending "
+                             "waiter (dropped from pickup, retained in _recvQ)")
 
     async def write_transaction(self, address: int, data: int, strb: Optional[int] = None,
                               **transaction_kwargs) -> int:
@@ -368,7 +368,7 @@ class AXIL4MasterWrite:
             prot=transaction_kwargs.get('prot', 0)
             # SIMPLIFIED: No user field handling
         )
-        
+
         w_packet = self.w_channel.create_packet(
             data=data,
             strb=strb
@@ -480,7 +480,7 @@ class AXIL4MasterWrite:
 class AXIL4SlaveRead:
     """
     AXIL4 Slave Read Interface - Simplified and specification compliant.
-    
+
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
@@ -550,7 +550,7 @@ class AXIL4SlaveRead:
         )
 
         if self.log:
-            self.log.info(f"AXIL4SlaveRead initialized: AR callback linked to R master")
+            self.log.info("AXIL4SlaveRead initialized: AR callback linked to R master")
             if self.compliance_checker:
                 self.log.info("AXIL4SlaveRead: Compliance checking enabled")
 
@@ -608,7 +608,7 @@ class AXIL4SlaveRead:
             )
 
             await self.r_channel.send(r_packet)
-            
+
             if self.log:
                 self.log.debug(f"AXIL4SlaveRead: R response sent - data=0x{data:08X}, resp={resp}")
 
@@ -633,7 +633,7 @@ class AXIL4SlaveRead:
 class AXIL4SlaveWrite:
     """
     AXIL4 Slave Write Interface - Simplified and specification compliant.
-    
+
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
@@ -718,7 +718,7 @@ class AXIL4SlaveWrite:
         )
 
         if self.log:
-            self.log.info(f"AXIL4SlaveWrite initialized: AW/W callbacks linked to B master")
+            self.log.info("AXIL4SlaveWrite initialized: AW/W callbacks linked to B master")
             if self.compliance_checker:
                 self.log.info("AXIL4SlaveWrite: Compliance checking enabled")
 
@@ -808,7 +808,7 @@ class AXIL4SlaveWrite:
                 # SIMPLIFIED: No user field
             )
             await self.b_channel.send(b_packet)
-            
+
             if self.log:
                 self.log.debug(f"AXIL4SlaveWrite: B response sent - resp={resp}")
 

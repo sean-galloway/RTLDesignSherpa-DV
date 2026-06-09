@@ -30,6 +30,7 @@ from cocotb.utils import get_sim_time
 from ..shared.data_strategies import DataCollectionStrategy, DataDrivingStrategy
 from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.protocol_types import validate_protocol_type
 from ..shared.signal_mapping_helper import SignalResolver
 
 
@@ -94,23 +95,8 @@ class GAXIComponentBase:
         self.memory_model = memory_model
         self.signal_map = signal_map  # NEW: Store signal map
 
-        # Validate protocol_type - allow GAXI, AXIS, AXI4, and AXI5 protocol types
-        valid_types = [
-            'gaxi_master', 'gaxi_slave',
-            'axis_master', 'axis_slave',
-            'axi4_ar_master', 'axi4_ar_slave',
-            'axi4_r_master', 'axi4_r_slave',
-            'axi4_aw_master', 'axi4_aw_slave',
-            'axi4_w_master', 'axi4_w_slave',
-            'axi4_b_master', 'axi4_b_slave',
-            'axi5_ar_master', 'axi5_ar_slave',
-            'axi5_r_master', 'axi5_r_slave',
-            'axi5_aw_master', 'axi5_aw_slave',
-            'axi5_w_master', 'axi5_w_slave',
-            'axi5_b_master', 'axi5_b_slave'
-        ]
-        if protocol_type not in valid_types:
-            raise ValueError(f"protocol_type must be one of {valid_types}, got: {protocol_type}")
+        # Validate protocol_type against the canonical set (shared/protocol_types.py)
+        validate_protocol_type(protocol_type)
         self.protocol_type = protocol_type
 
         # Normalize field_config - handle dict conversion uniformly

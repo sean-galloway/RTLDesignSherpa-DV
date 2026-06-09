@@ -22,9 +22,15 @@ eliminating code duplication through inheritance from unified base classes.
 All existing parameters are preserved and used exactly as before.
 """
 
+from __future__ import annotations
+
+from logging import Logger
+from typing import Any, Optional
+
 from cocotb.triggers import FallingEdge, Timer
 from cocotb.utils import get_sim_time
 
+from .gaxi_component_base import ClockSignal, DutHandle, FieldConfigInput
 from .gaxi_monitor_base import GAXIMonitorBase
 from .gaxi_packet import GAXIPacket
 
@@ -50,13 +56,24 @@ class GAXIMonitor(GAXIMonitorBase):
     regardless of DUT internal mode (fifo_flop vs fifo_mux).
     """
 
-    def __init__(self, dut, title, prefix, clock, field_config, is_slave=False,
-                    mode='skid',
-                    bus_name='',
-                    pkt_prefix='',
-                    multi_sig=False,
-                    log=None, super_debug=False,
-                    signal_map=None, protocol_type=None, **kwargs):
+    def __init__(
+        self,
+        dut: DutHandle,
+        title: str,
+        prefix: str,
+        clock: ClockSignal,
+        field_config: FieldConfigInput,
+        is_slave: bool = False,
+        mode: str = "skid",
+        bus_name: str = "",
+        pkt_prefix: str = "",
+        multi_sig: bool = False,
+        log: Optional[Logger] = None,
+        super_debug: bool = False,
+        signal_map: Optional[dict] = None,
+        protocol_type: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize GAXI Monitor - EXACT SAME API AS BEFORE.
 

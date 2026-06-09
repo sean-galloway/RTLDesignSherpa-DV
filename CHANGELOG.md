@@ -4,6 +4,18 @@
 
 ### Changed
 
+- **Type annotations on GAXI/FIFO base-class signatures.** Added full
+  type annotations to the `__init__` signatures and public methods of
+  the ready/valid component bases: `GAXIComponentBase`, `GAXIMonitorBase`,
+  `FIFOComponentBase`, `GAXIMaster`, `GAXISlave`, `GAXIMonitor`.
+  Introduced `DutHandle = Any` / `ClockSignal = Any` /
+  `FieldConfigInput = Union[FieldConfig, dict, None]` type aliases in
+  `gaxi_component_base.py` and re-exported them from the modules that
+  consume them. Cocotb handle types are kept as `Any` because their
+  concrete types vary by simulator backend. No runtime behavior change;
+  IDEs and type checkers can now assist downstream BFM authors.
+  ([#11](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/11))
+
 - **APB5 inherits from APB (Monitor + Master + Slave).** Refactored
   `APBMonitor`, `APBMaster`, and `APBSlave` to expose extension hooks;
   `APB5Monitor`, `APB5Master`, and `APB5Slave` now inherit from them.

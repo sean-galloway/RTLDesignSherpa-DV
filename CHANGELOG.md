@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **Framework kwarg stripping helper.** Added
+  `components/shared/init_kwargs.py` with `FRAMEWORK_KWARGS` canonical
+  tuple and `strip_framework_kwargs()` / `pop_framework_kwargs()` helpers.
+  `GAXIMaster.__init__` and `GAXIMonitorBase.__init__` now call the helper
+  instead of open-coding the `for param in custom_params: kwargs.pop(...)`
+  dance. Adding a new framework kwarg now requires updating one tuple.
+  ([#10](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/10))
+
 ## [0.1.1] - 2026-06-01
 
 ### Fixed

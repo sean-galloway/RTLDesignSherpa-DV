@@ -529,10 +529,14 @@ class APBMaster(BusDriver):
     # ---- Extension hooks (overridden by APB5Master) ----
 
     def _default_randomizer_constraints(self):
-        """Default FlexRandomizer constraints. Subclasses extend the dict."""
+        """Default FlexRandomizer constraints. Subclasses extend the dict.
+
+        Note: bin ranges MUST be tuples, not lists — FlexRandomizer's
+        validator rejects list bins (see ConstraintValidationError).
+        """
         return {
-            'psel':    ([[0, 0], [1, 5], [6, 10]], [5, 2, 1]),
-            'penable': ([[0, 0], [1, 2]], [4, 1]),
+            'psel':    ([(0, 0), (1, 5), (6, 10)], [5, 2, 1]),
+            'penable': ([(0, 0), (1, 2)], [4, 1]),
         }
 
     def _init_extension_signals(self):

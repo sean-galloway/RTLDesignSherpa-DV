@@ -20,11 +20,21 @@ Eliminates duplication while preserving exact APIs and timing.
 All existing parameters are maintained and used exactly as before.
 """
 
+from __future__ import annotations
+
+from logging import Logger
+from typing import Any, Optional
+
 from cocotb.utils import get_sim_time
 from cocotb_bus.monitors import BusMonitor
 
 from ..shared.monitor_statistics import MonitorStatistics
-from .gaxi_component_base import GAXIComponentBase
+from .gaxi_component_base import (
+    ClockSignal,
+    DutHandle,
+    FieldConfigInput,
+    GAXIComponentBase,
+)
 from .gaxi_packet import GAXIPacket
 
 
@@ -41,14 +51,23 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
     Shared by GAXIMonitor and GAXISlave to eliminate code duplication
     while preserving exact APIs and timing-critical behavior.
     """
-    def __init__(self, dut, title, prefix, clock, field_config,
-                    mode='skid',
-                    bus_name='',
-                    pkt_prefix='',
-                    multi_sig=False,
-                    protocol_type=None,  # 'gaxi_master' or 'gaxi_slave' - set by subclass
-                    log=None, super_debug=False,
-                    signal_map=None, **kwargs):
+    def __init__(
+        self,
+        dut: DutHandle,
+        title: str,
+        prefix: str,
+        clock: ClockSignal,
+        field_config: FieldConfigInput,
+        mode: str = "skid",
+        bus_name: str = "",
+        pkt_prefix: str = "",
+        multi_sig: bool = False,
+        protocol_type: Optional[str] = None,  # set by subclass
+        log: Optional[Logger] = None,
+        super_debug: bool = False,
+        signal_map: Optional[dict] = None,
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize common GAXI monitoring functionality - EXACT SAME API AS BEFORE.
 

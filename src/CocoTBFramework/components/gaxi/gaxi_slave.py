@@ -22,10 +22,18 @@ debugging and error recovery through structured pipeline phases.
 FIXED: Removed double initialization and fixed attribute access issues.
 """
 
+from __future__ import annotations
+
+from logging import Logger
+from typing import Any, Optional
+
 from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
+from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.memory_model import MemoryModel
 from ..shared.monitor_statistics import MonitorStatistics
+from .gaxi_component_base import ClockSignal, DutHandle, FieldConfigInput
 from .gaxi_monitor_base import GAXIMonitorBase
 from .gaxi_packet import GAXIPacket
 
@@ -51,15 +59,27 @@ class GAXISlave(GAXIMonitorBase):
     FIXED: Removed double initialization and attribute access issues.
     """
 
-    def __init__(self, dut, title, prefix, clock, field_config,
-                    timeout_cycles=1000, mode='skid',
-
-                    bus_name='',
-                    pkt_prefix='',
-                    multi_sig=False,
-                    randomizer=None, memory_model=None, log=None,
-                    super_debug=False, pipeline_debug=False,
-                    signal_map=None, protocol_type='gaxi_slave', **kwargs):
+    def __init__(
+        self,
+        dut: DutHandle,
+        title: str,
+        prefix: str,
+        clock: ClockSignal,
+        field_config: FieldConfigInput,
+        timeout_cycles: int = 1000,
+        mode: str = "skid",
+        bus_name: str = "",
+        pkt_prefix: str = "",
+        multi_sig: bool = False,
+        randomizer: Optional[FlexRandomizer] = None,
+        memory_model: Optional[MemoryModel] = None,
+        log: Optional[Logger] = None,
+        super_debug: bool = False,
+        pipeline_debug: bool = False,
+        signal_map: Optional[dict] = None,
+        protocol_type: str = "gaxi_slave",
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize GAXI Slave with structured pipeline support.
 

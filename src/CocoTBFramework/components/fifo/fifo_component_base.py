@@ -25,10 +25,22 @@ FIXED: Now passes resolved signals directly to DataStrategies, eliminating guess
 ADDED: Optional signal_map parameter for manual signal mapping override.
 """
 
+from __future__ import annotations
+
+from logging import Logger
+from typing import Any, Optional, Union
+
 from ..shared.data_strategies import DataCollectionStrategy, DataDrivingStrategy
 from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.memory_model import MemoryModel
 from ..shared.signal_mapping_helper import SignalResolver
+
+# Local type aliases (matching gaxi/gaxi_component_base.py — kept here so this
+# module stays standalone in case the GAXI module isn't imported).
+DutHandle = Any
+ClockSignal = Any
+FieldConfigInput = Union[FieldConfig, dict, None]
 
 
 class FIFOComponentBase:
@@ -44,18 +56,25 @@ class FIFOComponentBase:
     ADDED: Optional signal_map parameter for manual signal override.
     """
 
-    def __init__(self, dut, title, prefix, clock, field_config,
-                    protocol_type,  # Must be specified by subclass
-                    mode='fifo_mux',
-                    bus_name='',
-                    pkt_prefix='',
-                    multi_sig=False,
-                    randomizer=None,
-                    memory_model=None,
-                    log=None,
-                    super_debug=False,
-                    signal_map=None,  # NEW: Optional manual signal mapping
-                    **kwargs):
+    def __init__(
+        self,
+        dut: DutHandle,
+        title: str,
+        prefix: str,
+        clock: ClockSignal,
+        field_config: FieldConfigInput,
+        protocol_type: str,  # Must be specified by subclass
+        mode: str = "fifo_mux",
+        bus_name: str = "",
+        pkt_prefix: str = "",
+        multi_sig: bool = False,
+        randomizer: Optional[FlexRandomizer] = None,
+        memory_model: Optional[MemoryModel] = None,
+        log: Optional[Logger] = None,
+        super_debug: bool = False,
+        signal_map: Optional[dict] = None,  # NEW: Optional manual signal mapping
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize common FIFO component functionality.
 
@@ -132,7 +151,7 @@ class FIFOComponentBase:
         # Store additional kwargs for subclass use
         self._component_kwargs = kwargs
 
-    def _normalize_field_config(self, field_config):
+    def _normalize_field_config(self, field_config: FieldConfigInput) -> FieldConfig:
         """
         Standardize field_config handling across all components.
 
@@ -151,7 +170,11 @@ class FIFOComponentBase:
         else:
             raise TypeError(f"field_config must be FieldConfig, dict, or None, got {type(field_config)}")
 
-    def _setup_randomizer(self, randomizer, protocol_type):
+    def _setup_randomizer(
+        self,
+        randomizer: Optional[FlexRandomizer],
+        protocol_type: str,
+    ) -> FlexRandomizer:
         """
         Set up randomizer with appropriate defaults for component type.
 
@@ -177,7 +200,7 @@ class FIFOComponentBase:
 
         return FlexRandomizer(default_constraints)
 
-    def complete_base_initialization(self, bus=None):
+    def complete_base_initialization(self, bus: Any = None) -> None:
         """
         Complete initialization after cocotb parent class setup.
 

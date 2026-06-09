@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Documentation
+
+- **AXI4SlaveRead in-order serialization synchronization assumption.** Audited
+  `_generate_read_response_serialized` and `_ar_callback` for the race class
+  that previously affected `completion_locks` (PR for #5 / commit `9d6cbc9`).
+  No race exists: all mutations of `in_order_active` / `in_order_queue` happen
+  between awaits within the coroutine, and cocotb's cooperative scheduler keeps
+  them atomic. Added an explicit synchronization note in the docstring and
+  inline comments so a future maintainer doesn't introduce an across-await
+  hazard. No code behavior change.
+  ([#13](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/13))
+
 ## [0.1.1] - 2026-06-01
 
 ### Fixed

@@ -1,0 +1,112 @@
+#==============================================================================
+# bridge_b_axi4_axil_3x5.toml
+#==============================================================================
+# Mixed-master bridge: 2 AXI4 masters + 1 AXIL4 master into 2 AXI4 + 2 AXIL4
+# + 1 APB slaves. Every protocol cross-combination is exercised at least once
+# (AXI4→AXI4, AXI4→AXIL4, AXI4→APB, AXIL→AXI4, AXIL→AXIL, AXIL→APB).
+#
+# Concurrency profile: cross-protocol BFM stress at moderate width
+#==============================================================================
+
+[bridge]
+name = "bridge_b_axi4_axil_3x5"
+description = "3 masters (AXI4+AXIL) → 5 slaves (AXI4+AXIL+APB), every cross-protocol path"
+variants = ["no"]
+
+[bridge.clock]
+name = "aclk"
+frequency_mhz = 100
+
+# ---------------------------------------------------------------- masters ---
+
+[[bridge.masters]]
+name       = "cpu_axi4"
+prefix     = "cpu_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 4
+addr_width = 32
+data_width = 64
+user_width = 1
+
+[[bridge.masters]]
+name       = "dma_axi4"
+prefix     = "dma_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 4
+addr_width = 32
+data_width = 128
+user_width = 1
+
+[[bridge.masters]]
+name       = "host_axil"
+prefix     = "host_axil_"
+protocol   = "axil"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 1
+
+# ---------------------------------------------------------------- slaves ----
+
+[[bridge.slaves]]
+name       = "ddr0"
+prefix     = "ddr0_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 6
+addr_width = 32
+data_width = 128
+user_width = 1
+base_addr  = "0x00000000"
+addr_range = "0x40000000"   # 1 GB
+
+[[bridge.slaves]]
+name       = "sram"
+prefix     = "sram_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 6
+addr_width = 32
+data_width = 64
+user_width = 1
+base_addr  = "0x80000000"
+addr_range = "0x01000000"   # 16 MB
+
+[[bridge.slaves]]
+name       = "axil_periph0"
+prefix     = "axil_periph0_"
+protocol   = "axil"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 1
+base_addr  = "0x90000000"
+addr_range = "0x00010000"   # 64 KB
+
+[[bridge.slaves]]
+name       = "axil_periph1"
+prefix     = "axil_periph1_"
+protocol   = "axil"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 1
+base_addr  = "0x90010000"
+addr_range = "0x00010000"   # 64 KB
+
+[[bridge.slaves]]
+name       = "apb_periph0"
+prefix     = "apb_periph0_"
+protocol   = "apb"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 0
+base_addr  = "0xA0000000"
+addr_range = "0x00010000"   # 64 KB

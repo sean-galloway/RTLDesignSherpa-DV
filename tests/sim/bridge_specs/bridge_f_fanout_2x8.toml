@@ -1,0 +1,139 @@
+#==============================================================================
+# bridge_f_fanout_2x8.toml
+#==============================================================================
+# High fan-out SoC-shaped bridge: 2 AXI4 masters (cpu + dma) into 8 slaves
+# (4 AXI4 + 2 AXIL4 + 2 APB). 10 ports total. Models the realistic SoC
+# topology where a small number of masters route bursts to many destinations.
+#
+# Concurrency profile: master-side BFM burst routing across 8 destinations,
+# stresses APB queued pipeline (#15) on the two APB tail slaves.
+#==============================================================================
+
+[bridge]
+name = "bridge_f_fanout_2x8"
+description = "2 AXI4 masters → 8 slaves (4 AXI4 + 2 AXIL + 2 APB), SoC-shaped fan-out"
+variants = ["no"]
+
+[bridge.clock]
+name = "aclk"
+frequency_mhz = 100
+
+# ---------------------------------------------------------------- masters ---
+
+[[bridge.masters]]
+name       = "cpu"
+prefix     = "cpu_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 4
+addr_width = 32
+data_width = 64
+user_width = 1
+
+[[bridge.masters]]
+name       = "dma"
+prefix     = "dma_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 8
+addr_width = 32
+data_width = 128
+user_width = 1
+
+# ---------------------------------------------------------------- slaves ----
+
+[[bridge.slaves]]
+name       = "ddr0"
+prefix     = "ddr0_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 9
+addr_width = 32
+data_width = 256
+user_width = 1
+base_addr  = "0x00000000"
+addr_range = "0x40000000"   # 1 GB
+
+[[bridge.slaves]]
+name       = "ddr1"
+prefix     = "ddr1_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 9
+addr_width = 32
+data_width = 128
+user_width = 1
+base_addr  = "0x40000000"
+addr_range = "0x40000000"   # 1 GB
+
+[[bridge.slaves]]
+name       = "sram"
+prefix     = "sram_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 9
+addr_width = 32
+data_width = 64
+user_width = 1
+base_addr  = "0x80000000"
+addr_range = "0x01000000"   # 16 MB
+
+[[bridge.slaves]]
+name       = "scratch"
+prefix     = "scratch_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 9
+addr_width = 32
+data_width = 64
+user_width = 1
+base_addr  = "0x81000000"
+addr_range = "0x01000000"   # 16 MB
+
+[[bridge.slaves]]
+name       = "axil_periph0"
+prefix     = "axil_periph0_"
+protocol   = "axil"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 1
+base_addr  = "0x90000000"
+addr_range = "0x00010000"   # 64 KB
+
+[[bridge.slaves]]
+name       = "axil_periph1"
+prefix     = "axil_periph1_"
+protocol   = "axil"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 1
+base_addr  = "0x90010000"
+addr_range = "0x00010000"   # 64 KB
+
+[[bridge.slaves]]
+name       = "apb_periph0"
+prefix     = "apb_periph0_"
+protocol   = "apb"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 0
+base_addr  = "0xA0000000"
+addr_range = "0x00010000"   # 64 KB
+
+[[bridge.slaves]]
+name       = "apb_periph1"
+prefix     = "apb_periph1_"
+protocol   = "apb"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 0
+base_addr  = "0xA0010000"
+addr_range = "0x00010000"   # 64 KB

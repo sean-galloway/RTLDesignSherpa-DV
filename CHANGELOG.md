@@ -4,6 +4,18 @@
 
 ### Changed
 
+- **Shared APB/APB5 constants.** Added
+  `components/shared/apb_common.py` with `BASE_APB_SIGNALS`,
+  `BASE_APB_OPTIONAL_SIGNALS`, and `PWRITE_DIR`. Both
+  `apb/apb_components.py` and `apb5/apb5_components.py` now import these
+  rather than re-defining them. APB5's optional-signals list is now
+  explicitly expressed as the APB4 set plus an `_APB5_EXTENSION_OPTIONAL_SIGNALS`
+  delta. Public module-level names (`apb_signals`, `apb_optional_signals`,
+  `apb5_signals`, `apb5_optional_signals`, `pwrite`) preserved.
+  ([#8](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/8),
+  superseded by [#15](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/15)
+  which does the full structural extraction via inheritance hooks.)
+
 - **AXISSlave now inherits GAXISlave (was GAXIMonitorBase).** AXIS is a
   ready/valid protocol like every other GAXI consumer; the previous
   inheritance skipped the structured pipeline state machine, the

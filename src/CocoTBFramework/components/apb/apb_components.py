@@ -23,26 +23,20 @@ from cocotb.utils import get_sim_time
 from cocotb_bus.drivers import BusDriver
 from cocotb_bus.monitors import BusMonitor
 
+from ..shared.apb_common import (
+    BASE_APB_OPTIONAL_SIGNALS,
+    BASE_APB_SIGNALS,
+    PWRITE_DIR,
+)
 from ..shared.flex_randomizer import FlexRandomizer
 from ..shared.memory_model import MemoryModel
 from .apb_packet import APBPacket  # Updated import
 
-# define the PWRITE mapping
-pwrite = ['READ', 'WRITE']
-apb_signals = [
-    "PSEL",
-    "PWRITE",
-    "PENABLE",
-    "PADDR",
-    "PWDATA",
-    "PRDATA",
-    "PREADY"
-]
-apb_optional_signals = [
-    "PPROT",
-    "PSLVERR",
-    "PSTRB"
-]
+# Backward-compatible module-level names (preserved for any external imports).
+# Canonical definitions live in components/shared/apb_common.py — see issue #8.
+pwrite = list(PWRITE_DIR)
+apb_signals = list(BASE_APB_SIGNALS)
+apb_optional_signals = list(BASE_APB_OPTIONAL_SIGNALS)
 
 
 class APBMonitor(BusMonitor):

@@ -4,6 +4,59 @@
 
 ### Changed
 
+- **APB5 inherits from APB (Monitor + Master + Slave).** Refactored
+  `APBMonitor`, `APBMaster`, and `APBSlave` to expose extension hooks;
+  `APB5Monitor`, `APB5Master`, and `APB5Slave` now inherit from them.
+  Eliminates the parallel `_monitor_recv` edge-detection loops and the
+  parallel signal-init boilerplate.
+  ([#15](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/15))
+
+  Hooks added to `APBMonitor`:
+  - `_build_packet(...)` — APB5Monitor overrides to return an `APB5Packet`
+    with USER/WAKEUP fields populated.
+
+  Hooks added to `APBMaster`:
+  - `_default_randomizer_constraints()`
+  - `_init_extension_signals()`
+  - `_drive_extension_setup_phase(transaction)`
+  - `_capture_extension_response(transaction)`
+
+  Hooks added to `APBSlave`:
+  - `_default_randomizer_constraints()`
+  - `_init_extension_signals()`
+  - `_capture_extension_input_fields()`
+  - `_drive_extension_response(rand_values)`
+  - `_build_packet(...)`
+
+  **APB5Master gains parity with APB4Master**: previously had no
+  `transmit_queue`, no `_transmit_pipeline`, no `FlexRandomizer` for
+  PSEL/PENABLE delays, no `busy_send` / `reset_bus`. All of these are
+  inherited now. The previous direct-drive `_driver_send` is replaced by
+  the inherited queued pipeline. APB5Master's `write()` / `read()`
+  convenience methods now route through `busy_send`.
+
+  **APB5Slave fixes two latent bugs** that the empty test suite hadn't
+  caught: `self.mem.write(line, wdata, strb)` previously passed an int
+  for `wdata` and a line index for the address (MemoryModel.write
+  requires a byte address and a bytearray — would have raised TypeError);
+  `self.mem.read(line)` was missing the required `length` argument. The
+  unified flow uses the correct byte-address + bytearray API.
+
+  **Observable APB5 behavior changes:** `ready_delay` is now measured
+  from PSEL detection (1 cycle earlier than the old PENABLE-rising
+  baseline); memory overflow now auto-expands by default (was previously
+  silent failure when `error_overflow=False`); APBSlave now dispatches
+  via `self._recv()` (APB5 already did — APB4 picks it up for free).
+
+  Public class names preserved (`APB5Monitor`, `APB5Master`, `APB5Slave`).
+
+  **Breaking change risk (moderate):** users subclassing `APB5Master` /
+  `APB5Slave` directly will see MRO changes. `APB5Master.send()`
+  previously drove the bus synchronously; now it queues (matches APB4's
+  behavior — use `busy_send()` to wait for completion).
+  `isinstance(x, APBMaster)` and `isinstance(x, APBSlave)` on APB5
+  instances now return True.
+
 - **Shared APB/APB5 constants.** Added
   `components/shared/apb_common.py` with `BASE_APB_SIGNALS`,
   `BASE_APB_OPTIONAL_SIGNALS`, and `PWRITE_DIR`. Both

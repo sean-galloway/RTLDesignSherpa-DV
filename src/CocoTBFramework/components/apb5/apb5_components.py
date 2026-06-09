@@ -22,29 +22,24 @@ from cocotb.utils import get_sim_time
 from cocotb_bus.drivers import BusDriver
 from cocotb_bus.monitors import BusMonitor
 
+from ..shared.apb_common import (
+    BASE_APB_OPTIONAL_SIGNALS,
+    BASE_APB_SIGNALS,
+    PWRITE_DIR,
+)
 from ..shared.flex_randomizer import FlexRandomizer
 from ..shared.memory_model import MemoryModel
 from .apb5_packet import APB5Packet
 
-# Define the PWRITE mapping
-pwrite = ['READ', 'WRITE']
+# Direction mapping (canonical definition in components/shared/apb_common.py)
+pwrite = list(PWRITE_DIR)
 
-# APB5 signals - APB4 base signals plus APB5 extensions
-apb5_signals = [
-    "PSEL",
-    "PWRITE",
-    "PENABLE",
-    "PADDR",
-    "PWDATA",
-    "PRDATA",
-    "PREADY"
-]
+# APB5 signals — APB4 base signals (from apb_common) plus APB5 extensions
+apb5_signals = list(BASE_APB_SIGNALS)
 
-apb5_optional_signals = [
-    "PPROT",
-    "PSLVERR",
-    "PSTRB",
-    # APB5 extensions
+# APB5 extension signals layered on top of the APB4 optional set
+_APB5_EXTENSION_OPTIONAL_SIGNALS = (
+    # APB5 user-channel extensions
     "PAUSER",
     "PWUSER",
     "PRUSER",
@@ -57,7 +52,10 @@ apb5_optional_signals = [
     "PRDATAPARITY",
     "PREADYPARITY",
     "PSLVERRPARITY",
-]
+)
+apb5_optional_signals = list(BASE_APB_OPTIONAL_SIGNALS) + list(
+    _APB5_EXTENSION_OPTIONAL_SIGNALS
+)
 
 
 class APB5Monitor(BusMonitor):

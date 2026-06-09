@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **Shared APB/APB5 constants.** Added
+  `components/shared/apb_common.py` with `BASE_APB_SIGNALS`,
+  `BASE_APB_OPTIONAL_SIGNALS`, and `PWRITE_DIR`. Both
+  `apb/apb_components.py` and `apb5/apb5_components.py` now import these
+  rather than re-defining them. APB5's optional-signals list is now
+  explicitly expressed as the APB4 set plus an `_APB5_EXTENSION_OPTIONAL_SIGNALS`
+  delta. Public module-level names (`apb_signals`, `apb_optional_signals`,
+  `apb5_signals`, `apb5_optional_signals`, `pwrite`) preserved.
+  ([#8](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/8))
+
+  **Scope note:** The original audit estimated APB and APB5 share ~80% of
+  code. On closer inspection only the **Monitor** edge-detection loops are
+  materially duplicated. `APBMaster` uses a queued, randomized transmit
+  pipeline (`_transmit_pipeline` / `_finish_xmit`); `APB5Master` directly
+  drives in `_driver_send` with no queue. Slave implementations diverge
+  similarly because APB5 carries USER/WAKEUP/parity fields. Extracting a
+  shared Master/Slave base would force one style onto the other and is
+  declined. A future PR can extract a common `_APBMonitorBase` for the
+  edge-detection loop with override hooks for protocol-specific field
+  capture; this PR is the seed (the shared module is in place, the
+  scope-reduction rationale is captured in `apb_common.py`'s docstring).
+
 ## [0.1.1] - 2026-06-01
 
 ### Fixed

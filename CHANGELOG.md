@@ -4,6 +4,27 @@
 
 ### Changed
 
+- **AXISSlave now inherits GAXISlave (was GAXIMonitorBase).** AXIS is a
+  ready/valid protocol like every other GAXI consumer; the previous
+  inheritance skipped the structured pipeline state machine, the
+  `pipeline_debug` plumbing, and `_set_ready` from `GAXISlave`, and
+  reimplemented `_monitor_recv` on top of the bare monitor base. Now
+  inherits `GAXISlave`; the AXIS `_monitor_recv` override is preserved
+  for TLAST/frame tracking. `AXIS5Slave` picks up the change transitively
+  (it inherits `AXISSlave`).
+
+  Also fixed two latent bugs in the same constructor:
+  - Duplicate `complete_base_initialization()` call (super already calls it).
+  - `randomizer`, `memory_model`, and `pipeline_debug` were stored as
+    attributes *after* `super().__init__()` instead of being forwarded —
+    meaning the base never received them. Now forwarded properly.
+
+  ([#7](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/7))
+
+  **Breaking change risk (low):** users doing `isinstance(x, GAXIMonitorBase)`
+  on an AXIS slave still match transitively. Users subclassing `AXISSlave`
+  and overriding init may need to review forwarding.
+
 - **Canonical `protocol_type` set.** Added
   `components/shared/protocol_types.py` providing `PROTOCOL_TYPES`
   (frozenset) and `validate_protocol_type()`. `GAXIComponentBase` and

@@ -20,31 +20,33 @@ This module provides AXIS Slave functionality using GAXI infrastructure.
 Similar API to AXI4Slave but adapted for stream protocol.
 """
 
-import cocotb
 from cocotb.triggers import RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
-from ..gaxi.gaxi_monitor_base import GAXIMonitorBase
+from ..gaxi.gaxi_slave import GAXISlave
 from .axis_field_configs import AXISFieldConfigs
 from .axis_packet import AXISPacket
 
 
-class AXISSlave(GAXIMonitorBase):
+class AXISSlave(GAXISlave):
     """
     AXIS Slave component for receiving AXI4-Stream protocol.
 
-    Inherits common functionality from GAXIMonitorBase:
-    - Signal resolution and data collection setup
-    - Clean _get_data_dict() with automatic field unpacking
-    - Unified _finish_packet() without conditional mess
-    - Packet creation and statistics
-    - Memory model integration
+    Inherits from :class:`GAXISlave` to reuse the structured pipeline state
+    machine, ready-signal driving, statistics, and ``complete_base_initialization``
+    plumbing. AXIS adds frame-level (TLAST) tracking and stream-specific
+    monitoring on top of the same ready/valid chassis.
 
-    AXIS-specific features:
+    AXIS-specific features added by this subclass:
     - Stream data reception with backpressure control
-    - Frame boundary detection with TLAST
-    - Ready signal timing control
+    - Frame boundary detection via TLAST
     - Packet and frame statistics
+
+    .. note::
+
+        ``_monitor_recv`` is overridden here to capture TLAST-delimited frames
+        rather than per-beat transactions. ``set_ready_always``,
+        ``apply_backpressure``, and ``wait_for_frame`` are AXIS extensions.
     """
 
     def __init__(self, dut, title, prefix, clock, field_config=None,
@@ -79,38 +81,39 @@ class AXISSlave(GAXIMonitorBase):
         if field_config is None:
             field_config = AXISFieldConfigs.create_default_axis_config()
 
-        # Initialize base monitor
+        # Initialize via GAXISlave — which forwards through GAXIMonitorBase to
+        # GAXIComponentBase and calls complete_base_initialization() itself.
+        # We pass protocol_type='axis_slave' so SignalResolver picks the AXIS
+        # signal table; all other framework kwargs (randomizer, memory_model,
+        # pipeline_debug, etc.) flow through GAXISlave's normal handling.
         super().__init__(
             dut=dut, title=title, prefix=prefix, clock=clock,
-            field_config=field_config, protocol_type='axis_slave',
-            mode=mode, bus_name=bus_name, pkt_prefix=pkt_prefix,
-            multi_sig=multi_sig, log=log, super_debug=super_debug,
-            signal_map=signal_map, **kwargs
+            field_config=field_config,
+            timeout_cycles=timeout_cycles,
+            mode=mode,
+            bus_name=bus_name,
+            pkt_prefix=pkt_prefix,
+            multi_sig=multi_sig,
+            randomizer=randomizer,
+            memory_model=memory_model,
+            log=log,
+            super_debug=super_debug,
+            pipeline_debug=pipeline_debug,
+            signal_map=signal_map,
+            protocol_type='axis_slave',
+            **kwargs,
         )
 
-        # AXIS Slave specific attributes
-        self.timeout_cycles = timeout_cycles
-        self.pipeline_debug = pipeline_debug
-        self.randomizer = randomizer
-        self.memory_model = memory_model
-
-        # Reception state
+        # AXIS-specific reception state
         self._receiving = False
         self._current_frame = []
         self._frame_id = None
 
-        # Statistics tracking
+        # AXIS-specific statistics (frame-level)
         self.packets_received = 0
         self.frames_received = 0
         self.total_data_bytes = 0
         self.errors = 0
-
-        # Complete initialization
-        self.complete_base_initialization()
-
-        # Start monitoring
-        if hasattr(self, '_start_monitoring'):
-            cocotb.start_soon(self._start_monitoring())
 
         if self.log:
             self.log.info(f"AXISSlave '{self.title}' initialized: "

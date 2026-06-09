@@ -1,5 +1,54 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **APB5 inherits from APB (Monitor + Master).** Refactored `APBMonitor`
+  and `APBMaster` to expose extension hooks; `APB5Monitor` and
+  `APB5Master` now inherit from them. Eliminates the parallel
+  `_monitor_recv` edge-detection loops and the parallel signal-init
+  boilerplate. ([#15](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/15))
+
+  Hooks added to `APBMonitor`:
+  - `_build_packet(...)` — constructs the protocol-specific packet from
+    sampled bus values. APB5Monitor overrides to return an `APB5Packet`
+    with USER/WAKEUP fields populated.
+
+  Hooks added to `APBMaster`:
+  - `_default_randomizer_constraints()` — APB4 returns `psel` / `penable`
+    defaults; subclasses can add extension-field constraints.
+  - `_init_extension_signals()` — APB5Master overrides to zero PAUSER /
+    PWUSER at construction.
+  - `_drive_extension_setup_phase(transaction)` — APB5Master overrides to
+    drive PAUSER / PWUSER during the setup phase of `_finish_xmit`.
+  - `_capture_extension_response(transaction)` — APB5Master overrides to
+    sample PRUSER / PBUSER / PWAKEUP after PREADY rises.
+
+  **APB5Master gains parity with APB4Master**: previously had no
+  `transmit_queue`, no `_transmit_pipeline`, no `FlexRandomizer` for
+  PSEL/PENABLE delays, no `busy_send` / `reset_bus`. All of these are
+  inherited now. The previous direct-drive `_driver_send` is replaced by
+  the inherited queued pipeline. APB5Master's public `write()` / `read()`
+  convenience methods now route through `busy_send` so they wait for the
+  queued transaction to complete.
+
+  Public class names preserved (`APB5Monitor`, `APB5Master`, `APB5Slave`).
+
+  **Deferred to a follow-up:** `APB5Slave` keeps its own `_monitor_recv`
+  for now. Its state machine (rising-edge PSEL+PENABLE detection,
+  single-pass drive-then-deassert) diverges from `APBSlave`'s clean
+  two-phase pattern (PSEL detect → ready_delay → PREADY assert → wait
+  PENABLE → finish). Unifying them requires deciding which state machine
+  wins — tracked as Phase B in issue #15.
+
+  **Breaking change risk (moderate):** users subclassing `APB5Master`
+  directly will see MRO changes (`APB5Master` → `APBMaster` → `BusDriver`).
+  Users calling `APB5Master.send()` previously got a direct synchronous
+  drive; now they get the queued pipeline (which is what APB4 callers
+  already had, and is the architectural improvement this PR delivers).
+  `isinstance(x, APBMaster)` on an APB5 master now returns True.
+
 ## [0.1.1] - 2026-06-01
 
 ### Fixed

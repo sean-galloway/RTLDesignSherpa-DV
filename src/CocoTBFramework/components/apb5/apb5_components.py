@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2024-2025 sean galloway
+# SPDX-FileCopyrightText: 2024-2026 sean galloway
 #
 # RTL Design Sherpa - Industry-Standard RTL Design and Verification
 # https://github.com/sean-galloway/RTLDesignSherpa
 #
 # Module: APB5Components
-# Purpose: APB5 Monitor, Master and Slave BFM Classes
+# Purpose: APB5 Monitor, Master and Slave BFM Classes — inherit from APB where practical
 #
 # Documentation: bin/CocoTBFramework/README.md
 # Subsystem: framework
@@ -13,23 +13,45 @@
 # Author: sean galloway
 # Created: 2025-12-21
 
-"""APB5 Monitor, Master and Slave BFM Classes with AMBA5 extensions."""
+"""APB5 Monitor, Master and Slave BFM Classes with AMBA5 extensions.
+
+Inheritance design (issue #15):
+    - :class:`APB5Monitor` inherits :class:`APBMonitor` and overrides only
+      the :meth:`_build_packet` hook to construct an :class:`APB5Packet`
+      with USER / WAKEUP fields populated. The edge-detection loop is
+      reused from APB unchanged.
+    - :class:`APB5Master` inherits :class:`APBMaster` and overrides the
+      extension hooks (``_default_randomizer_constraints``,
+      ``_init_extension_signals``, ``_drive_extension_setup_phase``,
+      ``_capture_extension_response``). It thereby gains APB4's queued +
+      randomized transmit pipeline (``transmit_queue``,
+      ``_transmit_pipeline``, ``_finish_xmit``, ``busy_send``,
+      ``reset_bus``) for free. The legacy direct-drive ``_driver_send``
+      from APB5Master is replaced by the inherited queued pipeline.
+    - :class:`APB5Slave` keeps its own ``_monitor_recv`` for now. Its
+      state machine (rising-edge PSEL+PENABLE detection, single-pass
+      drive-then-deassert) diverges from APBSlave's clean two-phase
+      (PSEL detect → ready_delay → PREADY assert → wait PENABLE → finish).
+      Unifying the two requires deciding which state machine wins, which
+      is a separate decision. Tracked as Phase B in issue #15.
+"""
 
 from collections import deque
+from typing import Any
 
-from cocotb.triggers import FallingEdge, RisingEdge, Timer
+from cocotb.triggers import RisingEdge
 from cocotb.utils import get_sim_time
-from cocotb_bus.drivers import BusDriver
 from cocotb_bus.monitors import BusMonitor
 
+from ..apb.apb_components import APBMaster, APBMonitor
 from ..shared.flex_randomizer import FlexRandomizer
 from ..shared.memory_model import MemoryModel
 from .apb5_packet import APB5Packet
 
-# Define the PWRITE mapping
+# Direction mapping reused from APB convention
 pwrite = ['READ', 'WRITE']
 
-# APB5 signals - APB4 base signals plus APB5 extensions
+# APB5 signal sets — APB4 base + AMBA5 user / wakeup / parity extensions
 apb5_signals = [
     "PSEL",
     "PWRITE",
@@ -37,7 +59,7 @@ apb5_signals = [
     "PADDR",
     "PWDATA",
     "PRDATA",
-    "PREADY"
+    "PREADY",
 ]
 
 apb5_optional_signals = [
@@ -60,140 +82,239 @@ apb5_optional_signals = [
 ]
 
 
-class APB5Monitor(BusMonitor):
-    """APB5 Monitor with AMBA5 extension support."""
+# ----------------------------------------------------------------------
+# APB5Monitor — inherits APBMonitor; overrides only the packet hook.
+# ----------------------------------------------------------------------
+
+
+class APB5Monitor(APBMonitor):
+    """APB5 Monitor with AMBA5 extension support.
+
+    Inherits the edge-detection loop from :class:`APBMonitor` and only
+    overrides :meth:`_build_packet` to construct an :class:`APB5Packet`
+    with USER / WAKEUP fields sampled from the bus.
+    """
 
     def __init__(self, entity, title, prefix, clock, signals=None,
                  bus_width=32, addr_width=12,
                  auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
                  log=None, **kwargs):
-
-        if signals:
-            self._signals = signals
-        else:
+        # APB5 has extended signal sets. If the caller didn't provide an
+        # explicit override, supply the APB5 set before calling super().
+        # APBMonitor's __init__ uses these as defaults when signals is None.
+        if signals is None:
             self._signals = apb5_signals + apb5_optional_signals
             self._optional_signals = apb5_optional_signals
+            # Pass `signals=self._signals` to ensure super() doesn't replace
+            # them with the APB4 defaults.
+            signals = self._signals
 
-        self.count = 0
-        self.bus_width = bus_width
-
-        # Normalize prefix
-        prefix = prefix.rstrip('_')
-
-        BusMonitor.__init__(self, entity, prefix, clock, **kwargs)
-        self.clock = clock
-        self.title = title
-        self.log = log or self.entity._log
-        self.bus_width = bus_width
-        self.addr_width = addr_width
-        self.strb_width = bus_width // 8
+        # APB5-specific width parameters needed by the packet hook
         self.auser_width = auser_width
         self.wuser_width = wuser_width
         self.ruser_width = ruser_width
         self.buser_width = buser_width
 
-    def is_signal_present(self, signal_name):
-        """Check if a signal is present on the bus."""
-        return (hasattr(self.bus, signal_name) and
-                getattr(self.bus, signal_name) is not None)
+        super().__init__(
+            entity=entity, title=title, prefix=prefix, clock=clock,
+            signals=signals, bus_width=bus_width, addr_width=addr_width,
+            log=log, **kwargs,
+        )
 
     def print(self, transaction):
-        """Print transaction for debug."""
+        """Print transaction for debug (APB5 label)."""
         msg = f'{self.title} - APB5 Transaction #{self.count}: '
         msg += transaction.formatted(compact=True)
         self.log.debug(msg)
 
-    async def _monitor_recv(self):
-        """Monitor APB5 transactions."""
-        prev_penable = 0
-        prev_pready = 0
+    def _build_packet(self, *, start_time, count, pwrite, paddr,
+                      pwdata, prdata, pstrb, pprot, pslverr,
+                      direction: str) -> Any:
+        """Construct an APB5Packet with USER / WAKEUP fields sampled."""
+        del direction  # APB5 doesn't need it; pwrite already carries direction
+        pauser = (self.bus.PAUSER.value.integer
+                  if self.is_signal_present('PAUSER') else 0)
+        pwuser = (self.bus.PWUSER.value.integer
+                  if self.is_signal_present('PWUSER') else 0)
+        pruser = (self.bus.PRUSER.value.integer
+                  if self.is_signal_present('PRUSER') else 0)
+        pbuser = (self.bus.PBUSER.value.integer
+                  if self.is_signal_present('PBUSER') else 0)
+        wakeup = (self.bus.PWAKEUP.value.integer
+                  if self.is_signal_present('PWAKEUP') else 0)
 
-        while True:
-            await FallingEdge(self.clock)
-            await Timer(200, units='ps')
+        return APB5Packet(
+            data_width=self.bus_width,
+            addr_width=self.addr_width,
+            strb_width=self.strb_width,
+            auser_width=self.auser_width,
+            wuser_width=self.wuser_width,
+            ruser_width=self.ruser_width,
+            buser_width=self.buser_width,
+            start_time=start_time,
+            count=count,
+            pwrite=pwrite,
+            paddr=paddr,
+            pwdata=pwdata,
+            prdata=prdata,
+            pstrb=pstrb,
+            pprot=pprot,
+            pslverr=pslverr,
+            pauser=pauser,
+            pwuser=pwuser,
+            pruser=pruser,
+            pbuser=pbuser,
+            wakeup=wakeup,
+        )
 
-            # Sample current bus state
-            curr_psel = (self.bus.PSEL.value.integer
-                         if self.bus.PSEL.value.is_resolvable else 0)
-            curr_penable = self.bus.PENABLE.value.integer
-            curr_pready = (self.bus.PREADY.value.integer
-                           if self.bus.PREADY.value.is_resolvable else 0)
 
-            # APB transaction completion detection
-            transaction_complete = curr_psel and curr_penable and curr_pready
-            valid_edge = (transaction_complete and
-                          (not prev_pready or not prev_penable))
+# ----------------------------------------------------------------------
+# APB5Master — inherits APBMaster's queued+randomized pipeline.
+# ----------------------------------------------------------------------
 
-            if valid_edge:
-                start_time = get_sim_time('ns')
-                address = self.bus.PADDR.value.integer
-                direction = pwrite[self.bus.PWRITE.value.integer]
-                loc_pwrite = self.bus.PWRITE.value.integer
-                error = (self.bus.PSLVERR.value.integer
-                         if self.is_signal_present('PSLVERR') else 0)
 
-                if direction == 'READ':
-                    if self.bus.PRDATA.value.is_resolvable:
-                        data = self.bus.PRDATA.value.integer
-                    else:
-                        data = self.bus.PRDATA.value
-                else:
-                    data = self.bus.PWDATA.value.integer
+class APB5Master(APBMaster):
+    """APB5 Master BFM.
 
-                strb = (self.bus.PSTRB.value.integer
-                        if self.is_signal_present('PSTRB') else 0)
-                pprot = (self.bus.PPROT.value.integer
-                         if self.is_signal_present('PPROT') else 0)
+    Inherits the queued + randomized transmit pipeline from
+    :class:`APBMaster` (transmit_queue, _transmit_pipeline, _finish_xmit,
+    busy_send, reset_bus, FlexRandomizer for PSEL/PENABLE delays). APB5
+    extensions are layered in via the extension hooks:
 
-                # APB5 extensions
-                pauser = (self.bus.PAUSER.value.integer
-                          if self.is_signal_present('PAUSER') else 0)
-                pwuser = (self.bus.PWUSER.value.integer
-                          if self.is_signal_present('PWUSER') else 0)
-                pruser = (self.bus.PRUSER.value.integer
-                          if self.is_signal_present('PRUSER') else 0)
-                pbuser = (self.bus.PBUSER.value.integer
-                          if self.is_signal_present('PBUSER') else 0)
-                wakeup = (self.bus.PWAKEUP.value.integer
-                          if self.is_signal_present('PWAKEUP') else 0)
+    - :meth:`_init_extension_signals` zeroes PAUSER/PWUSER at construction.
+    - :meth:`_drive_extension_setup_phase` drives PAUSER/PWUSER during the
+      setup phase of every transaction.
+    - :meth:`_capture_extension_response` samples PRUSER/PBUSER/PWAKEUP
+      after PREADY rises.
 
-                self.count += 1
+    The convenience methods :meth:`write` and :meth:`read` build an
+    :class:`APB5Packet` and forward to the inherited :meth:`send` (queued
+    pipeline). Direct-drive callers should use :meth:`busy_send` if they
+    need to wait for completion.
+    """
 
-                # Create APB5Packet
-                transaction = APB5Packet(
-                    data_width=self.bus_width,
-                    addr_width=self.addr_width,
-                    strb_width=self.strb_width,
-                    auser_width=self.auser_width,
-                    wuser_width=self.wuser_width,
-                    ruser_width=self.ruser_width,
-                    buser_width=self.buser_width,
-                    start_time=start_time,
-                    count=self.count,
-                    pwrite=loc_pwrite,
-                    paddr=address,
-                    pwdata=data if direction == 'WRITE' else 0,
-                    prdata=data if direction == 'READ' else 0,
-                    pstrb=strb,
-                    pprot=pprot,
-                    pslverr=error,
-                    pauser=pauser,
-                    pwuser=pwuser,
-                    pruser=pruser,
-                    pbuser=pbuser,
-                    wakeup=wakeup,
-                )
+    def __init__(self, entity, title, prefix, clock, signals=None,
+                 bus_width=32, addr_width=12,
+                 auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
+                 randomizer=None, log=None, **kwargs):
+        # Default to APB5 signal sets so APBMaster's __init__ picks them up.
+        if signals is None:
+            self._signals = apb5_signals + apb5_optional_signals
+            self._optional_signals = apb5_optional_signals
+            signals = self._signals
 
-                self._recv(transaction)
-                self.print(transaction)
+        # APB5 widths needed by extension hooks and packet construction
+        self.auser_width = auser_width
+        self.wuser_width = wuser_width
+        self.ruser_width = ruser_width
+        self.buser_width = buser_width
+        self.count = 0
 
-            # Update previous state
-            prev_penable = curr_penable
-            prev_pready = curr_pready
+        super().__init__(
+            entity=entity, title=title, prefix=prefix, clock=clock,
+            signals=signals, bus_width=bus_width, addr_width=addr_width,
+            randomizer=randomizer, log=log, **kwargs,
+        )
+
+    # ---- Extension hook overrides ----
+
+    def _init_extension_signals(self):
+        """Zero APB5 output extensions at construction time."""
+        if self.is_signal_present('PPROT'):
+            self.bus.PPROT.setimmediatevalue(0)
+        if self.is_signal_present('PAUSER'):
+            self.bus.PAUSER.setimmediatevalue(0)
+        if self.is_signal_present('PWUSER'):
+            self.bus.PWUSER.setimmediatevalue(0)
+
+    def _drive_extension_setup_phase(self, transaction):
+        """Drive PAUSER / PWUSER during the setup phase."""
+        if self.is_signal_present('PAUSER'):
+            self.bus.PAUSER.value = transaction.fields.get('pauser', 0)
+        if self.is_signal_present('PWUSER'):
+            self.bus.PWUSER.value = transaction.fields.get('pwuser', 0)
+
+    def _capture_extension_response(self, transaction):
+        """Sample PRUSER / PBUSER / PWAKEUP after PREADY rises."""
+        if self.is_signal_present('PRUSER'):
+            transaction.fields['pruser'] = self.bus.PRUSER.value.integer
+        if self.is_signal_present('PBUSER'):
+            transaction.fields['pbuser'] = self.bus.PBUSER.value.integer
+        if self.is_signal_present('PWAKEUP'):
+            transaction.fields['wakeup'] = self.bus.PWAKEUP.value.integer
+
+    # ---- APB5-specific convenience methods ----
+
+    async def write(self, address, data, strb=None, pprot=0, pauser=0, pwuser=0):
+        """Perform an APB5 write transaction via the queued pipeline."""
+        if strb is None:
+            strb = (1 << self.strb_bits) - 1
+
+        transaction = APB5Packet(
+            data_width=self.bus_width,
+            addr_width=self.addr_width,
+            strb_width=self.strb_bits,
+            auser_width=self.auser_width,
+            wuser_width=self.wuser_width,
+            ruser_width=self.ruser_width,
+            buser_width=self.buser_width,
+            pwrite=1,
+            paddr=address,
+            pwdata=data,
+            pstrb=strb,
+            pprot=pprot,
+            pauser=pauser,
+            pwuser=pwuser,
+            start_time=get_sim_time('ns'),
+        )
+
+        await self.busy_send(transaction)
+        return transaction
+
+    async def read(self, address, pprot=0, pauser=0):
+        """Perform an APB5 read transaction via the queued pipeline."""
+        transaction = APB5Packet(
+            data_width=self.bus_width,
+            addr_width=self.addr_width,
+            strb_width=self.strb_bits,
+            auser_width=self.auser_width,
+            wuser_width=self.wuser_width,
+            ruser_width=self.ruser_width,
+            buser_width=self.buser_width,
+            pwrite=0,
+            paddr=address,
+            pprot=pprot,
+            pauser=pauser,
+            start_time=get_sim_time('ns'),
+        )
+
+        await self.busy_send(transaction)
+        return transaction
+
+
+# ----------------------------------------------------------------------
+# APB5Slave — kept on its own state machine for now (see module docstring).
+# ----------------------------------------------------------------------
 
 
 class APB5Slave(BusMonitor):
-    """APB5 Slave BFM with AMBA5 extension support."""
+    """APB5 Slave BFM with AMBA5 extension support.
+
+    Class convention — Slave-via-BusMonitor:
+        Inherits from ``cocotb_bus.monitors.BusMonitor`` even though this is a
+        *responder* that drives output signals. ``cocotb_bus`` lacks a
+        "responder" base class, so ``BusMonitor`` is reused as a chassis and
+        the monitor loop is overridden to drive PREADY/PRDATA/PSLVERR (plus
+        the APB5-specific PRUSER/PBUSER/error fields). Same pattern as
+        ``APBSlave`` and ``GAXISlave``.
+
+    Implementation note:
+        Unlike :class:`APB5Monitor` and :class:`APB5Master`, this class does
+        NOT inherit from :class:`APBSlave`. APBSlave and APB5Slave use
+        structurally different ``_monitor_recv`` state machines (different
+        edge detection, different drive-deassert cadence). Unifying them is
+        tracked as Phase B in issue #15.
+    """
 
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
                  bus_width=32, addr_width=12,
@@ -390,165 +511,3 @@ class APB5Slave(BusMonitor):
                     self.bus.PSLVERR.value = 0
 
             prev_penable = curr_penable
-
-
-class APB5Master(BusDriver):
-    """APB5 Master BFM with AMBA5 extension support."""
-
-    _signals = apb5_signals
-    _optional_signals = apb5_optional_signals
-
-    def __init__(self, entity, title, prefix, clock,
-                 bus_width=32, addr_width=12,
-                 auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
-                 log=None, **kwargs):
-
-        prefix = prefix.rstrip('_')
-
-        BusDriver.__init__(self, entity, prefix, clock, **kwargs)
-        self.clock = clock
-        self.title = title
-        self.prefix = prefix
-        self.log = log or self.entity._log
-        self.bus_width = bus_width
-        self.addr_width = addr_width
-        self.strb_bits = bus_width // 8
-        self.auser_width = auser_width
-        self.wuser_width = wuser_width
-        self.ruser_width = ruser_width
-        self.buser_width = buser_width
-        self.count = 0
-        self.sentQ = deque()
-
-        # Initialize outputs
-        self.bus.PSEL.setimmediatevalue(0)
-        self.bus.PENABLE.setimmediatevalue(0)
-        self.bus.PWRITE.setimmediatevalue(0)
-        self.bus.PADDR.setimmediatevalue(0)
-        self.bus.PWDATA.setimmediatevalue(0)
-        if self.is_signal_present('PSTRB'):
-            self.bus.PSTRB.setimmediatevalue(0)
-        if self.is_signal_present('PPROT'):
-            self.bus.PPROT.setimmediatevalue(0)
-        if self.is_signal_present('PAUSER'):
-            self.bus.PAUSER.setimmediatevalue(0)
-        if self.is_signal_present('PWUSER'):
-            self.bus.PWUSER.setimmediatevalue(0)
-
-        msg = f'APB5 Master {self.title} initialized'
-        self.log.debug(msg)
-
-    def is_signal_present(self, signal_name):
-        """Check if a signal is present on the bus."""
-        return (hasattr(self.bus, signal_name) and
-                getattr(self.bus, signal_name) is not None)
-
-    async def send(self, transaction):
-        """Send an APB5 transaction."""
-        await self._driver_send(transaction, None)
-
-    async def _driver_send(self, transaction, sync=True, **kwargs):
-        """Drive an APB5 transaction on the bus."""
-        if sync:
-            await RisingEdge(self.clock)
-
-        # Setup phase
-        self.bus.PSEL.value = 1
-        self.bus.PENABLE.value = 0
-        self.bus.PWRITE.value = transaction.fields['pwrite']
-        self.bus.PADDR.value = transaction.fields['paddr']
-        self.bus.PWDATA.value = transaction.fields['pwdata']
-
-        if self.is_signal_present('PSTRB'):
-            self.bus.PSTRB.value = transaction.fields['pstrb']
-        if self.is_signal_present('PPROT'):
-            self.bus.PPROT.value = transaction.fields['pprot']
-        if self.is_signal_present('PAUSER'):
-            self.bus.PAUSER.value = transaction.fields.get('pauser', 0)
-        if self.is_signal_present('PWUSER'):
-            self.bus.PWUSER.value = transaction.fields.get('pwuser', 0)
-
-        # Access phase
-        await RisingEdge(self.clock)
-        self.bus.PENABLE.value = 1
-
-        # Wait for PREADY
-        while True:
-            await RisingEdge(self.clock)
-            if self.bus.PREADY.value.integer:
-                break
-
-        # Wait for signal values to settle before sampling (matches APB5Monitor timing)
-        await Timer(200, units='ps')
-
-        # Capture response
-        if not transaction.fields['pwrite']:
-            transaction.fields['prdata'] = self.bus.PRDATA.value.integer
-
-        if self.is_signal_present('PSLVERR'):
-            transaction.fields['pslverr'] = self.bus.PSLVERR.value.integer
-        if self.is_signal_present('PRUSER'):
-            transaction.fields['pruser'] = self.bus.PRUSER.value.integer
-        if self.is_signal_present('PBUSER'):
-            transaction.fields['pbuser'] = self.bus.PBUSER.value.integer
-        if self.is_signal_present('PWAKEUP'):
-            transaction.fields['wakeup'] = self.bus.PWAKEUP.value.integer
-
-        transaction.end_time = get_sim_time('ns')
-        self.count += 1
-
-        # Deassert
-        self.bus.PSEL.value = 0
-        self.bus.PENABLE.value = 0
-
-        self.sentQ.append(transaction)
-
-        msg = f'{self.title} - APB5 Transaction #{self.count}: '
-        msg += transaction.formatted(compact=True)
-        self.log.debug(msg)
-
-    async def write(self, address, data, strb=None, pprot=0, pauser=0, pwuser=0):
-        """Perform an APB5 write transaction."""
-        if strb is None:
-            strb = (1 << self.strb_bits) - 1
-
-        transaction = APB5Packet(
-            data_width=self.bus_width,
-            addr_width=self.addr_width,
-            strb_width=self.strb_bits,
-            auser_width=self.auser_width,
-            wuser_width=self.wuser_width,
-            ruser_width=self.ruser_width,
-            buser_width=self.buser_width,
-            pwrite=1,
-            paddr=address,
-            pwdata=data,
-            pstrb=strb,
-            pprot=pprot,
-            pauser=pauser,
-            pwuser=pwuser,
-            start_time=get_sim_time('ns'),
-        )
-
-        await self.send(transaction)
-        return transaction
-
-    async def read(self, address, pprot=0, pauser=0):
-        """Perform an APB5 read transaction."""
-        transaction = APB5Packet(
-            data_width=self.bus_width,
-            addr_width=self.addr_width,
-            strb_width=self.strb_bits,
-            auser_width=self.auser_width,
-            wuser_width=self.wuser_width,
-            ruser_width=self.ruser_width,
-            buser_width=self.buser_width,
-            pwrite=0,
-            paddr=address,
-            pprot=pprot,
-            pauser=pauser,
-            start_time=get_sim_time('ns'),
-        )
-
-        await self.send(transaction)
-        return transaction

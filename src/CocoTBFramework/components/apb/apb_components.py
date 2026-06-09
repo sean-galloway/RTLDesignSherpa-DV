@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2024-2025 sean galloway
+# SPDX-FileCopyrightText: 2024-2026 sean galloway
 #
 # RTL Design Sherpa - Industry-Standard RTL Design and Verification
 # https://github.com/sean-galloway/RTLDesignSherpa
 #
 # Module: APBMonitor
-# Purpose: APB Sequence, APB Packet, Transaction, Monitor, Master and Slave Classes
+# Purpose: APB Monitor, Master, and Slave BFM classes — extensible base for APB5
 #
 # Documentation: bin/CocoTBFramework/README.md
 # Subsystem: framework
@@ -13,9 +13,16 @@
 # Author: sean galloway
 # Created: 2025-10-18
 
-"""APB Sequence, APB Packet, Transaction, Monitor, Master and Slave Classes"""
+"""APB Monitor, Master, and Slave BFM classes.
+
+These classes also serve as the base for the APB5 BFMs (`APB5Monitor`,
+`APB5Master`, `APB5Slave`). Extension hooks for AMBA5 USER / WAKEUP /
+parity fields are provided so APB5 can inherit cleanly. See issue #15
+for the inheritance design.
+"""
 
 from collections import deque
+from typing import Any
 
 import cocotb
 from cocotb.triggers import FallingEdge, RisingEdge, Timer
@@ -25,7 +32,7 @@ from cocotb_bus.monitors import BusMonitor
 
 from ..shared.flex_randomizer import FlexRandomizer
 from ..shared.memory_model import MemoryModel
-from .apb_packet import APBPacket  # Updated import
+from .apb_packet import APBPacket
 
 # define the PWRITE mapping
 pwrite = ['READ', 'WRITE']
@@ -46,6 +53,22 @@ apb_optional_signals = [
 
 
 class APBMonitor(BusMonitor):
+    """APB Monitor.
+
+    Class convention — Slave-via-BusMonitor and extension hooks:
+        Inherits ``BusMonitor`` for its sampling chassis (see
+        ``docs/components/components_overview.md``). Subclasses (notably
+        ``APB5Monitor``) extend by:
+
+        - Setting ``_signals`` / ``_optional_signals`` to include extension
+          signals (USER/WAKEUP/parity).
+        - Overriding :meth:`_build_packet` to construct the protocol-specific
+          packet class with extension fields.
+
+        The edge-detection loop in :meth:`_monitor_recv` stays in this base —
+        APB and APB5 share identical PSEL/PENABLE/PREADY semantics.
+    """
+
     def __init__(self, entity, title, prefix, clock, signals=None,
                  bus_width=32, addr_width=12, log=None, **kwargs):
 
@@ -69,9 +92,6 @@ class APBMonitor(BusMonitor):
         self.bus_width = bus_width
         self.addr_width = addr_width
         self.strb_width = bus_width // 8
-        # if self.is_signal_present('PPROT'):
-        #     msg = f'Monitor {self.title} PPROT {dir(self.bus.PPROT)}'
-        #     self.log.debug(msg)
 
     def is_signal_present(self, signal_name):
         # Check if the bus has the attribute and that it is not None
@@ -81,6 +101,32 @@ class APBMonitor(BusMonitor):
         msg = f'{self.title} - APB Transaction #{self.count}: '
         msg += transaction.formatted(compact=True)
         self.log.debug(msg)
+
+    # ---- Extension hooks (overridden by APB5Monitor) ----
+
+    def _build_packet(self, *, start_time, count, pwrite, paddr,
+                      pwdata, prdata, pstrb, pprot, pslverr,
+                      direction: str) -> Any:
+        """Construct the protocol-specific packet from the sampled bus values.
+
+        APB4 returns an :class:`APBPacket`. APB5 overrides to add USER /
+        WAKEUP / parity field capture and returns an ``APB5Packet``. The
+        ``direction`` argument is the string from :data:`pwrite` (``'READ'``
+        or ``'WRITE'``) so subclasses can branch on it without re-decoding
+        ``pwrite``.
+        """
+        del direction  # APB4 doesn't use it; APB5 does
+        return APBPacket(
+            start_time=start_time,
+            count=count,
+            pwrite=pwrite,
+            paddr=paddr,
+            pwdata=pwdata,
+            prdata=prdata,
+            pstrb=pstrb,
+            pprot=pprot,
+            pslverr=pslverr,
+        )
 
     async def _monitor_recv(self):
         # Track previous state to detect transaction boundaries
@@ -102,7 +148,6 @@ class APBMonitor(BusMonitor):
             # 2. In previous cycle, EITHER:
             #    a) PREADY was low (most common - PREADY asserted this cycle), OR
             #    b) PENABLE was low (back-to-back transactions where PREADY stays high)
-            # This stricter check prevents spurious captures
             transaction_complete = curr_psel and curr_penable and curr_pready
 
             # Valid completion edges:
@@ -128,8 +173,10 @@ class APBMonitor(BusMonitor):
                 pprot = self.bus.PPROT.value.integer if self.is_signal_present('PPROT') else 0
                 self.count += 1
 
-                # Create APBPacket and capture immediately (data is stable)
-                transaction = APBPacket(
+                # Build the protocol-specific packet via the extension hook.
+                # APB4 returns APBPacket; APB5 overrides to return APB5Packet
+                # with USER/WAKEUP/parity fields populated.
+                transaction = self._build_packet(
                     start_time=start_time,
                     count=self.count,
                     pwrite=loc_pwrite,
@@ -138,7 +185,8 @@ class APBMonitor(BusMonitor):
                     prdata=data if direction == 'READ' else 0,
                     pstrb=strb,
                     pprot=pprot,
-                    pslverr=error
+                    pslverr=error,
+                    direction=direction,
                 )
 
                 # Dispatch immediately - APB data is stable when PREADY asserts
@@ -151,7 +199,17 @@ class APBMonitor(BusMonitor):
 
 
 class APBSlave(BusMonitor):
-    """AP Slave Class"""
+    """APB Slave BFM.
+
+    Class convention — Slave-via-BusMonitor:
+        This class inherits from ``cocotb_bus.monitors.BusMonitor`` even though
+        it is semantically a *responder* that drives output signals (``PREADY``,
+        ``PRDATA``, ``PSLVERR``). ``cocotb_bus`` does not provide a "responder"
+        base class — ``BusMonitor`` is reused for its passive signal-sampling
+        coroutine, and the monitor loop overrides the sampled-edge handler to
+        also drive responses. Every "Slave" BFM in this framework that inherits
+        ``BusMonitor`` follows this convention.
+    """
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
                     bus_width=32, addr_width=12, randomizer=None,
                     log=None, error_overflow=False, **kwargs):
@@ -193,10 +251,6 @@ class APBSlave(BusMonitor):
         self.bus.PREADY.setimmediatevalue(0)
         if self.is_signal_present('PSLVERR'):
             self.bus.PSLVERR.setimmediatevalue(0)
-        msg = f'Slave {self.title} {dir(self.bus)}'
-        # self.log.debug(msg)
-        # msg = f'Slave {self.title} PADDR {dir(self.bus.PADDR)}'
-        # self.log.debug(msg)
         if self.is_signal_present('PPROT'):
             msg = f'Slave {self.title} PPROT {dir(self.bus.PPROT)}'
             self.log.debug(msg)
@@ -287,6 +341,22 @@ class APBSlave(BusMonitor):
 
 
 class APBMaster(BusDriver):
+    """APB Master BFM with queued + randomized transmit pipeline.
+
+    Extension hooks for APB5:
+        Subclasses (notably :class:`APB5Master`) extend by overriding:
+
+        - :meth:`_default_randomizer_constraints` to add extension-field
+          randomization.
+        - :meth:`_init_extension_signals` to zero APB5 output extensions
+          (PAUSER/PWUSER) during ``__init__``.
+        - :meth:`_drive_extension_setup_phase` to drive USER signals during
+          the setup phase of ``_finish_xmit``.
+        - :meth:`_capture_extension_response` to sample USER/WAKEUP signals
+          alongside PRDATA / PSLVERR.
+
+        Each hook has a no-op default so the APB4 path is unchanged.
+    """
     def __init__(self, entity, title, prefix, clock, signals=None,
                     bus_width=32, addr_width=12, randomizer=None,
                     log=None, **kwargs):
@@ -296,10 +366,7 @@ class APBMaster(BusDriver):
             self._signals = apb_signals + apb_optional_signals
             self._optional_signals = apb_optional_signals
         if randomizer is None:
-            self.randomizer = FlexRandomizer({
-                'psel':    ([[0, 0], [1, 5], [6, 10]], [5, 2, 1]),
-                'penable': ([[0, 0], [1, 2]], [4, 1]),
-            })
+            self.randomizer = FlexRandomizer(self._default_randomizer_constraints())
         else:
             self.randomizer = randomizer
 
@@ -326,13 +393,36 @@ class APBMaster(BusDriver):
         self.bus.PWDATA.setimmediatevalue(0)
         if self.is_signal_present('PSTRB'):
             self.bus.PSTRB.setimmediatevalue(0)
+        # Extension-signal init hook (no-op in APB4; APB5Master overrides)
+        self._init_extension_signals()
         self.transmit_queue = deque()
         self.transmit_coroutine = None
         self.transfer_busy = False
 
+    # ---- Extension hooks (overridden by APB5Master) ----
+
+    def _default_randomizer_constraints(self):
+        """Default FlexRandomizer constraints. Subclasses extend the dict."""
+        return {
+            'psel':    ([[0, 0], [1, 5], [6, 10]], [5, 2, 1]),
+            'penable': ([[0, 0], [1, 2]], [4, 1]),
+        }
+
+    def _init_extension_signals(self):
+        """No-op default. APB5Master zeroes PAUSER / PWUSER here."""
+        return None
+
+    def _drive_extension_setup_phase(self, transaction):
+        """No-op default. APB5Master drives PAUSER / PWUSER during setup phase."""
+        return None
+
+    def _capture_extension_response(self, transaction):
+        """No-op default. APB5Master samples PRUSER / PBUSER / PWAKEUP here."""
+        return None
+
     def set_randomizer(self, randomizer):
         self.randomizer = randomizer
-        self.log.info(f"Set new randomizer for APB Slave ({self.title})")
+        self.log.info(f"Set new randomizer for APB Master ({self.title})")
 
     def is_signal_present(self, signal_name):
         # Check if the bus has the attribute and that it is not None
@@ -429,7 +519,10 @@ class APBMaster(BusDriver):
         """Completes an APB transaction.
 
         This method sets the APB signals, waits for the ready signal,
-        and handles the transaction data and error status.
+        and handles the transaction data and error status. Extension
+        hooks (`_drive_extension_setup_phase`, `_capture_extension_response`)
+        let APB5Master add USER/WAKEUP/parity handling without forking the
+        whole pipeline.
         """
         for _ in range(psel_delay):
             await RisingEdge(self.clock)
@@ -445,6 +538,8 @@ class APBMaster(BusDriver):
         # Check direction from packet
         if transaction.direction == 'WRITE':
             self.bus.PWDATA.value = transaction.fields['pwdata']
+        # Extension setup hook (no-op in APB4; APB5Master drives PAUSER/PWUSER)
+        self._drive_extension_setup_phase(transaction)
 
         await RisingEdge(self.clock)
         await Timer(200, units='ps')
@@ -471,6 +566,9 @@ class APBMaster(BusDriver):
                 transaction.fields['prdata'] = self.bus.PRDATA.value.integer
             else:
                 transaction.fields['prdata'] = self.bus.PRDATA.value
+
+        # Extension response hook (no-op in APB4; APB5Master captures PRUSER/PBUSER/PWAKEUP)
+        self._capture_extension_response(transaction)
 
         self.sentQ.append(transaction)
         await RisingEdge(self.clock)

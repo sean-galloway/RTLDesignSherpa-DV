@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Documentation
+
+- **AXI4SlaveWrite AW/W callback synchronization invariant.** Audited
+  `_aw_callback`, `_w_callback`, `_match_orphaned_w_packets`, and
+  `_complete_write_transaction` for races on `pending_transactions`,
+  `orphaned_w_packets`, and `w_transaction_queue`. No race exists: callbacks
+  are sync `def`s (cannot await), `_complete_write_transaction`'s critical
+  section is guarded by the per-ID `completion_locks`, and the `finally`
+  cleanup uses `list.remove` (atomic between awaits). Added a synchronization
+  invariant block in `__init__` and "MUST remain sync" notices on each
+  callback's docstring so a future maintainer doesn't introduce an
+  across-await hazard by converting them to `async def`. No code behavior
+  change.
+  ([#14](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/14))
+
 ## [0.1.1] - 2026-06-01
 
 ### Fixed

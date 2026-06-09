@@ -151,7 +151,19 @@ class APBMonitor(BusMonitor):
 
 
 class APBSlave(BusMonitor):
-    """AP Slave Class"""
+    """APB Slave BFM.
+
+    Class convention — Slave-via-BusMonitor:
+        This class inherits from ``cocotb_bus.monitors.BusMonitor`` even though
+        it is semantically a *responder* that drives output signals (``PREADY``,
+        ``PRDATA``, ``PSLVERR``). ``cocotb_bus`` does not provide a "responder"
+        base class — ``BusMonitor`` is reused for its passive signal-sampling
+        coroutine, and the monitor loop overrides the sampled-edge handler to
+        also drive responses. Every "Slave" BFM in this framework that inherits
+        ``BusMonitor`` follows this convention (see also ``APB5Slave``,
+        ``GAXISlave``). When subclassing or reading these BFMs, treat
+        ``BusMonitor`` as a chassis, not a semantic claim of passivity.
+    """
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
                     bus_width=32, addr_width=12, randomizer=None,
                     log=None, error_overflow=False, **kwargs):

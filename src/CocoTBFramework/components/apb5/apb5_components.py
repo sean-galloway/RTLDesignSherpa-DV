@@ -193,7 +193,16 @@ class APB5Monitor(BusMonitor):
 
 
 class APB5Slave(BusMonitor):
-    """APB5 Slave BFM with AMBA5 extension support."""
+    """APB5 Slave BFM with AMBA5 extension support.
+
+    Class convention — Slave-via-BusMonitor:
+        Inherits from ``cocotb_bus.monitors.BusMonitor`` even though this is a
+        *responder* that drives output signals. ``cocotb_bus`` lacks a
+        "responder" base class, so ``BusMonitor`` is reused as a chassis and
+        the monitor loop is overridden to drive PREADY/PRDATA/PSLVERR (plus
+        the APB5-specific PRUSER/PBUSER/error fields). Same pattern as
+        ``APBSlave`` and ``GAXISlave``.
+    """
 
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
                  bus_width=32, addr_width=12,

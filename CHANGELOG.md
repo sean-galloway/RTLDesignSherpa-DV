@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Documentation
+
+- **BFM class conventions.** Added a "BFM Class Conventions" section to
+  `docs/components/components_overview.md` explaining the Slave-via-BusMonitor
+  pattern (every Slave BFM inherits `cocotb_bus.BusMonitor` even though it
+  drives response signals — `cocotb_bus` has no "responder" base class, so
+  `BusMonitor` is reused as a chassis). Added docstring pointers to
+  `APBSlave`, `APB5Slave`, and `GAXISlave` so the convention is discoverable
+  from the source.
+  ([#12](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/12))
+
 ## [0.1.1] - 2026-06-01
 
 ### Fixed

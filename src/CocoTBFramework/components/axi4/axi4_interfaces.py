@@ -970,13 +970,33 @@ class AXI4SlaveWrite:
         # AXI4-compliant transaction tracking
         # id -> list of transactions (to handle multiple outstanding transactions with same ID)
         # Each transaction: {aw_packet: ..., w_packets: [...], complete: bool, expected_beats: ...}
+        #
+        # Synchronization invariant (issue #14 audit):
+        #   - pending_transactions, orphaned_w_packets, w_transaction_queue are
+        #     mutated from THREE call paths:
+        #       1. _aw_callback (SYNC def — invoked by GAXISlave's monitor coro
+        #          between its awaits)
+        #       2. _w_callback  (SYNC def — same)
+        #       3. _complete_write_transaction (async, but mutations of
+        #          pending_transactions[id] happen either inside the per-ID
+        #          completion_locks[id] guard, or in the `finally` cleanup
+        #          which uses list.remove (atomic between awaits)).
+        #   - Callbacks 1 and 2 MUST remain `def` (not `async def`). If they
+        #     ever gain an `await`, the dict mutations they perform are no
+        #     longer atomic w.r.t. other coroutines, and the AW+W matching
+        #     state becomes racy. Mark with a comment if you ever need to
+        #     restructure.
+        #   - No additional locks are needed today; this is documented to
+        #     prevent future regressions.
         self.pending_transactions = {}  # id -> [transaction_list] (FIFO order)
 
-        # AXI4-compliant W-before-AW buffering
+        # AXI4-compliant W-before-AW buffering (see synchronization invariant above)
         self.orphaned_w_packets = []    # W packets that arrived before corresponding AW
         self.w_transaction_queue = []   # Queue of complete W burst sequences
 
-        # Lock to prevent race condition in transaction completion
+        # Per-ID locks: serialize the "find an uncompleted txn in the list and
+        # mark it completing" critical section in _complete_write_transaction.
+        # cocotb.triggers.Lock (not asyncio.Lock) — see commit 9d6cbc9.
         self.completion_locks = {}      # id -> cocotb.triggers.Lock
 
         # ENHANCEMENT: Integrate compliance checker automatically
@@ -1003,7 +1023,13 @@ class AXI4SlaveWrite:
                 self.log.info("AXI4SlaveWrite: Compliance checking enabled")
 
     def _aw_callback(self, aw_packet):
-        """Handle AW packet reception using generic field names. Tracks sequence for AXI4-compliant OOO."""
+        """Handle AW packet reception using generic field names. Tracks sequence for AXI4-compliant OOO.
+
+        MUST remain sync (`def`, not `async def`). Mutates shared state
+        (pending_transactions, orphaned_w_packets via _match_orphaned_w_packets);
+        sync invocation is what keeps those mutations atomic under cocotb's
+        cooperative scheduler. See synchronization invariant in __init__.
+        """
         transaction_id = getattr(aw_packet, 'id', 0)
         burst_len = getattr(aw_packet, 'len', 0) + 1
         addr = getattr(aw_packet, 'addr', 0)
@@ -1041,7 +1067,13 @@ class AXI4SlaveWrite:
         self._match_orphaned_w_packets()
 
     def _w_callback(self, w_packet):
-        """Handle W packet reception - AXI4 compliant W-before-AW handling. UNCHANGED."""
+        """Handle W packet reception - AXI4 compliant W-before-AW handling.
+
+        MUST remain sync (`def`, not `async def`). Same rationale as
+        _aw_callback: sync invocation is what keeps mutations of
+        pending_transactions / orphaned_w_packets / w_transaction_queue atomic
+        w.r.t. other coroutines. See synchronization invariant in __init__.
+        """
         is_last = getattr(w_packet, 'last', 0)
         data_val = getattr(w_packet, 'data', 0)
 
@@ -1129,7 +1161,11 @@ class AXI4SlaveWrite:
                     cocotb.start_soon(self._complete_write_transaction(transaction_id))
 
     def _match_orphaned_w_packets(self):
-        """Match orphaned W packets to newly arrived AW transactions."""
+        """Match orphaned W packets to newly arrived AW transactions.
+
+        Called synchronously from _aw_callback (which is itself sync). Inherits
+        the same "must not await" invariant — see _aw_callback / __init__.
+        """
         # BUGFIX: Also check for partial orphaned W packets, not just complete bursts
         if not self.w_transaction_queue and not self.orphaned_w_packets:
             return

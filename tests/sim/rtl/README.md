@@ -1,8 +1,17 @@
 # Curated RTL for Tier 2 Sim Regression
 
-This directory contains a **curated snapshot** of RTL from the
-[RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) (RDS)
-repo, picked to exercise BFM concurrency across many interfaces at once.
+Two kinds of RTL live here:
+
+1. **Snapshots from RDS** — bridges and converters that already exist in
+   the RDS repo, copied here at a pinned commit.
+2. **DV-generated bridges** — six new bridges generated from the TOMLs
+   in `tests/sim/bridge_specs/` specifically for stressing the BFMs
+   under high concurrency. These don't exist in RDS; they were created
+   for this regression.
+
+Both groups depend on the broader RDS RTL library (axi4 wrappers, gaxi
+skid buffers, dwidth converters) at the pinned commit — resolved via
+`$REPO_ROOT` in each `.f` filelist at sim time.
 
 ## Provenance
 
@@ -13,6 +22,8 @@ repo, picked to exercise BFM concurrency across many interfaces at once.
 | Source date | 2026-06-09 |
 | Copied on | 2026-06-09 |
 
+### Group 1 — Snapshots from RDS at the pinned commit
+
 Per-bridge source paths (relative to RDS root):
 
 - `bridges/bridge_2x2_rw/`     ← `projects/components/bridge/rtl/generated/bridge_2x2_rw/`
@@ -20,6 +31,40 @@ Per-bridge source paths (relative to RDS root):
 - `bridges/bridge_mix_a/`      ← `projects/components/bridge/rtl/generated/bridge_mix_a/`
 - `apb_xbar/apb_xbar_2to4.sv`  ← `projects/components/apb_xbar/rtl/apb_xbar_2to4.sv`
 - `converters/`                ← `projects/components/converters/rtl/`
+
+### Group 2 — DV-generated bridges (from `tests/sim/bridge_specs/`)
+
+Generated with RDS's `projects/components/bridge/bin/bridge_generator.py`
+against the TOMLs in `tests/sim/bridge_specs/`:
+
+- `bridges/bridge_a_axi4_widthmix_4x4/` — 4×4 all-AXI4, mixed widths
+- `bridges/bridge_b_axi4_axil_3x5/`     — every protocol cross-combo
+- `bridges/bridge_c_dma_heavy_3x6/`     — DMA-heavy AXI4 stress
+- `bridges/bridge_d_axil_emphasis_4x4/` — AXIL4-heavy
+- `bridges/bridge_e_grand_mix_5x5/`     — max arbitration contention
+- `bridges/bridge_f_fanout_2x8/`        — SoC-shaped 2-master fan-out
+
+To regenerate (e.g. after editing a TOML):
+
+```bash
+# In RDS with env_python sourced
+export REPO_ROOT=/path/to/RTLDesignSherpa
+export PYTHONPATH=$REPO_ROOT/bin:$REPO_ROOT/projects/components/bridge/bin
+for spec in /path/to/DV/tests/sim/bridge_specs/bridge_*.toml; do
+  $REPO_ROOT/venv/bin/python \
+    $REPO_ROOT/projects/components/bridge/bin/bridge_generator.py \
+    --ports "$spec" --output-dir /tmp/bridge_gen_out
+done
+# Copy back, then fix filelist local paths:
+for d in /tmp/bridge_gen_out/bridge_*; do
+  name=$(basename "$d")
+  mkdir -p /path/to/DV/tests/sim/rtl/bridges/$name
+  cp $d/* /path/to/DV/tests/sim/rtl/bridges/$name/
+  cp /tmp/filelists/$name.f /path/to/DV/tests/sim/rtl/bridges/$name/
+  sed -i "s|bridge_gen_out/$name/|tests/sim/rtl/bridges/$name/|g" \
+    /path/to/DV/tests/sim/rtl/bridges/$name/$name.f
+done
+```
 
 ## Curation rationale
 

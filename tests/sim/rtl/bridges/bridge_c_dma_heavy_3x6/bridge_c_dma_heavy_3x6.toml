@@ -1,0 +1,126 @@
+#==============================================================================
+# bridge_c_dma_heavy_3x6.toml
+#==============================================================================
+# DMA-heavy concurrency stress: 3 AXI4 masters (cpu + 2 DMA engines) into
+# 6 slaves (3 AXI4 + 2 AXIL4 + 1 APB). The two DMA engines push burst-heavy
+# traffic that exercises per-ID completion_locks (the v0.1.1 #5 fix) under
+# realistic SoC fan-out, with a slow APB tail that pushes back on the
+# APBSlave unified state machine from #15 Phase B.
+#
+# Concurrency profile: per-ID burst contention + slow-tail backpressure
+#==============================================================================
+
+[bridge]
+name = "bridge_c_dma_heavy_3x6"
+description = "3 AXI4 masters → 6 slaves (3 AXI4 + 2 AXIL + 1 APB), DMA-heavy"
+variants = ["no"]
+
+[bridge.clock]
+name = "aclk"
+frequency_mhz = 100
+
+# ---------------------------------------------------------------- masters ---
+
+[[bridge.masters]]
+name       = "cpu"
+prefix     = "cpu_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 4
+addr_width = 32
+data_width = 64
+user_width = 1
+
+[[bridge.masters]]
+name       = "dma0"
+prefix     = "dma0_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 8                  # wider IDs — exercises per-ID dequeue paths
+addr_width = 32
+data_width = 128
+user_width = 1
+
+[[bridge.masters]]
+name       = "dma1"
+prefix     = "dma1_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 8
+addr_width = 32
+data_width = 128
+user_width = 1
+
+# ---------------------------------------------------------------- slaves ----
+
+[[bridge.slaves]]
+name       = "ddr0"
+prefix     = "ddr0_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 10
+addr_width = 32
+data_width = 256
+user_width = 1
+base_addr  = "0x00000000"
+addr_range = "0x40000000"   # 1 GB
+
+[[bridge.slaves]]
+name       = "ddr1"
+prefix     = "ddr1_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 10
+addr_width = 32
+data_width = 128
+user_width = 1
+base_addr  = "0x40000000"
+addr_range = "0x40000000"   # 1 GB
+
+[[bridge.slaves]]
+name       = "scratch"
+prefix     = "scratch_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 10
+addr_width = 32
+data_width = 64
+user_width = 1
+base_addr  = "0x81000000"
+addr_range = "0x01000000"   # 16 MB
+
+[[bridge.slaves]]
+name       = "axil_periph0"
+prefix     = "axil_periph0_"
+protocol   = "axil"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 1
+base_addr  = "0x90000000"
+addr_range = "0x00010000"   # 64 KB
+
+[[bridge.slaves]]
+name       = "axil_periph1"
+prefix     = "axil_periph1_"
+protocol   = "axil"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 1
+base_addr  = "0x90010000"
+addr_range = "0x00010000"   # 64 KB
+
+[[bridge.slaves]]
+name       = "apb_periph0"
+prefix     = "apb_periph0_"
+protocol   = "apb"
+channels   = "rw"
+id_width   = 0
+addr_width = 32
+data_width = 32
+user_width = 0
+base_addr  = "0xA0000000"
+addr_range = "0x00010000"   # 64 KB

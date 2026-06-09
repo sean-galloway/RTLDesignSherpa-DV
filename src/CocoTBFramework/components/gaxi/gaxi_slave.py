@@ -34,6 +34,16 @@ class GAXISlave(GAXIMonitorBase):
     """
     GAXI Slave with integrated structured pipeline for better debugging and error recovery.
 
+    Class convention — Slave-via-BusMonitor:
+        Although a Slave drives the ready signal (and is therefore a responder,
+        not a passive observer), this class inherits ``BusMonitor`` transitively
+        through ``GAXIMonitorBase``. ``cocotb_bus`` does not provide a
+        "responder" base class — ``BusMonitor``'s sampling coroutine is reused
+        as a chassis, and the monitor loop overrides the sampled-edge handler
+        to also drive the ready signal. See "BFM Class Conventions" in
+        ``docs/components/components_overview.md`` for the framework-wide
+        convention.
+
     Inherits all common functionality from GAXIMonitorBase:
     - Signal resolution and data collection setup
     - Clean _get_data_dict() with automatic field unpacking

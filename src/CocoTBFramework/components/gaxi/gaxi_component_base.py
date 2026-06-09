@@ -94,8 +94,10 @@ class GAXIComponentBase:
         self.memory_model = memory_model
         self.signal_map = signal_map  # NEW: Store signal map
 
-        # Validate protocol_type - allow GAXI, AXIS, AXI4, and AXI5 protocol types
+        # Validate protocol_type - this base is the unified ready/valid chassis
+        # for GAXI, AXIS, AXI4, AXI5, and FIFO. FIFO support added in #6.
         valid_types = [
+            'fifo_master', 'fifo_slave',
             'gaxi_master', 'gaxi_slave',
             'axis_master', 'axis_slave',
             'axi4_ar_master', 'axi4_ar_slave',
@@ -187,12 +189,21 @@ class GAXIComponentBase:
         if randomizer is not None:
             return randomizer
 
-        # Default constraints based on component type
+        # Default constraints based on component type. FIFO uses
+        # write_delay/read_delay; ready/valid protocols use valid_delay/ready_delay.
         if protocol_type == 'gaxi_master':
             default_constraints = {
                 'valid_delay': ([(0, 0), (1, 8), (9, 20)], [5, 2, 1])
             }
-        else:  # gaxi_slave
+        elif protocol_type == 'fifo_master':
+            default_constraints = {
+                'write_delay': ([(0, 0), (1, 8), (9, 20)], [5, 2, 1])
+            }
+        elif protocol_type == 'fifo_slave':
+            default_constraints = {
+                'read_delay': ([(0, 1), (2, 8), (9, 30)], [5, 2, 1])
+            }
+        else:  # gaxi_slave, axis_slave, axi4_*_slave, axi5_*_slave (ready_delay path)
             default_constraints = {
                 'ready_delay': ([(0, 1), (2, 8), (9, 30)], [5, 2, 1])
             }

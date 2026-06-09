@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **`GAXIComponentBase` is now the canonical ready/valid component chassis.**
+  `FIFOComponentBase` is a deprecated thin alias for `GAXIComponentBase`.
+  `GAXIComponentBase` now accepts `fifo_master` / `fifo_slave` as
+  `protocol_type` values and supplies the matching `write_delay` /
+  `read_delay` randomizer defaults. Previously the FIFO and GAXI bases
+  were ~95% duplicates that drifted independently. Existing imports of
+  `FIFOComponentBase` continue to work; `FIFOMaster` / `FIFOSlave` /
+  `FIFOMonitor` retain their `FIFOComponentBase` base class. A future
+  release will switch the FIFO BFMs to inherit `GAXIComponentBase`
+  directly and remove the shim.
+  ([#6](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/6))
+
+  **Breaking change risk (low):** users doing
+  `isinstance(x, GAXIComponentBase)` on a FIFO BFM now match (correctly).
+  Users subclassing `FIFOComponentBase` directly continue to work.
+
 ## [0.1.1] - 2026-06-01
 
 ### Fixed

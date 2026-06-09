@@ -35,12 +35,26 @@
 
   Public class names preserved (`APB5Monitor`, `APB5Master`, `APB5Slave`).
 
-  **Deferred to a follow-up:** `APB5Slave` keeps its own `_monitor_recv`
-  for now. Its state machine (rising-edge PSEL+PENABLE detection,
-  single-pass drive-then-deassert) diverges from `APBSlave`'s clean
-  two-phase pattern (PSEL detect → ready_delay → PREADY assert → wait
-  PENABLE → finish). Unifying them requires deciding which state machine
-  wins — tracked as Phase B in issue #15.
+  **Phase B (this PR also).** `APB5Slave` now inherits from `APBSlave` via
+  five extension hooks: `_default_randomizer_constraints`,
+  `_init_extension_signals`, `_capture_extension_input_fields`,
+  `_drive_extension_response`, `_build_packet`. The unified
+  `_monitor_recv` state machine lives in `APBSlave`. The merge also
+  **fixes two latent bugs** in the old `APB5Slave._monitor_recv` that
+  the empty test suite hadn't caught:
+
+  - `self.mem.write(line, wdata, strb)` was passing an integer for
+    `wdata` and a line index for the address. `MemoryModel.write`
+    requires a *byte address* and a *bytearray*; the call would have
+    raised `TypeError` on first execution. The unified flow uses the
+    correct byte-address + bytearray API (matches `APBSlave`).
+  - `self.mem.read(line)` was missing the required `length` argument.
+    Now fixed via the unified flow.
+
+  Additional observable change for APB5: `ready_delay` is now measured
+  from PSEL detection (1 cycle earlier than the old PENABLE-rising
+  baseline), and memory overflow now auto-expands by default (was
+  previously silent failure on overflow when `error_overflow=False`).
 
   **Breaking change risk (moderate):** users subclassing `APB5Master`
   directly will see MRO changes (`APB5Master` → `APBMaster` → `BusDriver`).

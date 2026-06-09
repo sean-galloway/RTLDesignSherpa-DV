@@ -28,24 +28,23 @@ Inheritance design (issue #15):
       ``_transmit_pipeline``, ``_finish_xmit``, ``busy_send``,
       ``reset_bus``) for free. The legacy direct-drive ``_driver_send``
       from APB5Master is replaced by the inherited queued pipeline.
-    - :class:`APB5Slave` keeps its own ``_monitor_recv`` for now. Its
-      state machine (rising-edge PSEL+PENABLE detection, single-pass
-      drive-then-deassert) diverges from APBSlave's clean two-phase
-      (PSEL detect → ready_delay → PREADY assert → wait PENABLE → finish).
-      Unifying the two requires deciding which state machine wins, which
-      is a separate decision. Tracked as Phase B in issue #15.
+    - :class:`APB5Slave` inherits :class:`APBSlave` and overrides the
+      extension hooks (``_default_randomizer_constraints``,
+      ``_init_extension_signals``, ``_capture_extension_input_fields``,
+      ``_drive_extension_response``, ``_build_packet``). The unified
+      ``_monitor_recv`` state machine lives in APBSlave. This **fixes
+      latent bugs** in the previous APB5Slave: the old code called
+      ``self.mem.write(line, wdata, strb)`` passing an int instead of a
+      bytearray and a line index instead of a byte address (would have
+      raised TypeError), and ``self.mem.read(line)`` was missing the
+      required ``length`` argument.
 """
 
-from collections import deque
 from typing import Any
 
-from cocotb.triggers import RisingEdge
 from cocotb.utils import get_sim_time
-from cocotb_bus.monitors import BusMonitor
 
-from ..apb.apb_components import APBMaster, APBMonitor
-from ..shared.flex_randomizer import FlexRandomizer
-from ..shared.memory_model import MemoryModel
+from ..apb.apb_components import APBMaster, APBMonitor, APBSlave
 from .apb5_packet import APB5Packet
 
 # Direction mapping reused from APB convention
@@ -293,27 +292,34 @@ class APB5Master(APBMaster):
 
 
 # ----------------------------------------------------------------------
-# APB5Slave — kept on its own state machine for now (see module docstring).
+# APB5Slave — inherits APBSlave's unified state machine.
 # ----------------------------------------------------------------------
 
 
-class APB5Slave(BusMonitor):
-    """APB5 Slave BFM with AMBA5 extension support.
+class APB5Slave(APBSlave):
+    """APB5 Slave BFM.
 
-    Class convention — Slave-via-BusMonitor:
-        Inherits from ``cocotb_bus.monitors.BusMonitor`` even though this is a
-        *responder* that drives output signals. ``cocotb_bus`` lacks a
-        "responder" base class, so ``BusMonitor`` is reused as a chassis and
-        the monitor loop is overridden to drive PREADY/PRDATA/PSLVERR (plus
-        the APB5-specific PRUSER/PBUSER/error fields). Same pattern as
-        ``APBSlave`` and ``GAXISlave``.
+    Inherits the unified APB slave state machine from :class:`APBSlave`
+    (see :meth:`APBSlave._monitor_recv`) and adds AMBA5 USER/WAKEUP
+    handling via the extension hooks.
 
-    Implementation note:
-        Unlike :class:`APB5Monitor` and :class:`APB5Master`, this class does
-        NOT inherit from :class:`APBSlave`. APBSlave and APB5Slave use
-        structurally different ``_monitor_recv`` state machines (different
-        edge detection, different drive-deassert cadence). Unifying them is
-        tracked as Phase B in issue #15.
+    Behavior change from the previous APB5Slave (issue #15 Phase B):
+        - **Memory access is now correct.** The previous implementation
+          called ``self.mem.write(line, wdata, strb)`` passing an int for
+          ``wdata`` and a line index for the address; ``MemoryModel.write``
+          requires a *byte address* and a *bytearray* (would have raised
+          TypeError). Similarly ``self.mem.read(line)`` was missing the
+          required ``length`` argument. The unified state machine uses the
+          correct byte-address + bytearray + length API.
+        - **Memory overflow auto-expansion.** APB5's previous behavior was
+          to silently fail on out-of-range addresses. The unified state
+          machine auto-expands the memory (matching APB4Slave's behavior),
+          or signals an error if ``error_overflow=True``.
+        - **Transaction now dispatched via ``self._recv``.** This was
+          already the case in the old APB5Slave; preserved.
+        - **``ready_delay`` timing**: now measured from PSEL detection
+          (APB4-compatible), previously measured from PENABLE rising edge.
+          Observable timing difference is typically 1 cycle.
     """
 
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
@@ -321,57 +327,40 @@ class APB5Slave(BusMonitor):
                  auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
                  randomizer=None, log=None, error_overflow=False,
                  wakeup_generator=None, **kwargs):
-
-        if signals:
-            self._signals = signals
-        else:
-            self._signals = apb5_signals + apb5_optional_signals
-            self._optional_signals = apb5_optional_signals
-
-        if randomizer is None:
-            self.randomizer = FlexRandomizer({
-                'ready': ([(0, 1), (2, 5), (6, 10)], [5, 2, 1]),
-                'error': ([(0, 0), (1, 1)], [10, 0]),
-                'pruser': ([(0, (1 << ruser_width) - 1)], [1]),
-                'pbuser': ([(0, (1 << buser_width) - 1)], [1]),
-            })
-        else:
-            self.randomizer = randomizer
-
-        prefix = prefix.rstrip('_')
-
-        BusMonitor.__init__(self, entity, prefix, clock, **kwargs)
-        self.clock = clock
-        self.title = title
-        self.prefix = prefix
-        self.log = log or self.entity._log
-        self.addr_width = addr_width
-        self.bus_width = bus_width
-        self.strb_bits = bus_width // 8
-        self.addr_mask = (2**self.strb_bits - 1)
-        self.num_lines = len(registers) // self.strb_bits
-        self.count = 0
-        self.error_overflow = error_overflow
+        # APB5 widths needed by extension hooks and packet construction.
+        # Must be set before super().__init__ because _default_randomizer_constraints()
+        # is called during init and references ruser_width / buser_width.
         self.auser_width = auser_width
         self.wuser_width = wuser_width
         self.ruser_width = ruser_width
         self.buser_width = buser_width
         self.wakeup_generator = wakeup_generator
 
-        # Create memory model
-        self.mem = MemoryModel(
-            num_lines=self.num_lines,
-            bytes_per_line=self.strb_bits,
-            log=self.log,
-            preset_values=registers
-        )
-        self.sentQ = deque()
+        # Default to APB5 signal sets so APBSlave's __init__ picks them up.
+        if signals is None:
+            self._signals = apb5_signals + apb5_optional_signals
+            self._optional_signals = apb5_optional_signals
+            signals = self._signals
 
-        # Initialize outputs
-        self.bus.PRDATA.setimmediatevalue(0)
-        self.bus.PREADY.setimmediatevalue(0)
-        if self.is_signal_present('PSLVERR'):
-            self.bus.PSLVERR.setimmediatevalue(0)
+        super().__init__(
+            entity=entity, title=title, prefix=prefix, clock=clock,
+            registers=registers, signals=signals,
+            bus_width=bus_width, addr_width=addr_width,
+            randomizer=randomizer, log=log, error_overflow=error_overflow,
+            **kwargs,
+        )
+
+    # ---- Extension hook overrides ----
+
+    def _default_randomizer_constraints(self):
+        """Add PRUSER / PBUSER randomization on top of the APB4 defaults."""
+        constraints = super()._default_randomizer_constraints()
+        constraints['pruser'] = ([(0, (1 << self.ruser_width) - 1)], [1])
+        constraints['pbuser'] = ([(0, (1 << self.buser_width) - 1)], [1])
+        return constraints
+
+    def _init_extension_signals(self):
+        """Zero APB5 output extensions at construction."""
         if self.is_signal_present('PRUSER'):
             self.bus.PRUSER.setimmediatevalue(0)
         if self.is_signal_present('PBUSER'):
@@ -379,135 +368,60 @@ class APB5Slave(BusMonitor):
         if self.is_signal_present('PWAKEUP'):
             self.bus.PWAKEUP.setimmediatevalue(0)
 
-        msg = f'APB5 Slave {self.title} initialized'
-        self.log.debug(msg)
+    def _capture_extension_input_fields(self):
+        """Sample PAUSER / PWUSER from the bus."""
+        return {
+            'pauser': (self.bus.PAUSER.value.integer
+                       if self.is_signal_present('PAUSER') else 0),
+            'pwuser': (self.bus.PWUSER.value.integer
+                       if self.is_signal_present('PWUSER') else 0),
+        }
 
-    def is_signal_present(self, signal_name):
-        """Check if a signal is present on the bus."""
-        return (hasattr(self.bus, signal_name) and
-                getattr(self.bus, signal_name) is not None)
+    def _drive_extension_response(self, rand_values):
+        """Drive PRUSER / PBUSER from randomizer values."""
+        if self.is_signal_present('PRUSER'):
+            self.bus.PRUSER.value = rand_values.get('pruser', 0)
+        if self.is_signal_present('PBUSER'):
+            self.bus.PBUSER.value = rand_values.get('pbuser', 0)
+
+    def _build_packet(self, *, start_time, count, pwrite, paddr,
+                      pwdata, prdata, pstrb, pprot, pslverr,
+                      direction, extension_inputs, rand_values) -> Any:
+        """Construct an APB5Packet populated with USER / WAKEUP fields."""
+        del direction
+        wakeup = (self.bus.PWAKEUP.value.integer
+                  if self.is_signal_present('PWAKEUP') else 0)
+        return APB5Packet(
+            data_width=self.bus_width,
+            addr_width=self.addr_width,
+            strb_width=self.strb_bits,
+            auser_width=self.auser_width,
+            wuser_width=self.wuser_width,
+            ruser_width=self.ruser_width,
+            buser_width=self.buser_width,
+            start_time=start_time,
+            count=count,
+            pwrite=pwrite,
+            paddr=paddr,
+            pwdata=pwdata,
+            prdata=prdata,
+            pstrb=pstrb,
+            pprot=pprot,
+            pslverr=pslverr,
+            pauser=extension_inputs.get('pauser', 0),
+            pwuser=extension_inputs.get('pwuser', 0),
+            pruser=rand_values.get('pruser', 0),
+            pbuser=rand_values.get('pbuser', 0),
+            wakeup=wakeup,
+        )
 
     def print(self, transaction):
-        """Print transaction for debug."""
+        """Print transaction for debug (APB5 label)."""
         msg = f'{self.title} - APB5 Transaction #{self.count}: '
         msg += transaction.formatted(compact=True)
         self.log.debug(msg)
 
     async def set_wakeup(self, value):
-        """Set the PWAKEUP signal."""
+        """Set the PWAKEUP signal (APB5-specific master-driven wakeup)."""
         if self.is_signal_present('PWAKEUP'):
             self.bus.PWAKEUP.value = value
-
-    async def _monitor_recv(self):
-        """Handle APB5 slave transactions."""
-        prev_penable = 0
-
-        while True:
-            await RisingEdge(self.clock)
-
-            curr_psel = (self.bus.PSEL.value.integer
-                         if self.bus.PSEL.value.is_resolvable else 0)
-            curr_penable = (self.bus.PENABLE.value.integer
-                            if self.bus.PENABLE.value.is_resolvable else 0)
-
-            # Detect setup phase (PSEL without PENABLE)
-            if curr_psel and not curr_penable:
-                pass  # Setup phase - no action needed
-
-            # Detect access phase start (PSEL + PENABLE rising)
-            if curr_psel and curr_penable and not prev_penable:
-                # Get random delays and user signal values
-                rand_values = self.randomizer.next()
-                ready_delay = rand_values.get('ready', 0)
-                error_val = rand_values.get('error', 0)
-                pruser = rand_values.get('pruser', 0)
-                pbuser = rand_values.get('pbuser', 0)
-
-                address = self.bus.PADDR.value.integer
-                direction = pwrite[self.bus.PWRITE.value.integer]
-                loc_pwrite = self.bus.PWRITE.value.integer
-
-                # Calculate memory line
-                line = (address & ~self.addr_mask) // self.strb_bits
-
-                # Check for address overflow
-                if line >= self.num_lines and self.error_overflow:
-                    error_val = 1
-
-                # Handle read/write
-                if direction == 'WRITE':
-                    wdata = self.bus.PWDATA.value.integer
-                    strb = (self.bus.PSTRB.value.integer
-                            if self.is_signal_present('PSTRB') else
-                            (1 << self.strb_bits) - 1)
-
-                    if line < self.num_lines:
-                        self.mem.write(line, wdata, strb)
-                    rdata = 0
-                else:
-                    if line < self.num_lines:
-                        rdata = self.mem.read(line)
-                    else:
-                        rdata = 0
-                    wdata = 0
-                    strb = 0
-
-                # Get APB5 input user signals
-                pauser = (self.bus.PAUSER.value.integer
-                          if self.is_signal_present('PAUSER') else 0)
-                pwuser = (self.bus.PWUSER.value.integer
-                          if self.is_signal_present('PWUSER') else 0)
-                pprot = (self.bus.PPROT.value.integer
-                         if self.is_signal_present('PPROT') else 0)
-
-                # Apply ready delay
-                for _ in range(ready_delay):
-                    await RisingEdge(self.clock)
-
-                # Set outputs
-                self.bus.PRDATA.value = rdata
-                self.bus.PREADY.value = 1
-                if self.is_signal_present('PSLVERR'):
-                    self.bus.PSLVERR.value = error_val
-                if self.is_signal_present('PRUSER'):
-                    self.bus.PRUSER.value = pruser
-                if self.is_signal_present('PBUSER'):
-                    self.bus.PBUSER.value = pbuser
-
-                self.count += 1
-
-                # Create transaction record
-                transaction = APB5Packet(
-                    data_width=self.bus_width,
-                    addr_width=self.addr_width,
-                    strb_width=self.strb_bits,
-                    auser_width=self.auser_width,
-                    wuser_width=self.wuser_width,
-                    ruser_width=self.ruser_width,
-                    buser_width=self.buser_width,
-                    start_time=get_sim_time('ns'),
-                    count=self.count,
-                    pwrite=loc_pwrite,
-                    paddr=address,
-                    pwdata=wdata,
-                    prdata=rdata,
-                    pstrb=strb,
-                    pprot=pprot,
-                    pslverr=error_val,
-                    pauser=pauser,
-                    pwuser=pwuser,
-                    pruser=pruser,
-                    pbuser=pbuser,
-                )
-
-                self.sentQ.append(transaction)
-                self._recv(transaction)
-                self.print(transaction)
-
-                # Wait for transaction completion
-                await RisingEdge(self.clock)
-                self.bus.PREADY.value = 0
-                if self.is_signal_present('PSLVERR'):
-                    self.bus.PSLVERR.value = 0
-
-            prev_penable = curr_penable

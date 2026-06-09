@@ -12,6 +12,14 @@
   type now requires editing one file. No public API change.
   ([#9](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/9))
 
+- **Framework kwarg stripping helper.** Added
+  `components/shared/init_kwargs.py` with `FRAMEWORK_KWARGS` canonical
+  tuple and `strip_framework_kwargs()` / `pop_framework_kwargs()` helpers.
+  `GAXIMaster.__init__` and `GAXIMonitorBase.__init__` now call the helper
+  instead of open-coding the `for param in custom_params: kwargs.pop(...)`
+  dance. Adding a new framework kwarg now requires updating one tuple.
+  ([#10](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/10))
+
 ### Documentation
 
 - **AXI4SlaveRead in-order serialization synchronization assumption.** Audited

@@ -27,6 +27,7 @@ from cocotb.triggers import RisingEdge, Timer
 from cocotb.utils import get_sim_time
 from cocotb_bus.drivers import BusDriver
 
+from ..shared.init_kwargs import strip_framework_kwargs
 from ..shared.master_statistics import MasterStatistics
 from .gaxi_component_base import GAXIComponentBase
 from .gaxi_packet import GAXIPacket
@@ -113,14 +114,10 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
             'error_count': 0
         }
 
-        # Remove custom parameters that shouldn't go to BusDriver
-        custom_params = ['bus_name', 'pkt_prefix', 'memory_model', 'randomizer',
-                        'signal_map', 'super_debug', 'pipeline_debug']
-        for param in custom_params:
-            kwargs.pop(param, None)
-
-        # Remove prefix from kwargs so it doesn't get passed to BusDriver/BusMonitor
-        kwargs.pop('prefix', None)
+        # Strip framework-only kwargs (and `prefix`, since we're about to pass
+        # an explicit empty prefix to cocotb) before forwarding to BusDriver.
+        # See components/shared/init_kwargs.py for the canonical set.
+        strip_framework_kwargs(kwargs, extra=('prefix',))
 
         # CLEAN APPROACH: Explicitly pass empty prefix to cocotb
         # Our signal lists already contain full signal names

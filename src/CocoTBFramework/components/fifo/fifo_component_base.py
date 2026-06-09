@@ -28,6 +28,7 @@ ADDED: Optional signal_map parameter for manual signal mapping override.
 from ..shared.data_strategies import DataCollectionStrategy, DataDrivingStrategy
 from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.protocol_types import validate_protocol_type
 from ..shared.signal_mapping_helper import SignalResolver
 
 
@@ -91,9 +92,17 @@ class FIFOComponentBase:
         self.memory_model = memory_model
         self.signal_map = signal_map  # NEW: Store signal map
 
-        # Validate protocol_type
-        if protocol_type not in ['fifo_master', 'fifo_slave']:
-            raise ValueError(f"protocol_type must be 'fifo_master' or 'fifo_slave', got: {protocol_type}")
+        # Validate protocol_type against the canonical set (shared/protocol_types.py).
+        # FIFOComponentBase historically accepted only 'fifo_master' / 'fifo_slave';
+        # the shared validator is permissive on identifier (the channel-specific
+        # behavior lives in SignalResolver), but callers from the FIFO path
+        # should only pass FIFO identifiers.
+        if protocol_type not in ("fifo_master", "fifo_slave"):
+            raise ValueError(
+                f"FIFOComponentBase protocol_type must be 'fifo_master' or "
+                f"'fifo_slave', got: {protocol_type!r}"
+            )
+        validate_protocol_type(protocol_type)
         self.protocol_type = protocol_type
 
         # Normalize field_config - handle dict conversion uniformly

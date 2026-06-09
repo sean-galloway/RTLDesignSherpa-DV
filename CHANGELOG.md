@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Canonical `protocol_type` set.** Added
+  `components/shared/protocol_types.py` providing `PROTOCOL_TYPES`
+  (frozenset) and `validate_protocol_type()`. `GAXIComponentBase` and
+  `FIFOComponentBase` now validate against this single source of truth
+  instead of carrying their own hard-coded lists. Adding a new channel
+  type now requires editing one file. No public API change.
+  ([#9](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/9))
+
 ### Documentation
 
 - **AXI4SlaveRead in-order serialization synchronization assumption.** Audited

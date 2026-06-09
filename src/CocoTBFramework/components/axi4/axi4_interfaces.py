@@ -685,6 +685,19 @@ class AXI4SlaveRead:
 
         Args:
             ar_packet: AR packet with transaction details
+
+        Synchronization note (issue #13 audit):
+            No `cocotb.triggers.Lock` is needed around the queue/active mutations
+            below. The check-then-set on `in_order_active[id]` (read at line marked
+            'active check', write at 'active set') and the queue append/pop happen
+            between awaits within this coroutine. Cocotb's cooperative scheduler
+            runs each coroutine until its next `await`, so no other coroutine
+            observes a half-mutated state. The first await is `_generate_read_response`
+            below; everything above it is atomic w.r.t. other coroutines.
+            This is structurally different from the across-await race that motivated
+            `completion_locks` on the slave-write side — do not "fix" by adding a lock.
+            If you ever introduce an `await` between the queue append and the active
+            check/set, you MUST add a per-ID Lock to keep the section atomic.
         """
         transaction_id = getattr(ar_packet, 'id', 0)
 
@@ -693,17 +706,18 @@ class AXI4SlaveRead:
             self.in_order_queue[transaction_id] = []
             self.in_order_active[transaction_id] = False
 
-        # Add packet to queue
+        # Add packet to queue (atomic — no await)
         self.in_order_queue[transaction_id].append(ar_packet)
 
-        # If another response for this ID is already active, just return (it will process the queue)
+        # active check + early return: atomic — no await between this and the
+        # 'active set' below; safe under cocotb cooperative scheduling.
         if self.in_order_active[transaction_id]:
             if self.log:
                 self.log.debug(f"AXI4SlaveRead: Queued request for id={transaction_id} "
                             f"(queue_len={len(self.in_order_queue[transaction_id])})")
             return
 
-        # Mark this ID as active
+        # Mark this ID as active (atomic 'active set' — see synchronization note in docstring)
         self.in_order_active[transaction_id] = True
 
         # Process all queued packets for this ID serially

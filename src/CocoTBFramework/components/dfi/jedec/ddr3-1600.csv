@@ -1,0 +1,21 @@
+# DDR3-1600 (DDR3 1600 MT/s, CL=11) — JEDEC JESD79-3F reference values.
+# Sourced from Micron MT41J512M8 datasheet for the 1600 speed grade.
+# Provisional values for the BFM's DRAM state model; tighten/loosen
+# per the actual part you're modeling.
+
+parameter, unit,  value, description
+tCK,       ns,    1.25,  Clock period (800 MHz DFI clock, DDR3-1600 data rate)
+tRCD,      ns,    13.75, Activate to Read/Write same bank
+tRP,       ns,    13.75, Precharge command period
+tRAS_min,  ns,    35.0,  Active to Precharge minimum
+tRC,       ns,    48.75, Active-to-Active same bank
+tWR,       ns,    15.0,  Write recovery (PRE after last WR data beat)
+tWTR,      ns,    7.5,   Write to Read same bank
+tRTP,      ns,    7.5,   Internal Read to Precharge
+tRRD,      ns,    6.0,   Active to Active different bank
+tFAW,      ns,    30.0,  Four-Activate Window (4 ACT bursts must fit)
+tREFI,     ns,    7800,  Average refresh interval (auto-refresh)
+tRFC,      ns,    260,   Refresh cycle time (per AUTO-REF)
+CL,        CK,    11,    CAS latency
+CWL,       CK,    8,     CAS write latency
+BL,        beats, 8,     Burst length (BL8, fixed)

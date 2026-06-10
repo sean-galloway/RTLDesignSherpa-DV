@@ -52,3 +52,7 @@ site/
 # OS
 .DS_Store
 Thumbs.db
+
+# cocotb sim build artifacts
+tests/sim/local_sim_build/
+tests/sim/logs/

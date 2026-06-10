@@ -93,8 +93,9 @@ def command_field_config(
 ) -> FieldConfig:
     """FieldConfig for the DFI Command (a.k.a. Control) Interface.
 
-    v6.0 renamed the interface and the address bus
-    (``dfi_address`` → ``dfi_cmdaddr``); the role is unchanged.
+    v2.1 called this the "Control Interface" with bus ``dfi_address``;
+    later revisions renamed to "Command Interface" with ``dfi_cmdaddr``.
+    The role is unchanged.
     """
     widths = _resolve_widths(
         addr_width=addr_width,

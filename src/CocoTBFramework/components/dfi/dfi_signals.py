@@ -47,16 +47,15 @@ class DFIVersion(str, Enum):
     V3_1 = "3.1"
     V4_0 = "4.0"
     V5_2 = "5.2"
-    V6_0 = "6.0"
 
 
 class MemoryType(str, Enum):
     """DRAM memory technologies the DFI can target.
 
-    v6.0 dropped DDR/2/3/4 and LPDDR/1/2/3/4 support — see
-    :data:`SUPPORTED_MEMORY_BY_VERSION` for the per-version applicable
-    set. The enum carries every memory type the spec has ever covered
-    so test code can still reference them.
+    Scope: DDR1-5 + LPDDR1-5. v6.0 dropped DDR/2/3/4 + LPDDR/1/2/3/4
+    and added LPDDR6 / HBM4 — that's out of scope for this BFM
+    generation. See ``docs/internal/dfi-semantic-shifts.md`` for the
+    rationale and the memory note on v6 scope changes for the research.
     """
 
     DDR1 = "ddr1"
@@ -69,22 +68,20 @@ class MemoryType(str, Enum):
     LPDDR3 = "lpddr3"
     LPDDR4 = "lpddr4"
     LPDDR5 = "lpddr5"
-    LPDDR6 = "lpddr6"     # v6.0+
-    HBM4 = "hbm4"         # v6.0+
 
 
 class SubInterface(str, Enum):
-    """The DFI sub-interfaces.
+    """The DFI sub-interfaces (scope: v2.1-v5.x).
 
-    v2.1 had six (the first six below plus TRAINING). v6.0 §3 lists
-    fourteen distinct interface signal groups — TRAINING was folded
-    into the command/read/write sections, and the others were added
-    across v3-v6. MVP wires up COMMAND + WRITE_DATA + READ_DATA;
-    Phase 2/3 add the rest.
+    v2.1 had six (the first six below plus TRAINING). v5.x grew this
+    to roughly a dozen as new functions split out across revisions.
+    MVP wires up COMMAND + WRITE_DATA + READ_DATA; Phase 2/3 add the
+    rest within this version range.
 
-    Naming note: v2.1 called this the "Control Interface"; v6.0
-    renamed to "Command Interface" alongside the ``dfi_address`` →
-    ``dfi_cmdaddr`` signal rename. We use the v6.0 name.
+    Naming note: v2.1 called the command interface "Control Interface";
+    later revisions renamed it to "Command Interface" alongside the
+    ``dfi_address`` → ``dfi_cmdaddr`` signal rename. We use the later
+    name.
     """
 
     # v2.1 baseline (plus the v2.1-only TRAINING below)
@@ -110,10 +107,10 @@ class SubInterface(str, Enum):
     MC_TO_PHY_MSG = "mc_to_phy_msg"
     PHY_ERROR = "phy_error"
 
-    # HBM-era
+    # Multi-channel (LPDDR-class)
     MULTI_CHANNEL = "multi_channel"
 
-    # v2.1 - v5.x only; folded into command/read/write in v6.0
+    # v2.1+ training sub-interface
     TRAINING = "training"
 
 
@@ -125,9 +122,9 @@ class SignalDirection(str, Enum):
 
 
 # Per-version memory-type support matrix. Source: revision history of
-# each spec. v3.x onward this is mostly additive; v6.0 explicitly
-# **removed** DDR1-4 and LPDDR1-4 support in favor of DDR5 / LPDDR5 /
-# LPDDR6 / HBM4.
+# each spec. v3.x onward this is purely additive within the v2.1-v5.x
+# scope window — v6.0 (out of scope) is where the spec drops legacy
+# DDR support, which is why this BFM generation stops at v5.x.
 SUPPORTED_MEMORY_BY_VERSION: Dict[DFIVersion, FrozenSet[MemoryType]] = {
     DFIVersion.V2_1: frozenset({
         MemoryType.DDR1, MemoryType.DDR2, MemoryType.DDR3,
@@ -149,17 +146,13 @@ SUPPORTED_MEMORY_BY_VERSION: Dict[DFIVersion, FrozenSet[MemoryType]] = {
         MemoryType.LPDDR1, MemoryType.LPDDR2, MemoryType.LPDDR3,
         MemoryType.LPDDR4, MemoryType.LPDDR5,
     }),
-    DFIVersion.V6_0: frozenset({
-        # v6.0 dropped DDR1-4 and LPDDR1-4; added LPDDR6, HBM4
-        MemoryType.DDR5, MemoryType.LPDDR5, MemoryType.LPDDR6, MemoryType.HBM4,
-    }),
 }
 
 
 # What the MVP envelope covers. These shrink the spec's actual support
 # matrix down to what the BFM has signal-table coverage for today.
 # Phase 2 widens MVP_VERSIONS / MVP_MEMORY_TYPES; Phase 3 widens
-# MVP_SUB_INTERFACES (and possibly MVP_MEMORY_TYPES for HBM4/LPDDR6).
+# MVP_SUB_INTERFACES.
 MVP_VERSIONS: FrozenSet[DFIVersion] = frozenset({DFIVersion.V2_1})
 MVP_MEMORY_TYPES: FrozenSet[MemoryType] = frozenset({
     MemoryType.DDR1,
@@ -209,8 +202,8 @@ class SignalSpec:
     set of memory technologies where this signal is meaningful (an empty
     frozenset means "all").
 
-    Renames across versions (e.g. ``dfi_address`` → ``dfi_cmdaddr`` at
-    v6.0) are encoded as two SignalSpec entries: the old name with
+    Renames across versions (e.g. ``dfi_address`` → ``dfi_cmdaddr``)
+    are encoded as two SignalSpec entries: the old name with
     ``max_version`` set, and the new name with ``min_version`` set to
     the version that introduced the rename.
     """
@@ -242,7 +235,6 @@ def _version_rank(v: DFIVersion) -> int:
         DFIVersion.V3_1: 31,
         DFIVersion.V4_0: 40,
         DFIVersion.V5_2: 52,
-        DFIVersion.V6_0: 60,
     }[v]
 
 
@@ -261,9 +253,9 @@ _LPDDR2_ONLY: FrozenSet[MemoryType] = frozenset({MemoryType.LPDDR2})
 
 
 # Command (a.k.a. "Control") Interface — DFI v2.1 Table 2 (pages 9-10).
-# The "Command Interface" name dates from v6.0; v2.1 called it the
-# "Control Interface" and the bus was named ``dfi_address``. v6.0
-# renamed the bus to ``dfi_cmdaddr``; same logical role.
+# v2.1 called this the "Control Interface" with bus ``dfi_address``;
+# later revisions renamed to "Command Interface" with ``dfi_cmdaddr``.
+# Same logical role.
 _COMMAND_SIGNALS: Tuple[SignalSpec, ...] = (
     SignalSpec(
         name="address",
@@ -500,20 +492,19 @@ def validate_configuration(
     1. ``version`` is in the MVP set (Phase 2 widens this).
     2. ``memory_type`` is in the MVP set (Phase 2 widens this).
     3. ``(version, memory_type)`` is a valid pair per the spec —
-       :data:`SUPPORTED_MEMORY_BY_VERSION` is the canonical source. This
-       catches e.g. ``v6.0`` + ``ddr3`` even after both are added to MVP.
+       :data:`SUPPORTED_MEMORY_BY_VERSION` is the canonical source.
     4. All requested sub-interfaces are in the MVP set.
     """
     if version not in MVP_VERSIONS:
         raise ValueError(
             f"DFI BFM MVP only supports {sorted(v.value for v in MVP_VERSIONS)}; "
-            f"got {version.value}. Phase 2 will add v3.1/v4.0/v5.2/v6.0 envelopes."
+            f"got {version.value}. Phase 2 will add v3.1/v4.0/v5.2 envelopes."
         )
     if memory_type not in MVP_MEMORY_TYPES:
         raise ValueError(
             f"DFI BFM MVP only supports memory types "
             f"{sorted(m.value for m in MVP_MEMORY_TYPES)}; got {memory_type.value}. "
-            f"Phase 2 will add DDR4/DDR5/LPDDR3/LPDDR4/LPDDR5; Phase 3 adds LPDDR6/HBM4."
+            f"Phase 2 will add DDR4/DDR5/LPDDR3/LPDDR4/LPDDR5."
         )
     supported = SUPPORTED_MEMORY_BY_VERSION[version]
     if memory_type not in supported:

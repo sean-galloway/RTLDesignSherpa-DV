@@ -3,6 +3,12 @@
 > **Status:** Design pressure-test, not user-facing docs. Iterate freely here
 > before any code is written. If a shift area doesn't fit the architecture
 > below, the architecture is what we change — not the area.
+>
+> **Scope:** DFI v2.1 through v5.x. Covers DDR1-5 + LPDDR1-5. v6.0 dropped
+> all DDR/LPDDR types below DDR5/LPDDR5 and added LPDDR6 / HBM4 — that
+> represents enough of a discontinuity to be a future BFM generation, not
+> an extension of this one. The v6.0 research is preserved in the
+> `project_dfi_v6_scope_changes` memory note; the current BFM stops at v5.x.
 
 ## Why this exists
 
@@ -53,9 +59,6 @@ class DFIv5_2Behavior(DFIv4_0Behavior):
     def phy_master(self, bus, state): ...         # renamed; semantics evolved
     # everything else inherited
 
-class DFIv6_0Behavior(DFIv5_2Behavior):
-    # ...
-
 # 2. Registry dict — the ONLY place that knows about versions.
 VERSION_BEHAVIOR = {
     DFIVersion.V2_1: DFIv2_1Behavior,
@@ -65,7 +68,7 @@ VERSION_BEHAVIOR = {
     DFIVersion.V5_0: DFIv4_0Behavior,   # v5.0 is corrections-only
     DFIVersion.V5_1: DFIv4_0Behavior,   # v5.1 is new signals (additive)
     DFIVersion.V5_2: DFIv5_2Behavior,   # PHY-master renamed
-    DFIVersion.V6_0: DFIv6_0Behavior,
+    # v6.0+ is a future BFM generation — see scope statement at the top.
 }
 ```
 
@@ -150,8 +153,8 @@ def crc(self, bus, state) -> CRCEvent | None:
 PHY recalibration / training touch-up.
 
 **Versions:** Existed pre-v3.0 in a simpler form. v3.0 "enhanced the update
-interface". v4.0 added self-refresh-exit semantics. v6.0 expanded substantially
-(per the v6.0 scope-changes memory note).
+interface". v4.0 added self-refresh-exit semantics. (v6.0 expanded
+substantially — out of scope for this generation.)
 
 **Spec references (v5.2):**
 - §3.4 (Update Interface)
@@ -164,8 +167,6 @@ interface". v4.0 added self-refresh-exit semantics. v6.0 expanded substantially
 - *v3.0:* Bidirectional request/grant handshake.
 - *v4.0:* Self-refresh exit integration — update can now interleave with
   self-refresh.
-- *v6.0:* Further expanded (specifics from memory note: sub-interfaces grew
-  6→14, update is one of the ones that gained signals).
 
 **Method shape:**
 ```python
@@ -180,7 +181,6 @@ interface — the BFM may be on either side.)
 - `DFIv2_1Behavior` — MC-initiated only, single-cycle.
 - `DFIv3_0Behavior` — full request/grant handshake.
 - `DFIv4_0Behavior` — adds self-refresh exit branching.
-- `DFIv6_0Behavior` — expanded signal set.
 
 **Open questions:**
 - Does `UpdateEvent` carry enough state to express "request denied" vs "grant
@@ -206,8 +206,8 @@ reflects expanded scope (PHY-owned operations beyond pure master mode).
 **What shifts:**
 - *Pre-v4.0:* Doesn't exist. Behavior raises `NotImplementedError`.
 - *v4.0:* "PHY Master Interface" — PHY can take ownership of the bus.
-- *v5.2:* Renamed to "PHY Managed Interface" with expanded contract.
-- *v6.0:* Further expanded (per scope-changes memory note).
+- *v5.2:* Renamed to "PHY Managed Interface". Whether the contract genuinely
+  evolved or only the name changed needs a spec-section read in pass 2.
 
 **Method shape:**
 ```python
@@ -218,16 +218,15 @@ def phy_release(self, bus, state) -> None: ...
 **Inheritance plan:**
 - `DFIv2_1Behavior.phy_takeover()` → `raise NotSupportedInThisVersionError`.
 - `DFIv4_0Behavior` — original PHY master semantics.
-- `DFIv5_2Behavior` — renamed contract, expanded operations.
-- `DFIv6_0Behavior` — further expanded.
+- `DFIv5_2Behavior` — only if the rename brought a real semantic shift; otherwise
+  registry collapses V5_2 onto `DFIv4_0Behavior`.
 
 **Open questions:**
 - The rename (v5.2) is **not** a behavior change on its own — same wires, same
   protocol, just a different name in the spec. Do we need a behavior subclass
-  for v5.2 at all, or can we keep `DFIv4_0Behavior` until v6 (which actually
-  changes behavior)? Lean toward **no v5.2 subclass** — the rename is a doc
+  for v5.2 at all? Lean toward **no v5.2 subclass** — the rename is a doc
   concern, not a BFM concern. Registry entry for `V5_2` can point at
-  `DFIv4_0Behavior`.
+  `DFIv4_0Behavior`. Confirm by reading v5.2 §3.8 and §4.15 in pass 2.
 
 ---
 
@@ -437,13 +436,10 @@ DFIv2_1Behavior            ← all NotSupportedInThisVersionError for shifts
         ├── DFIv3_1Behavior  ← PHY-requested training, Low-power separation
         │
         └── DFIv4_0Behavior  ← PHY Master, Disconnect, Frequency change
-            │                  protocol split, Training (optional + per-slice),
-            │                  Update (self-refresh exit)
-            │
-            └── DFIv5_2Behavior   ← *Possibly* — only if PHY Master rename has
-                │                   any semantic implication
-                │
-                └── DFIv6_0Behavior ← (TBD — need v6.0 spec deep-dive)
+                               protocol split, Training (optional + per-slice),
+                               Update (self-refresh exit)
+            (DFIv5_2Behavior only created if the PHY Master rename has any
+             genuine semantic implication — see open question below.)
 
 VERSION_BEHAVIOR = {
     DFIVersion.V2_1: DFIv2_1Behavior,
@@ -453,7 +449,7 @@ VERSION_BEHAVIOR = {
     DFIVersion.V5_0: DFIv4_0Behavior,   # corrections-only release
     DFIVersion.V5_1: DFIv4_0Behavior,   # new signals (additive, no shift)
     DFIVersion.V5_2: DFIv4_0Behavior,   # rename only (no semantic shift)
-    DFIVersion.V6_0: DFIv6_0Behavior,
+    # v6.0+ is a future BFM generation; out of scope here.
 }
 ```
 
@@ -515,10 +511,13 @@ implicitly.
    land in two waves (Phase 2 first, Phase 3 second), or all at once with
    stub methods for un-implemented areas?
 
-5. **v6.0 deep-dive.** The v6.0 scope-changes memory note says sub-interfaces
-   grew 6→14 and v6.0 dropped DDR1-4/LPDDR1-4. We haven't enumerated the new
-   shifts yet. **Recommended next step after this doc is approved:** dedicated
-   v6.0 spec read-through to fill in `DFIv6_0Behavior`.
+5. **v6+ deferred.** v6.0 is a sufficient discontinuity (dropped DDR1-4 +
+   LPDDR1-4, added LPDDR6 + HBM4, expanded sub-interfaces 6→14) that it's
+   treated as a future BFM generation, not an extension of this one. When we
+   come back to it, expect the v6+ BFM to **inherit some pieces** (e.g., the
+   address-mapping primitive, the JEDEC timing loader, the basic command
+   primitives) but reorganize the behavior class tree around v6 as the new
+   baseline. Not in this doc's scope.
 
 6. **Testing strategy.** Each behavior class gets its own unit test file
    (`test_dfi_v3_0_behavior.py`, etc.) that constructs the class with a

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from CocoTBFramework.components.dfi.dfi_field_configs import (
-    control_field_config,
+    command_field_config,
     read_data_field_config,
     write_data_field_config,
 )
@@ -16,7 +16,7 @@ from CocoTBFramework.components.dfi.dfi_signals import MemoryType
 
 
 def test_control_ddr3_includes_reset_n_and_odt():
-    cfg = control_field_config(memory_type=MemoryType.DDR3)
+    cfg = command_field_config(memory_type=MemoryType.DDR3)
     names = list(cfg.field_names())
     assert "reset_n" in names  # DDR3-only
     assert "odt" in names      # DDR2/DDR3
@@ -24,14 +24,14 @@ def test_control_ddr3_includes_reset_n_and_odt():
 
 
 def test_control_ddr2_includes_odt_excludes_reset_n():
-    cfg = control_field_config(memory_type=MemoryType.DDR2)
+    cfg = command_field_config(memory_type=MemoryType.DDR2)
     names = list(cfg.field_names())
     assert "odt" in names
     assert "reset_n" not in names
 
 
 def test_control_lpddr2_excludes_idled_signals():
-    cfg = control_field_config(memory_type=MemoryType.LPDDR2)
+    cfg = command_field_config(memory_type=MemoryType.LPDDR2)
     names = list(cfg.field_names())
     assert "address" in names
     # bank/ras_n/cas_n/we_n are held idle for LPDDR2 — not in the config
@@ -42,7 +42,7 @@ def test_control_lpddr2_excludes_idled_signals():
 
 
 def test_control_width_arguments_propagate():
-    cfg = control_field_config(
+    cfg = command_field_config(
         memory_type=MemoryType.DDR3,
         addr_width=20,
         bank_width=4,

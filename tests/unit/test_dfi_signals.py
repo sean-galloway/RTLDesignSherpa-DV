@@ -5,13 +5,16 @@ from __future__ import annotations
 import pytest
 
 from CocoTBFramework.components.dfi.dfi_signals import (
+    SUPPORTED_MEMORY_BY_VERSION,
     DFIVersion,
     MemoryType,
     SignalDirection,
+    SignalSpec,
     SubInterface,
     MVP_MEMORY_TYPES,
     MVP_SUB_INTERFACES,
     MVP_VERSIONS,
+    is_supported_pair,
     optional_signal_names,
     required_signal_names,
     signals_for,
@@ -37,9 +40,9 @@ def test_mvp_memory_types_excludes_ddr4_and_lpddr4_plus():
     assert MemoryType.LPDDR5 not in MVP_MEMORY_TYPES
 
 
-def test_mvp_sub_interfaces_is_control_write_read_only():
+def test_mvp_sub_interfaces_is_command_write_read_only():
     assert MVP_SUB_INTERFACES == frozenset({
-        SubInterface.CONTROL,
+        SubInterface.COMMAND,
         SubInterface.WRITE_DATA,
         SubInterface.READ_DATA,
     })
@@ -110,10 +113,10 @@ def test_rddata_dnv_only_on_lpddr2():
 # ---------------------------------------------------------------------
 
 
-def test_control_only_profile_excludes_data_signals():
+def test_command_only_profile_excludes_data_signals():
     sigs = signals_for(
         DFIVersion.V2_1, MemoryType.DDR3,
-        sub_interfaces=frozenset({SubInterface.CONTROL}),
+        sub_interfaces=frozenset({SubInterface.COMMAND}),
     )
     names = {s.name for s in sigs}
     assert "address" in names
@@ -178,10 +181,10 @@ def test_rddata_en_is_mc_to_phy():
     assert sigs["rddata_en"].direction == SignalDirection.MC_TO_PHY
 
 
-def test_all_control_signals_are_mc_to_phy():
+def test_all_command_signals_are_mc_to_phy():
     sigs = signals_for(
         DFIVersion.V2_1, MemoryType.DDR3,
-        sub_interfaces=frozenset({SubInterface.CONTROL}),
+        sub_interfaces=frozenset({SubInterface.COMMAND}),
     )
     assert all(s.direction == SignalDirection.MC_TO_PHY for s in sigs)
 
@@ -217,3 +220,146 @@ def test_validate_rejects_phase2_sub_interface():
             DFIVersion.V2_1, MemoryType.DDR3,
             MVP_SUB_INTERFACES | {SubInterface.TRAINING},
         )
+
+
+# ---------------------------------------------------------------------
+# Per-version memory support matrix (SUPPORTED_MEMORY_BY_VERSION)
+# ---------------------------------------------------------------------
+
+
+def test_v6_drops_legacy_memory_types():
+    """v6.0 changelog: 'Removed DDR/2/3/4 and LPDDR/2/3/4 support'."""
+    v6_support = SUPPORTED_MEMORY_BY_VERSION[DFIVersion.V6_0]
+    for dropped in (MemoryType.DDR1, MemoryType.DDR2, MemoryType.DDR3,
+                    MemoryType.DDR4, MemoryType.LPDDR1, MemoryType.LPDDR2,
+                    MemoryType.LPDDR3, MemoryType.LPDDR4):
+        assert dropped not in v6_support, (
+            f"v6.0 dropped {dropped.value} per spec; matrix still has it"
+        )
+
+
+def test_v6_adds_hbm4_and_lpddr6():
+    v6_support = SUPPORTED_MEMORY_BY_VERSION[DFIVersion.V6_0]
+    assert MemoryType.HBM4 in v6_support
+    assert MemoryType.LPDDR6 in v6_support
+    assert MemoryType.DDR5 in v6_support
+    assert MemoryType.LPDDR5 in v6_support
+
+
+def test_v2_1_doesnt_have_ddr4():
+    """DDR4 was added in v3.0."""
+    assert MemoryType.DDR4 not in SUPPORTED_MEMORY_BY_VERSION[DFIVersion.V2_1]
+
+
+def test_v3_1_adds_ddr4_and_lpddr3():
+    v3_support = SUPPORTED_MEMORY_BY_VERSION[DFIVersion.V3_1]
+    assert MemoryType.DDR4 in v3_support
+    assert MemoryType.LPDDR3 in v3_support
+    # Still has v2.1 legacy
+    assert MemoryType.DDR3 in v3_support
+
+
+def test_v4_0_adds_lpddr4():
+    assert MemoryType.LPDDR4 in SUPPORTED_MEMORY_BY_VERSION[DFIVersion.V4_0]
+
+
+def test_v5_2_adds_ddr5_lpddr5_keeps_legacy():
+    v5_support = SUPPORTED_MEMORY_BY_VERSION[DFIVersion.V5_2]
+    assert MemoryType.DDR5 in v5_support
+    assert MemoryType.LPDDR5 in v5_support
+    # Legacy still supported in v5.x
+    assert MemoryType.DDR3 in v5_support
+
+
+def test_is_supported_pair_matches_matrix():
+    assert is_supported_pair(DFIVersion.V2_1, MemoryType.DDR3)
+    assert not is_supported_pair(DFIVersion.V6_0, MemoryType.DDR3)
+    assert is_supported_pair(DFIVersion.V6_0, MemoryType.HBM4)
+
+
+def test_validate_catches_v6_with_legacy_memory(monkeypatch):
+    """Even after widening MVP to include v6.0 and DDR3, the
+    (version, memory) check must reject incompatible pairs.
+    """
+    # Temporarily widen the MVP gates to simulate Phase-3
+    monkeypatch.setattr(
+        "CocoTBFramework.components.dfi.dfi_signals.MVP_VERSIONS",
+        frozenset({DFIVersion.V2_1, DFIVersion.V6_0}),
+    )
+    monkeypatch.setattr(
+        "CocoTBFramework.components.dfi.dfi_signals.MVP_MEMORY_TYPES",
+        MVP_MEMORY_TYPES | {MemoryType.DDR5},
+    )
+    with pytest.raises(ValueError, match="does not support"):
+        validate_configuration(
+            DFIVersion.V6_0, MemoryType.DDR3, MVP_SUB_INTERFACES,
+        )
+
+
+# ---------------------------------------------------------------------
+# SignalSpec.max_version + applies()
+# ---------------------------------------------------------------------
+
+
+def test_signal_spec_max_version_defaults_to_none():
+    """Default ``max_version`` means signal stays in current spec."""
+    spec = SignalSpec(
+        name="x",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key="data_width",
+        sub_interface=SubInterface.COMMAND,
+        min_version=DFIVersion.V2_1,
+        memory_types=frozenset(),
+        description="test",
+    )
+    assert spec.max_version is None
+
+
+def test_applies_rejects_when_above_max_version():
+    """If a signal is removed in v6.0, ``max_version=V5_2`` excludes v6.0."""
+    spec = SignalSpec(
+        name="legacy",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key="data_width",
+        sub_interface=SubInterface.COMMAND,
+        min_version=DFIVersion.V2_1,
+        max_version=DFIVersion.V5_2,
+        memory_types=frozenset(),
+        description="test",
+    )
+    # Within range
+    assert spec.applies(DFIVersion.V2_1, MemoryType.DDR3)
+    assert spec.applies(DFIVersion.V5_2, MemoryType.DDR3)
+    # Beyond max
+    assert not spec.applies(DFIVersion.V6_0, MemoryType.DDR5)
+
+
+# ---------------------------------------------------------------------
+# Expanded SubInterface + MemoryType enums
+# ---------------------------------------------------------------------
+
+
+def test_sub_interface_enum_covers_v6_interfaces():
+    """v6.0 §3 enumerates 14 distinct interface signal groups (plus
+    TRAINING from v2.1-v5.x). The enum should have all of them."""
+    expected = {
+        SubInterface.COMMAND, SubInterface.WRITE_DATA, SubInterface.READ_DATA,
+        SubInterface.WCK_CONTROL, SubInterface.STATUS, SubInterface.LOW_POWER,
+        SubInterface.UPDATE, SubInterface.PHY_MANAGED,
+        SubInterface.MC_TO_PHY_MSG, SubInterface.PHY_ERROR,
+        SubInterface.DBI, SubInterface.ECC, SubInterface.LINK_CRC,
+        SubInterface.MULTI_CHANNEL,
+        SubInterface.TRAINING,
+    }
+    assert set(SubInterface) == expected
+
+
+def test_memory_type_enum_covers_v6_additions():
+    assert MemoryType.LPDDR6 in set(MemoryType)
+    assert MemoryType.HBM4 in set(MemoryType)
+
+
+def test_control_enum_value_renamed_to_command():
+    """v6.0 calls this the "Command Interface"; we use that name."""
+    assert SubInterface.COMMAND.value == "command"
+    assert not hasattr(SubInterface, "CONTROL")

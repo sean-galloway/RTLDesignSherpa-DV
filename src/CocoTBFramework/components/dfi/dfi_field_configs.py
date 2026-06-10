@@ -82,7 +82,7 @@ def _build_for(
 # ----------------------------------------------------------------------
 
 
-def control_field_config(
+def command_field_config(
     *,
     version: DFIVersion = DFIVersion.V2_1,
     memory_type: MemoryType = MemoryType.DDR3,
@@ -91,14 +91,18 @@ def control_field_config(
     cs_width: int = 1,
     ctrl_width: int = 1,
 ) -> FieldConfig:
-    """FieldConfig for the DFI Control Interface."""
+    """FieldConfig for the DFI Command (a.k.a. Control) Interface.
+
+    v6.0 renamed the interface and the address bus
+    (``dfi_address`` → ``dfi_cmdaddr``); the role is unchanged.
+    """
     widths = _resolve_widths(
         addr_width=addr_width,
         bank_width=bank_width,
         cs_width=cs_width,
         ctrl_width=ctrl_width,
     )
-    return _build_for(SubInterface.CONTROL, version, memory_type, widths)
+    return _build_for(SubInterface.COMMAND, version, memory_type, widths)
 
 
 def write_data_field_config(

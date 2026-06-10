@@ -21,7 +21,7 @@ packet types, field configs) plus Tier 1 unit tests.
 """
 
 from .dfi_field_configs import (
-    control_field_config,
+    command_field_config,
     read_data_field_config,
     write_data_field_config,
 )
@@ -32,11 +32,13 @@ from .dfi_packet import (
     DRAMCommand,
 )
 from .dfi_signals import (
+    SUPPORTED_MEMORY_BY_VERSION,
     DFIVersion,
     MemoryType,
     SignalDirection,
     SignalSpec,
     SubInterface,
+    is_supported_pair,
     optional_signal_names,
     required_signal_names,
     signals_for,
@@ -53,11 +55,13 @@ __all__ = [
     "DFIWriteDataPacket",
     "DFIReadDataPacket",
     "DRAMCommand",
-    "control_field_config",
+    "command_field_config",
     "write_data_field_config",
     "read_data_field_config",
     "signals_for",
     "required_signal_names",
     "optional_signal_names",
     "validate_configuration",
+    "is_supported_pair",
+    "SUPPORTED_MEMORY_BY_VERSION",
 ]

@@ -67,6 +67,7 @@ class DFIBase:
         timings: JedecTimings,
         mapping: AddressMapping,
         sub_interfaces: Optional[FrozenSet[SubInterface]] = None,
+        beats_per_burst: Optional[int] = None,
     ):
         if not is_supported_pair(dfi_version, memory_type):
             raise ValueError(
@@ -82,6 +83,17 @@ class DFIBase:
         self.enabled_sub_interfaces: FrozenSet[SubInterface] = (
             sub_interfaces if sub_interfaces is not None else MVP_SUB_INTERFACES
         )
+        # DFI beats per DRAM burst. Default = BL // 2 — assumes the
+        # canonical K=2 PHY-to-DRAM ratio (e.g., a 32-bit DFI data path
+        # for an x16 DRAM). Override for K=1 (beats_per_burst=BL) or for
+        # the BFM-MVP BL=1 case where one DFI beat == one DRAM burst.
+        if beats_per_burst is None:
+            beats_per_burst = max(1, timings.BL // 2)
+        if beats_per_burst <= 0:
+            raise ValueError(
+                f"beats_per_burst must be positive, got {beats_per_burst}"
+            )
+        self.beats_per_burst = beats_per_burst
         self.cycle = 0
 
     # ----- Cycle accounting -----

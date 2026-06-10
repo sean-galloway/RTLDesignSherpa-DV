@@ -66,11 +66,15 @@ def _make_slave_stack(dut):
     mapping = AddressMapping(
         num_ranks=1, num_banks=BANKS, num_rows=ROWS, num_cols=COLS,
     )
+    # MVP loopback runs BL=1 conceptually — one DFI beat per command.
+    # Pinning explicitly so the test stays valid when DFIBase's default
+    # changes (default now derives from JEDEC BL).
     base = DFIBase(
         dfi_version=DFIVersion.V2_1,
         memory_type=MemoryType.DDR3,
         timings=timings,
         mapping=mapping,
+        beats_per_burst=1,
     )
     memory = MemoryModel(num_lines=NUM_LINES, bytes_per_line=BYTES_PER_BEAT)
     slave = DFISlavePHY(dut, dut.dfi_clk, base=base, memory=memory)

@@ -150,7 +150,7 @@ class DFIMasterMC(BusDriver):
         for _ in range(cycles):
             await RisingEdge(self.clock)
 
-    # ----- Write-data-interface primitive -----
+    # ----- Write-data-interface primitives -----
 
     async def write_data(self, data: int, mask: int = 0) -> None:
         """Drive one beat of write data on the next clock edge."""
@@ -159,6 +159,31 @@ class DFIMasterMC(BusDriver):
         self.bus.wrdata_en.value = 1
         await RisingEdge(self.clock)
         self.bus.wrdata_en.value = 0
+
+    async def write_burst(self, beats, masks=None) -> None:
+        """Drive a burst of consecutive write-data beats.
+
+        For BL=8 with the canonical K=2 PHY ratio this is 4 beats; for
+        BL=1 (the MVP-loopback case) it's just 1. The slave's
+        DFISlavePHY queues writes at consecutive flat addresses
+        (col, col+1, …, col+N-1) starting from the WR command's col.
+
+        Args:
+            beats: iterable of ints, one per DFI beat.
+            masks: optional iterable of mask ints; defaults to 0 (no mask)
+                   for every beat.
+        """
+        beats = list(beats)
+        if masks is None:
+            masks = [0] * len(beats)
+        else:
+            masks = list(masks)
+            if len(masks) != len(beats):
+                raise ValueError(
+                    f"masks length {len(masks)} != beats length {len(beats)}"
+                )
+        for data, mask in zip(beats, masks):
+            await self.write_data(data, mask)
 
     # ----- Read-data hint -----
 

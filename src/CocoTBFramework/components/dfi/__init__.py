@@ -20,6 +20,7 @@ the next commit; this module ships the foundation (signal envelope,
 packet types, field configs) plus Tier 1 unit tests.
 """
 
+from .dfi_base import DFIBase
 from .dfi_field_configs import (
     command_field_config,
     read_data_field_config,
@@ -73,6 +74,7 @@ __all__ = [
     "validate_configuration",
     "is_supported_pair",
     "SUPPORTED_MEMORY_BY_VERSION",
+    "DFIBase",
     "AddressMapping",
     "Bank",
     "BankState",

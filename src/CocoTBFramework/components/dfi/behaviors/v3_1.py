@@ -35,10 +35,17 @@ from .events import (
     CAParityEvent,
     CRCEvent,
     ErrorEvent,
+    ErrorKind,
     FreqChangeEvent,
     TrainingEvent,
     UpdateEvent,
 )
+
+
+def _bus_value(sig) -> int:
+    """Return the integer value of a cocotb signal, 0 if unresolvable."""
+    v = sig.value
+    return v.integer if v.is_resolvable else 0
 
 
 class DFIv3_1Behavior(DFIv2_1Behavior):
@@ -107,10 +114,18 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
         """v3.0 error interface — PHY-driven first-class channel
         for parity / CRC / training failure reporting.
 
-        Stub returns None. When implemented, a detected error
-        constructs ``ErrorEvent(kind=ErrorKind.PARITY, code=…)``.
+        Samples ``bus.error`` and ``bus.error_info`` each cycle. When
+        ``error`` is asserted (non-zero), emit an ``ErrorEvent``
+        carrying ``error_info`` as the code. The MVP doesn't decode the
+        info field into specific ErrorKind values; that lands when the
+        spec-defined info encoding is wired up.
         """
-        del bus, state
+        del state
+        if _bus_value(bus.error):
+            return ErrorEvent(
+                kind=ErrorKind.OTHER,
+                code=_bus_value(bus.error_info),
+            )
         return None
 
     # ----- CA parity: introduced v3.0 (DDR4 only) -----

@@ -21,13 +21,15 @@ from CocoTBFramework.components.dfi.behaviors import (
     NotSupportedInThisVersionError,
 )
 
+from .conftest import MockBus
+
 
 @pytest.fixture
 def b():
     return DFIv4_0Behavior()
 
 
-_BUS = object()
+_BUS = MockBus()    # all signals default to 0
 _STATE = object()
 
 

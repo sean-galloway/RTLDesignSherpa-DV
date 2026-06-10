@@ -19,7 +19,8 @@ module dfi_shim #(
     parameter int DATA_WIDTH     = 64,
     parameter int DATA_EN_WIDTH  = 1,
     parameter int DATA_MASK_BITS = 8,    // data_width / 8
-    parameter int RD_VALID_WIDTH = 1
+    parameter int RD_VALID_WIDTH = 1,
+    parameter int ERROR_INFO_WIDTH = 8    // v3.0+ error sub-interface code width
 ) (
     input  logic dfi_clk,
     input  logic dfi_rstn,
@@ -43,6 +44,10 @@ module dfi_shim #(
     input  logic [DATA_EN_WIDTH-1:0]  mc_dfi_rddata_en,
     output logic [DATA_WIDTH-1:0]     mc_dfi_rddata,
     output logic [RD_VALID_WIDTH-1:0] mc_dfi_rddata_valid,
+    // Error sub-interface (PHY drives; v3.0+ only — wires always present
+    // for shim simplicity, ignored by v2.1 tests)
+    output logic [CTRL_WIDTH-1:0]     mc_dfi_error,
+    output logic [ERROR_INFO_WIDTH-1:0] mc_dfi_error_info,
 
     // ----- PHY-facing port -----
     // Command sub-interface (PHY observes)
@@ -62,7 +67,10 @@ module dfi_shim #(
     // Read data sub-interface (rddata_en observed; rddata/_valid driven by PHY)
     output logic [DATA_EN_WIDTH-1:0]  phy_dfi_rddata_en,
     input  logic [DATA_WIDTH-1:0]     phy_dfi_rddata,
-    input  logic [RD_VALID_WIDTH-1:0] phy_dfi_rddata_valid
+    input  logic [RD_VALID_WIDTH-1:0] phy_dfi_rddata_valid,
+    // Error sub-interface (PHY drives)
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_error,
+    input  logic [ERROR_INFO_WIDTH-1:0] phy_dfi_error_info
 );
 
     // ----- MC → PHY (command + write-data + rddata_en) -----
@@ -80,8 +88,10 @@ module dfi_shim #(
     assign phy_dfi_wrdata_mask = mc_dfi_wrdata_mask;
     assign phy_dfi_rddata_en   = mc_dfi_rddata_en;
 
-    // ----- PHY → MC (read data) -----
+    // ----- PHY → MC (read data + error) -----
     assign mc_dfi_rddata       = phy_dfi_rddata;
     assign mc_dfi_rddata_valid = phy_dfi_rddata_valid;
+    assign mc_dfi_error        = phy_dfi_error;
+    assign mc_dfi_error_info   = phy_dfi_error_info;
 
 endmodule

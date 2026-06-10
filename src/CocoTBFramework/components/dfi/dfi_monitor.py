@@ -58,6 +58,10 @@ _COMMAND_SIGNALS = ("address", "bank", "cas_n", "ras_n", "we_n", "cs_n",
 _WRITE_DATA_SIGNALS = ("wrdata", "wrdata_en", "wrdata_mask")
 _READ_DATA_SIGNALS = ("rddata", "rddata_en", "rddata_valid")
 
+# Error sub-interface (v3.0+). Present on the shim for all tests but
+# only sampled when the BFM is configured for a version that defines it.
+_ERROR_SIGNALS = ("error", "error_info")
+
 
 def _v(sig) -> int:
     """Read a cocotb signal as int, returning 0 if unresolvable (X/Z)."""
@@ -77,7 +81,12 @@ class DFIMonitor(BusMonitor):
         title:  Optional title for log messages.
     """
 
-    _signals = list(_COMMAND_SIGNALS) + list(_WRITE_DATA_SIGNALS) + list(_READ_DATA_SIGNALS)
+    _signals = (
+        list(_COMMAND_SIGNALS)
+        + list(_WRITE_DATA_SIGNALS)
+        + list(_READ_DATA_SIGNALS)
+        + list(_ERROR_SIGNALS)
+    )
     _optional_signals: List[str] = []
 
     def __init__(

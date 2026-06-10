@@ -35,7 +35,15 @@ from cocotb_bus.monitors import BusMonitor
 
 from ..shared.memory_model import MemoryModel
 from .dfi_base import DFIBase
-from .dfi_monitor import _CMD_DECODE, _COMMAND_SIGNALS, _READ_DATA_SIGNALS, _WRITE_DATA_SIGNALS, _v
+from .behaviors.events import ErrorEvent
+from .dfi_monitor import (
+    _CMD_DECODE,
+    _COMMAND_SIGNALS,
+    _ERROR_SIGNALS,
+    _READ_DATA_SIGNALS,
+    _WRITE_DATA_SIGNALS,
+    _v,
+)
 from .dfi_packet import DRAMCommand
 
 
@@ -59,7 +67,12 @@ class DFISlavePHY(BusMonitor):
         title:    Optional title for log messages.
     """
 
-    _signals = list(_COMMAND_SIGNALS) + list(_WRITE_DATA_SIGNALS) + list(_READ_DATA_SIGNALS)
+    _signals = (
+        list(_COMMAND_SIGNALS)
+        + list(_WRITE_DATA_SIGNALS)
+        + list(_READ_DATA_SIGNALS)
+        + list(_ERROR_SIGNALS)
+    )
     _optional_signals: list = []
 
     def __init__(
@@ -104,6 +117,10 @@ class DFISlavePHY(BusMonitor):
         self._pending_reads: Deque[_PendingOp] = deque()
         self._pending_writes: Deque[_PendingOp] = deque()
 
+        # Error-interface event queue. Populated by the per-version
+        # behavior class when bus.error indicates a PHY-driven error.
+        self.error_events: Deque[ErrorEvent] = deque()
+
         # Statistics
         self.cmd_counts = {cmd: 0 for cmd in DRAMCommand}
         self.writes_committed = 0
@@ -112,6 +129,8 @@ class DFISlavePHY(BusMonitor):
         # Initialize PHY-driven outputs
         self.bus.rddata.value = 0
         self.bus.rddata_valid.value = 0
+        self.bus.error.value = 0
+        self.bus.error_info.value = 0
 
     # ----- Address helpers -----
 
@@ -262,11 +281,42 @@ class DFISlavePHY(BusMonitor):
             self._serve_writes()
             self._serve_reads()
 
+            # Per-version behavior dispatch. The behavior class returns
+            # an Event when it sees something noteworthy on its sub-area;
+            # we route those to per-area queues. Behavior calls are
+            # try/except-wrapped because some areas raise
+            # NotSupportedInThisVersionError on pre-introduction versions
+            # — silently drop in that case (the version legitimately
+            # doesn't define the area).
+            self._dispatch_behavior_error()
+
+    def _dispatch_behavior_error(self) -> None:
+        """Call the per-version behavior.error_event() and queue any event."""
+        try:
+            evt = self.base.behavior.error_event(self.bus, None)
+        except NotImplementedError:
+            return  # version doesn't define an error interface
+        if evt is not None:
+            self.error_events.append(evt)
+
+    # ----- Error-interface drive (PHY → MC) -----
+
+    def set_error(self, active: int, info: int = 0) -> None:
+        """Drive the error sub-interface signals.
+
+        Pulse the test sequence: ``slave.set_error(1, code=0x42)`` to
+        assert; ``slave.set_error(0)`` to deassert. The on-the-wire
+        edge is what the behavior class samples.
+        """
+        self.bus.error.value = active
+        self.bus.error_info.value = info
+
     # ----- Convenience -----
 
     def __str__(self) -> str:
         return (
             f"{self.title}: writes_committed={self.writes_committed} "
             f"reads_served={self.reads_served} "
+            f"error_events={len(self.error_events)} "
             f"cmd_counts={ {c.value: n for c, n in self.cmd_counts.items() if n} }"
         )

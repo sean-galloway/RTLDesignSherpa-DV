@@ -28,7 +28,12 @@ from typing import Optional
 from cocotb.triggers import RisingEdge
 from cocotb_bus.drivers import BusDriver
 
-from .dfi_monitor import _COMMAND_SIGNALS, _READ_DATA_SIGNALS, _WRITE_DATA_SIGNALS
+from .dfi_monitor import (
+    _COMMAND_SIGNALS,
+    _ERROR_SIGNALS,
+    _READ_DATA_SIGNALS,
+    _WRITE_DATA_SIGNALS,
+)
 
 
 class DFIMasterMC(BusDriver):
@@ -42,7 +47,12 @@ class DFIMasterMC(BusDriver):
         title:    Optional title for log messages.
     """
 
-    _signals = list(_COMMAND_SIGNALS) + list(_WRITE_DATA_SIGNALS) + list(_READ_DATA_SIGNALS)
+    _signals = (
+        list(_COMMAND_SIGNALS)
+        + list(_WRITE_DATA_SIGNALS)
+        + list(_READ_DATA_SIGNALS)
+        + list(_ERROR_SIGNALS)   # MC observes but doesn't drive
+    )
     _optional_signals: list = []
 
     def __init__(

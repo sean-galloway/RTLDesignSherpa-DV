@@ -13,8 +13,11 @@ import pytest
 from CocoTBFramework.components.dfi.behaviors import (
     DFIv2_1Behavior,
     DFIv3_1Behavior,
+    ErrorKind,
     NotSupportedInThisVersionError,
 )
+
+from .conftest import MockBus
 
 
 @pytest.fixture
@@ -22,7 +25,7 @@ def b():
     return DFIv3_1Behavior()
 
 
-_BUS = object()
+_BUS = MockBus()   # all signals default to 0
 _STATE = object()
 
 
@@ -98,3 +101,37 @@ def test_phy_takeover_error_message_includes_v3_1(b):
         b.phy_takeover(_BUS, _STATE)
     assert "v3.1" in str(exc_info.value)
     assert "v4.0" in str(exc_info.value)  # introduced-in
+
+
+# ---------------------------------------------------------------------
+# error_event() — first real implementation (not a stub)
+# ---------------------------------------------------------------------
+
+
+def test_error_event_returns_none_when_error_signal_low(b):
+    bus = MockBus(error=0, error_info=0)
+    assert b.error_event(bus, None) is None
+
+
+def test_error_event_returns_event_when_error_signal_asserted(b):
+    bus = MockBus(error=1, error_info=0x42)
+    evt = b.error_event(bus, None)
+    assert evt is not None
+    assert evt.kind == ErrorKind.OTHER
+    assert evt.code == 0x42
+
+
+def test_error_event_carries_info_bits_as_code(b):
+    """error_info field maps directly to ErrorEvent.code in the MVP
+    decoding (no spec-info-encoding lookup yet)."""
+    bus = MockBus(error=1, error_info=0xff)
+    evt = b.error_event(bus, None)
+    assert evt.code == 0xff
+
+
+def test_error_event_ignores_state_arg(b):
+    """state is positional in the API but unused for error_event."""
+    bus = MockBus(error=1, error_info=0x1)
+    assert b.error_event(bus, "any state").code == 0x1
+    assert b.error_event(bus, None).code == 0x1
+    assert b.error_event(bus, 42).code == 0x1

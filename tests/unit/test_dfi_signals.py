@@ -27,13 +27,16 @@ from CocoTBFramework.components.dfi.dfi_signals import (
 # ---------------------------------------------------------------------
 
 
-def test_mvp_versions_is_v21_only():
-    assert MVP_VERSIONS == frozenset({DFIVersion.V2_1})
+def test_mvp_versions_covers_v2_1_and_v3_1():
+    """MVP widened from {v2.1} to {v2.1, v3.1} to support the error-
+    interface proof-of-life (v3.0 introduction)."""
+    assert MVP_VERSIONS == frozenset({DFIVersion.V2_1, DFIVersion.V3_1})
 
 
-def test_mvp_memory_types_excludes_ddr4_and_lpddr4_plus():
-    """Phase 2 will add these — they should NOT be in the MVP set."""
-    assert MemoryType.DDR4 not in MVP_MEMORY_TYPES
+def test_mvp_memory_types_excludes_lpddr3_plus_and_ddr5():
+    """Phase 2 will add these — they should NOT be in the MVP set.
+    DDR4 was added alongside v3.1 widening (DDR4 = v3.0 introduction)."""
+    assert MemoryType.DDR4 in MVP_MEMORY_TYPES         # added with v3.1
     assert MemoryType.DDR5 not in MVP_MEMORY_TYPES
     assert MemoryType.LPDDR3 not in MVP_MEMORY_TYPES
     assert MemoryType.LPDDR4 not in MVP_MEMORY_TYPES
@@ -197,6 +200,13 @@ def test_all_command_signals_are_mc_to_phy():
 def test_validate_accepts_mvp_combo():
     validate_configuration(
         DFIVersion.V2_1, MemoryType.DDR3, MVP_SUB_INTERFACES,
+    )  # no raise
+
+
+def test_validate_accepts_v3_1_ddr4_in_mvp():
+    """v3.1 + DDR4 was added to MVP for the error-interface proof-of-life."""
+    validate_configuration(
+        DFIVersion.V3_1, MemoryType.DDR4, MVP_SUB_INTERFACES,
     )  # no raise
 
 

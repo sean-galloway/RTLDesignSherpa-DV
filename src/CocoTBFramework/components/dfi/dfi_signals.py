@@ -153,11 +153,15 @@ SUPPORTED_MEMORY_BY_VERSION: Dict[DFIVersion, FrozenSet[MemoryType]] = {
 # matrix down to what the BFM has signal-table coverage for today.
 # Phase 2 widens MVP_VERSIONS / MVP_MEMORY_TYPES; Phase 3 widens
 # MVP_SUB_INTERFACES.
-MVP_VERSIONS: FrozenSet[DFIVersion] = frozenset({DFIVersion.V2_1})
+MVP_VERSIONS: FrozenSet[DFIVersion] = frozenset({
+    DFIVersion.V2_1,
+    DFIVersion.V3_1,   # added for error-interface proof-of-life
+})
 MVP_MEMORY_TYPES: FrozenSet[MemoryType] = frozenset({
     MemoryType.DDR1,
     MemoryType.DDR2,
     MemoryType.DDR3,
+    MemoryType.DDR4,   # added with v3.1
     MemoryType.LPDDR1,
     MemoryType.LPDDR2,
 })
@@ -165,6 +169,8 @@ MVP_SUB_INTERFACES: FrozenSet[SubInterface] = frozenset({
     SubInterface.COMMAND,
     SubInterface.WRITE_DATA,
     SubInterface.READ_DATA,
+    # Error interface is v3.0+ — gated by version at the per-signal
+    # `min_version` check, not by MVP exclusion.
 })
 
 
@@ -414,9 +420,35 @@ _READ_DATA_SIGNALS: Tuple[SignalSpec, ...] = (
 )
 
 
+# Error Interface — introduced v3.0 as a first-class sub-interface for
+# PHY-driven error reporting (CRC mismatch, parity error, training
+# failure). Minimal MVP signal set: one error-active flag + an info
+# vector carrying the kind/code. v5+ expands with per-slice signals.
+_ERROR_SIGNALS: Tuple[SignalSpec, ...] = (
+    SignalSpec(
+        name="error",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.PHY_ERROR,
+        min_version=DFIVersion.V3_1,
+        memory_types=_ALL,
+        description="PHY error indicator (active high); paired with error_info",
+    ),
+    SignalSpec(
+        name="error_info",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.PHY_ERROR,
+        min_version=DFIVersion.V3_1,
+        memory_types=_ALL,
+        description="PHY error code (valid while error is asserted)",
+    ),
+)
+
+
 # All signals across the catalog. Phase 2 adds update/status/training.
 _ALL_SIGNALS: Tuple[SignalSpec, ...] = (
-    _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS
+    _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS + _ERROR_SIGNALS
 )
 
 
@@ -498,13 +530,13 @@ def validate_configuration(
     if version not in MVP_VERSIONS:
         raise ValueError(
             f"DFI BFM MVP only supports {sorted(v.value for v in MVP_VERSIONS)}; "
-            f"got {version.value}. Phase 2 will add v3.1/v4.0/v5.2 envelopes."
+            f"got {version.value}. Phase 2 will add v4.0/v5.2 envelopes."
         )
     if memory_type not in MVP_MEMORY_TYPES:
         raise ValueError(
             f"DFI BFM MVP only supports memory types "
             f"{sorted(m.value for m in MVP_MEMORY_TYPES)}; got {memory_type.value}. "
-            f"Phase 2 will add DDR4/DDR5/LPDDR3/LPDDR4/LPDDR5."
+            f"Phase 2 will add DDR5/LPDDR3/LPDDR4/LPDDR5."
         )
     supported = SUPPORTED_MEMORY_BY_VERSION[version]
     if memory_type not in supported:

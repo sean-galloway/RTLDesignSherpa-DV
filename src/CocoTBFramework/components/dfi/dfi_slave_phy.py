@@ -35,10 +35,11 @@ from cocotb_bus.monitors import BusMonitor
 
 from ..shared.memory_model import MemoryModel
 from .dfi_base import DFIBase
-from .behaviors.events import ErrorEvent
+from .behaviors.events import CRCEvent, ErrorEvent
 from .dfi_monitor import (
     _CMD_DECODE,
     _COMMAND_SIGNALS,
+    _CRC_SIGNALS,
     _ERROR_SIGNALS,
     _READ_DATA_SIGNALS,
     _WRITE_DATA_SIGNALS,
@@ -72,6 +73,7 @@ class DFISlavePHY(BusMonitor):
         + list(_WRITE_DATA_SIGNALS)
         + list(_READ_DATA_SIGNALS)
         + list(_ERROR_SIGNALS)
+        + list(_CRC_SIGNALS)
     )
     _optional_signals: list = []
 
@@ -121,6 +123,10 @@ class DFISlavePHY(BusMonitor):
         # behavior class when bus.error indicates a PHY-driven error.
         self.error_events: Deque[ErrorEvent] = deque()
 
+        # CRC-area event queue. Populated by behavior.crc() when
+        # bus.crc_alert asserts (v3.0+ DDR4 path).
+        self.crc_events: Deque[CRCEvent] = deque()
+
         # Statistics
         self.cmd_counts = {cmd: 0 for cmd in DRAMCommand}
         self.writes_committed = 0
@@ -131,6 +137,7 @@ class DFISlavePHY(BusMonitor):
         self.bus.rddata_valid.value = 0
         self.bus.error.value = 0
         self.bus.error_info.value = 0
+        self.bus.crc_alert.value = 0
 
     # ----- Address helpers -----
 
@@ -289,6 +296,7 @@ class DFISlavePHY(BusMonitor):
             # — silently drop in that case (the version legitimately
             # doesn't define the area).
             self._dispatch_behavior_error()
+            self._dispatch_behavior_crc()
 
     def _dispatch_behavior_error(self) -> None:
         """Call the per-version behavior.error_event() and queue any event."""
@@ -298,6 +306,15 @@ class DFISlavePHY(BusMonitor):
             return  # version doesn't define an error interface
         if evt is not None:
             self.error_events.append(evt)
+
+    def _dispatch_behavior_crc(self) -> None:
+        """Call the per-version behavior.crc() and queue any event."""
+        try:
+            evt = self.base.behavior.crc(self.bus, None)
+        except NotImplementedError:
+            return  # version doesn't define CRC
+        if evt is not None:
+            self.crc_events.append(evt)
 
     # ----- Error-interface drive (PHY → MC) -----
 
@@ -311,6 +328,14 @@ class DFISlavePHY(BusMonitor):
         self.bus.error.value = active
         self.bus.error_info.value = info
 
+    def set_crc_alert(self, active: int) -> None:
+        """Drive the CRC alert signal (PHY→MC, DDR4).
+
+        Pulse the test sequence: ``slave.set_crc_alert(1)`` to assert;
+        ``slave.set_crc_alert(0)`` to deassert.
+        """
+        self.bus.crc_alert.value = active
+
     # ----- Convenience -----
 
     def __str__(self) -> str:
@@ -318,5 +343,6 @@ class DFISlavePHY(BusMonitor):
             f"{self.title}: writes_committed={self.writes_committed} "
             f"reads_served={self.reads_served} "
             f"error_events={len(self.error_events)} "
+            f"crc_events={len(self.crc_events)} "
             f"cmd_counts={ {c.value: n for c, n in self.cmd_counts.items() if n} }"
         )

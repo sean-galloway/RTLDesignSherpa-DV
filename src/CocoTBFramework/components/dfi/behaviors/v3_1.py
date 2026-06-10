@@ -34,6 +34,7 @@ from .base import DFIv2_1Behavior
 from .events import (
     CAParityEvent,
     CRCEvent,
+    CRCKind,
     ErrorEvent,
     ErrorKind,
     FreqChangeEvent,
@@ -56,17 +57,20 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
     # ----- CRC area: introduced v3.0 -----
 
     def crc(self, bus: Any, state: Any) -> Optional[CRCEvent]:
-        """v3.0 CRC: MC-driven write-data CRC, PHY reports errors
-        via the error interface.
+        """v3.0 CRC: MC-driven write-data CRC, PHY reports errors via
+        the dedicated ``dfi_crc_alert`` signal (active high, mirrors
+        DDR4's ALERT_n after PHY-side inversion).
 
-        Stub returns None until wire-level CRC sampling is plumbed
-        in. When implemented, a CRC mismatch should construct a
-        ``CRCEvent(kind=CRCKind.DRAM_CRC, slice_idx=…, timestamp_ns=…)``.
+        Samples ``bus.crc_alert`` each cycle. When asserted, emit a
+        ``CRCEvent(kind=CRCKind.DRAM_CRC)`` — the v3.0 MVP doesn't
+        distinguish per-slice; ``slice_idx`` stays at 0.
 
-        v4.0 overrides to add ``phycrc_mode=1`` (PHY-driven CRC) —
-        see ``DFIv4_0Behavior.crc``.
+        v4.0 overrides to add ``phycrc_mode=1`` (PHY-driven CRC) and
+        per-slice indexing — see ``DFIv4_0Behavior.crc``.
         """
-        del bus, state
+        del state
+        if _bus_value(bus.crc_alert):
+            return CRCEvent(kind=CRCKind.DRAM_CRC, slice_idx=0)
         return None
 
     # ----- Update interface: rewritten v3.0 (request/grant handshake) -----

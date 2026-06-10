@@ -30,6 +30,7 @@ from cocotb_bus.drivers import BusDriver
 
 from .dfi_monitor import (
     _COMMAND_SIGNALS,
+    _CRC_SIGNALS,
     _ERROR_SIGNALS,
     _READ_DATA_SIGNALS,
     _WRITE_DATA_SIGNALS,
@@ -52,6 +53,7 @@ class DFIMasterMC(BusDriver):
         + list(_WRITE_DATA_SIGNALS)
         + list(_READ_DATA_SIGNALS)
         + list(_ERROR_SIGNALS)   # MC observes but doesn't drive
+        + list(_CRC_SIGNALS)
     )
     _optional_signals: list = []
 

@@ -48,6 +48,8 @@ module dfi_shim #(
     // for shim simplicity, ignored by v2.1 tests)
     output logic [CTRL_WIDTH-1:0]     mc_dfi_error,
     output logic [ERROR_INFO_WIDTH-1:0] mc_dfi_error_info,
+    // CRC alert (PHY drives; v3.0+, DDR4-specific)
+    output logic [CTRL_WIDTH-1:0]     mc_dfi_crc_alert,
 
     // ----- PHY-facing port -----
     // Command sub-interface (PHY observes)
@@ -70,7 +72,9 @@ module dfi_shim #(
     input  logic [RD_VALID_WIDTH-1:0] phy_dfi_rddata_valid,
     // Error sub-interface (PHY drives)
     input  logic [CTRL_WIDTH-1:0]     phy_dfi_error,
-    input  logic [ERROR_INFO_WIDTH-1:0] phy_dfi_error_info
+    input  logic [ERROR_INFO_WIDTH-1:0] phy_dfi_error_info,
+    // CRC alert (PHY drives; v3.0+, DDR4-specific)
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_crc_alert
 );
 
     // ----- MC → PHY (command + write-data + rddata_en) -----
@@ -88,10 +92,11 @@ module dfi_shim #(
     assign phy_dfi_wrdata_mask = mc_dfi_wrdata_mask;
     assign phy_dfi_rddata_en   = mc_dfi_rddata_en;
 
-    // ----- PHY → MC (read data + error) -----
+    // ----- PHY → MC (read data + error + CRC alert) -----
     assign mc_dfi_rddata       = phy_dfi_rddata;
     assign mc_dfi_rddata_valid = phy_dfi_rddata_valid;
     assign mc_dfi_error        = phy_dfi_error;
     assign mc_dfi_error_info   = phy_dfi_error_info;
+    assign mc_dfi_crc_alert    = phy_dfi_crc_alert;
 
 endmodule

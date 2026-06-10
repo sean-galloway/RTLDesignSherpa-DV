@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from CocoTBFramework.components.dfi.behaviors import (
+    CRCKind,
     DFIv2_1Behavior,
     DFIv3_1Behavior,
     ErrorKind,
@@ -135,3 +136,27 @@ def test_error_event_ignores_state_arg(b):
     assert b.error_event(bus, "any state").code == 0x1
     assert b.error_event(bus, None).code == 0x1
     assert b.error_event(bus, 42).code == 0x1
+
+
+# ---------------------------------------------------------------------
+# crc() — implementation (not a stub)
+# ---------------------------------------------------------------------
+
+
+def test_crc_returns_none_when_alert_low(b):
+    bus = MockBus(crc_alert=0)
+    assert b.crc(bus, None) is None
+
+
+def test_crc_returns_event_when_alert_high(b):
+    bus = MockBus(crc_alert=1)
+    evt = b.crc(bus, None)
+    assert evt is not None
+    assert evt.kind == CRCKind.DRAM_CRC
+
+
+def test_crc_mvp_slice_idx_is_zero(b):
+    """v3.0 MVP doesn't distinguish per-slice; v4.0 overrides for that."""
+    bus = MockBus(crc_alert=1)
+    evt = b.crc(bus, None)
+    assert evt.slice_idx == 0

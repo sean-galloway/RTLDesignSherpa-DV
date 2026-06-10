@@ -62,6 +62,10 @@ _READ_DATA_SIGNALS = ("rddata", "rddata_en", "rddata_valid")
 # only sampled when the BFM is configured for a version that defines it.
 _ERROR_SIGNALS = ("error", "error_info")
 
+# CRC alert (v3.0+, DDR4). Present on the shim for all tests; samples
+# only meaningful when memory_type=DDR4 and version >= V3_1.
+_CRC_SIGNALS = ("crc_alert",)
+
 
 def _v(sig) -> int:
     """Read a cocotb signal as int, returning 0 if unresolvable (X/Z)."""
@@ -86,6 +90,7 @@ class DFIMonitor(BusMonitor):
         + list(_WRITE_DATA_SIGNALS)
         + list(_READ_DATA_SIGNALS)
         + list(_ERROR_SIGNALS)
+        + list(_CRC_SIGNALS)
     )
     _optional_signals: List[str] = []
 

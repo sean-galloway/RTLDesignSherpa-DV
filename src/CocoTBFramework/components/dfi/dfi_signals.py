@@ -446,9 +446,27 @@ _ERROR_SIGNALS: Tuple[SignalSpec, ...] = (
 )
 
 
+# CRC handshake — introduced v3.0 alongside DDR4 support. JEDEC's
+# DDR4 has an active-low ALERT_n pin for CRC errors; the PHY typically
+# converts that to an active-high `dfi_crc_alert` signal on the DFI.
+# Per-slice in v4.0+; the MVP uses a single-bit flag.
+_CRC_SIGNALS: Tuple[SignalSpec, ...] = (
+    SignalSpec(
+        name="crc_alert",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.LINK_CRC,
+        min_version=DFIVersion.V3_1,
+        memory_types=frozenset({MemoryType.DDR4}),
+        description="DRAM CRC error indicator (active high); reflects ALERT_n",
+    ),
+)
+
+
 # All signals across the catalog. Phase 2 adds update/status/training.
 _ALL_SIGNALS: Tuple[SignalSpec, ...] = (
-    _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS + _ERROR_SIGNALS
+    _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS
+    + _ERROR_SIGNALS + _CRC_SIGNALS
 )
 
 

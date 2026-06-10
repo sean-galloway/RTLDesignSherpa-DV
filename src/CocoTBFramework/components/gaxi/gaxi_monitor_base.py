@@ -20,11 +20,22 @@ Eliminates duplication while preserving exact APIs and timing.
 All existing parameters are maintained and used exactly as before.
 """
 
+from __future__ import annotations
+
+from logging import Logger
+from typing import Any, Optional
+
 from cocotb.utils import get_sim_time
 from cocotb_bus.monitors import BusMonitor
 
+from ..shared.init_kwargs import strip_framework_kwargs
 from ..shared.monitor_statistics import MonitorStatistics
-from .gaxi_component_base import GAXIComponentBase
+from .gaxi_component_base import (
+    ClockSignal,
+    DutHandle,
+    FieldConfigInput,
+    GAXIComponentBase,
+)
 from .gaxi_packet import GAXIPacket
 
 
@@ -41,14 +52,23 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
     Shared by GAXIMonitor and GAXISlave to eliminate code duplication
     while preserving exact APIs and timing-critical behavior.
     """
-    def __init__(self, dut, title, prefix, clock, field_config,
-                    mode='skid',
-                    bus_name='',
-                    pkt_prefix='',
-                    multi_sig=False,
-                    protocol_type=None,  # 'gaxi_master' or 'gaxi_slave' - set by subclass
-                    log=None, super_debug=False,
-                    signal_map=None, **kwargs):
+    def __init__(
+        self,
+        dut: DutHandle,
+        title: str,
+        prefix: str,
+        clock: ClockSignal,
+        field_config: FieldConfigInput,
+        mode: str = "skid",
+        bus_name: str = "",
+        pkt_prefix: str = "",
+        multi_sig: bool = False,
+        protocol_type: Optional[str] = None,  # set by subclass
+        log: Optional[Logger] = None,
+        super_debug: bool = False,
+        signal_map: Optional[dict] = None,
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize common GAXI monitoring functionality - EXACT SAME API AS BEFORE.
 
@@ -66,15 +86,12 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
             super_debug: Enable detailed debugging
             **kwargs: Additional arguments for BusMonitor
         """
-        # SOLUTION 2: Extract and remove parameters that shouldn't go to BusMonitor
-        # Extract and remove parameters that shouldn't go to BusMonitor
+        # Extract values we need to forward to GAXIComponentBase, then strip
+        # all framework-only kwargs so the remainder is safe for BusMonitor.
+        # See components/shared/init_kwargs.py for the canonical set.
         memory_model = kwargs.pop('memory_model', None)
         randomizer = kwargs.pop('randomizer', None)
-
-        # Pop additional custom parameters to prevent them from going to BusMonitor
-        custom_params = ['bus_name', 'pkt_prefix', 'signal_map', 'super_debug']
-        for param in custom_params:
-            kwargs.pop(param, None)
+        strip_framework_kwargs(kwargs)
 
         # Initialize base class with all parameters preserved
         GAXIComponentBase.__init__(

@@ -1,0 +1,5 @@
+master\slave,ddr0,ddr1,sram,scratch
+cpu,1,1,1,1
+dma,1,1,1,1
+gpu,1,1,0,1
+vpu,1,1,0,0

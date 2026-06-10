@@ -1,0 +1,6 @@
+master\slave,ddr0,scratch,axil_periph0,axil_periph1,apb_periph0
+cpu,1,1,1,1,1
+gpu,1,1,0,1,0
+dma,1,1,1,0,1
+host_axil,1,1,1,1,1
+debug_axil,1,0,1,1,1

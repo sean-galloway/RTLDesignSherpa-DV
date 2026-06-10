@@ -1,0 +1,116 @@
+#!/bin/bash
+# Project-specific environment for RTLDesignSherpa-DV (cocotb-framework).
+#
+# Source this file from the repo root (don't execute):
+#   source env_python
+#
+# What it does:
+#   1. Activates the venv at $REPO_ROOT/venv/
+#   2. Puts src/CocoTBFramework and the vendored TBClasses snapshot on
+#      PYTHONPATH so changes are picked up without `pip install -e .`
+#   3. Auto-detects RDS_RTL_PATH for Tier 2 sim tests (filelist
+#      $REPO_ROOT substitution)
+#   4. Wires verilator / oss-cad-suite / sv2v onto PATH if present
+#   5. Sets a few test aliases mirroring the RDS convention
+
+# ---------------------------------------------------------------------------
+# Repo root + venv
+# ---------------------------------------------------------------------------
+
+export REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+
+if [ -f "$REPO_ROOT/venv/bin/activate" ]; then
+    source "$REPO_ROOT/venv/bin/activate"
+else
+    echo "[env_python] WARN: $REPO_ROOT/venv/bin/activate not found"
+    echo "[env_python]   create it with:"
+    echo "[env_python]     python3 -m venv venv && source venv/bin/activate"
+    echo "[env_python]     pip install -r requirements.txt && pip install -e ."
+fi
+
+# ---------------------------------------------------------------------------
+# PYTHONPATH for the framework + vendored TB snapshot + per-bridge TBs
+# ---------------------------------------------------------------------------
+
+# Framework BFMs — make `from CocoTBFramework.components.* import ...` work
+# directly from the source tree (no reinstall needed after edits).
+export PYTHONPATH="$REPO_ROOT/src:$PYTHONPATH"
+
+# Vendored TBClasses snapshot — `from TBClasses.shared.tbbase import TBBase`
+# (also wired up by tests/sim/conftest.py for pytest collection).
+export PYTHONPATH="$REPO_ROOT/tests/sim:$PYTHONPATH"
+
+# Per-bridge TB modules — `from tbclasses.concurrent_bridge_tb import ...`
+# in tests/sim/bridges/test_bridge_*.py
+export PYTHONPATH="$REPO_ROOT/tests/sim/bridges:$PYTHONPATH"
+
+# ---------------------------------------------------------------------------
+# RDS_RTL_PATH — required for Tier 2 sim tests (filelist $REPO_ROOT)
+# ---------------------------------------------------------------------------
+
+if [ -z "${RDS_RTL_PATH:-}" ]; then
+    for candidate in \
+        "$REPO_ROOT/../RTLDesignSherpa" \
+        "$HOME/github/RTLDesignSherpa" \
+        "/mnt/data/github/RTLDesignSherpa"
+    do
+        if [ -d "$candidate/rtl/amba" ]; then
+            export RDS_RTL_PATH="$candidate"
+            break
+        fi
+    done
+fi
+
+# ---------------------------------------------------------------------------
+# Default simulator (overridable: `SIM=icarus source env_python`)
+# ---------------------------------------------------------------------------
+
+export SIM=${SIM:-verilator}
+
+# ---------------------------------------------------------------------------
+# Verilog simulator + EDA tool paths (only added if present)
+# ---------------------------------------------------------------------------
+
+# OSS CAD Suite (yosys, SymbiYosys, gtkwave) — used by formal flows
+if [ -d "/mnt/data/tools/oss-cad-suite/bin" ]; then
+    export PATH="/mnt/data/tools/oss-cad-suite/bin:$PATH"
+fi
+
+# Verilator 5.020 — newer versions have known cocotb VCD/FST bugs.
+# Don't set VERILATOR_ROOT; the perl wrapper auto-detects relative to its
+# own location. Setting it wrong breaks verilator_bin lookup.
+if [ -d "/mnt/data/tools/verilator-5.020/bin" ]; then
+    unset VERILATOR_ROOT 2>/dev/null
+    export PATH="/mnt/data/tools/verilator-5.020/bin:$PATH"
+fi
+
+# sv2v (SystemVerilog -> Verilog transpiler) — formal flow preprocessing
+if [ -f "/mnt/data/tools/sv2v" ]; then
+    export PATH="/mnt/data/tools:$PATH"
+fi
+
+# ---------------------------------------------------------------------------
+# Test aliases — same names as RDS for muscle memory
+# ---------------------------------------------------------------------------
+
+alias ptu='python -m pytest tests/unit -v'                 # Tier 1 unit (no sim)
+alias pts='python -m pytest tests/sim -v'                  # Tier 2 sim (verilator + RDS_RTL_PATH)
+alias ptw='WAVES=1 python -m pytest -v -s'                 # With Waves
+alias ptwp='WAVES=1 python -m pytest -v -s -n logical'     # With Waves, parallel
+alias ptg='REG_LEVEL=GATE python -m pytest -v'             # Quick smoke
+alias ptf='REG_LEVEL=FUNC python -m pytest -v'             # Functional
+alias ptfull='REG_LEVEL=FULL python -m pytest -v'          # Full regression
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+echo "[env_python] REPO_ROOT=$REPO_ROOT"
+if [ -n "${RDS_RTL_PATH:-}" ]; then
+    echo "[env_python] RDS_RTL_PATH=$RDS_RTL_PATH (Tier 2 sim filelists will resolve)"
+else
+    echo "[env_python] RDS_RTL_PATH unset — Tier 2 sim tests will skip"
+    echo "[env_python]   set it: export RDS_RTL_PATH=/path/to/RTLDesignSherpa"
+fi
+echo "[env_python] SIM=$SIM"
+echo "[env_python] aliases: ptu (unit), pts (sim), ptw/ptwp (with waves)"

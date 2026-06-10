@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cocotb-framework"
-version = "0.1.1"
+version = "0.2.0"
 description = "Reusable CocoTB verification infrastructure for RTL testing — BFMs, testbenches, and scoreboards for AMBA protocols and more"
 readme = "README.md"
 license = "MIT"
@@ -49,6 +49,18 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.8.0",
+]
+# Tier 2 sim tests (cocotb harness with real simulator). Install with:
+#   pip install -e ".[sim]"
+# Plus you need a Verilog simulator on PATH (verilator recommended) and
+# either RDS_RTL_PATH set or tests/sim/_rds/ submodule initialized.
+sim = [
+    "cocotb-test>=0.2.5",      # cocotb_test.simulator.run
+    "pytest-xdist>=3.5",       # parallel test execution (ptwp alias)
+    "pytest-asyncio>=0.23",    # async test support some cocotb tests use
+    "pytest-rerunfailures>=14", # flake retry for long sim regressions
+    "GitPython>=3.1",          # TBClasses.shared.utilities.get_repo_root
+    "tomli>=2.0; python_version < '3.11'",  # tomllib backport for TOML parsing
 ]
 docs = [
     "mkdocs-material>=9.5",

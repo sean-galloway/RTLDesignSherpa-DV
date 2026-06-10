@@ -277,6 +277,39 @@ component.set_data_strategy('cached')  # For performance
 component.set_data_strategy('direct')  # For debugging
 ```
 
+## BFM Class Conventions
+
+A few naming conventions in this framework are non-obvious at first glance.
+They're documented here so subclass authors don't get surprised.
+
+### Slave-via-BusMonitor
+
+Every protocol *Slave* BFM in the framework drives output signals (`PREADY`,
+`PRDATA`, `RREADY`, etc.) — they are **responders**, not passive observers.
+However, they inherit from `cocotb_bus.monitors.BusMonitor`. This is a
+deliberate convention, not a mistake:
+
+- `cocotb_bus` does not provide a "responder" base class.
+- `BusMonitor` is reused as a *chassis* for its signal-sampling coroutine,
+  signal discovery, and `_recvQ` plumbing.
+- Each Slave overrides the sampled-edge handler to also drive its
+  protocol-specific response signals.
+
+Classes that follow this pattern: `APBSlave`, `APB5Slave`, `GAXISlave` (via
+`GAXIMonitorBase`), `FIFOSlave` (via `FIFOMonitorBase`), `AXISSlave`, and the
+GAXI-based channel-slaves used inside `AXI4SlaveRead`, `AXI4SlaveWrite`,
+`AXIL4Slave*`, and `AXI5Slave*`.
+
+When subclassing a Slave, treat `BusMonitor` as a chassis, not a semantic claim
+of passivity. The "responder" responsibility lives in the subclass's monitor
+loop and its callback hooks.
+
+### Master is `BusDriver`, Slave is `BusMonitor`
+
+By the same logic, every Master BFM inherits from `BusDriver` and uses it as
+the chassis for transmit-pipeline state machines — the public `send(packet)`
+API is the protocol-level entry point, not `BusDriver._driver_send`.
+
 ## Performance Characteristics
 
 ### Optimizations

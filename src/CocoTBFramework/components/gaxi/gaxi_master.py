@@ -20,15 +20,27 @@ Maintains all existing functionality and timing while adding better
 debugging and error recovery through structured pipeline phases.
 """
 
+from __future__ import annotations
+
 from collections import deque
+from logging import Logger
+from typing import Any, Optional
 
 import cocotb
 from cocotb.triggers import RisingEdge, Timer
 from cocotb.utils import get_sim_time
 from cocotb_bus.drivers import BusDriver
 
+from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.init_kwargs import strip_framework_kwargs
 from ..shared.master_statistics import MasterStatistics
-from .gaxi_component_base import GAXIComponentBase
+from ..shared.memory_model import MemoryModel
+from .gaxi_component_base import (
+    ClockSignal,
+    DutHandle,
+    FieldConfigInput,
+    GAXIComponentBase,
+)
 from .gaxi_packet import GAXIPacket
 
 
@@ -49,12 +61,27 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
     - Maintains exact timing compatibility with existing code
     """
 
-    def __init__(self, dut, title, prefix, clock, field_config,
-                timeout_cycles=1000, mode='skid',
-                bus_name='', pkt_prefix='', multi_sig=False,
-                randomizer=None, memory_model=None, log=None,
-                super_debug=False, pipeline_debug=False,
-                signal_map=None, protocol_type='gaxi_master', **kwargs):
+    def __init__(
+        self,
+        dut: DutHandle,
+        title: str,
+        prefix: str,
+        clock: ClockSignal,
+        field_config: FieldConfigInput,
+        timeout_cycles: int = 1000,
+        mode: str = "skid",
+        bus_name: str = "",
+        pkt_prefix: str = "",
+        multi_sig: bool = False,
+        randomizer: Optional[FlexRandomizer] = None,
+        memory_model: Optional[MemoryModel] = None,
+        log: Optional[Logger] = None,
+        super_debug: bool = False,
+        pipeline_debug: bool = False,
+        signal_map: Optional[dict] = None,
+        protocol_type: str = "gaxi_master",
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize GAXI Master with structured pipeline support.
 
@@ -113,14 +140,10 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
             'error_count': 0
         }
 
-        # Remove custom parameters that shouldn't go to BusDriver
-        custom_params = ['bus_name', 'pkt_prefix', 'memory_model', 'randomizer',
-                        'signal_map', 'super_debug', 'pipeline_debug']
-        for param in custom_params:
-            kwargs.pop(param, None)
-
-        # Remove prefix from kwargs so it doesn't get passed to BusDriver/BusMonitor
-        kwargs.pop('prefix', None)
+        # Strip framework-only kwargs (and `prefix`, since we're about to pass
+        # an explicit empty prefix to cocotb) before forwarding to BusDriver.
+        # See components/shared/init_kwargs.py for the canonical set.
+        strip_framework_kwargs(kwargs, extra=('prefix',))
 
         # CLEAN APPROACH: Explicitly pass empty prefix to cocotb
         # Our signal lists already contain full signal names

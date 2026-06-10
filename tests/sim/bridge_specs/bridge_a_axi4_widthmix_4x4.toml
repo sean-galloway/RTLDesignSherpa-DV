@@ -1,0 +1,112 @@
+#==============================================================================
+# bridge_a_axi4_widthmix_4x4.toml
+#==============================================================================
+# Pure-AXI4 width-mix stress: 4 masters × 4 slaves, all AXI4, mixed widths
+# from 32b to 256b. Every cross-width path forces an axi4_dwidth_converter
+# instance, so we get 16 concurrent BFM channels all routing through
+# width-conversion logic.
+#
+# Concurrency profile: 16 concurrent AXI4 BFM pairs (read + write)
+#                      = 32 BFMs running simultaneously at peak
+#==============================================================================
+
+[bridge]
+name = "bridge_a_axi4_widthmix_4x4"
+description = "4×4 all-AXI4, mixed data widths (32/64/128/256), width-converter stress"
+variants = ["no"]
+
+[bridge.clock]
+name = "aclk"
+frequency_mhz = 100
+
+# ---------------------------------------------------------------- masters ---
+
+[[bridge.masters]]
+name       = "cpu"
+prefix     = "cpu_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 4
+addr_width = 32
+data_width = 32
+user_width = 1
+
+[[bridge.masters]]
+name       = "dma"
+prefix     = "dma_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 4
+addr_width = 32
+data_width = 64
+user_width = 1
+
+[[bridge.masters]]
+name       = "gpu"
+prefix     = "gpu_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 4
+addr_width = 32
+data_width = 128
+user_width = 1
+
+[[bridge.masters]]
+name       = "vpu"
+prefix     = "vpu_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 4
+addr_width = 32
+data_width = 256
+user_width = 1
+
+# ---------------------------------------------------------------- slaves ----
+
+[[bridge.slaves]]
+name       = "ddr0"
+prefix     = "ddr0_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 6
+addr_width = 32
+data_width = 256
+user_width = 1
+base_addr  = "0x00000000"
+addr_range = "0x40000000"   # 1 GB
+
+[[bridge.slaves]]
+name       = "ddr1"
+prefix     = "ddr1_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 6
+addr_width = 32
+data_width = 128
+user_width = 1
+base_addr  = "0x40000000"
+addr_range = "0x40000000"   # 1 GB
+
+[[bridge.slaves]]
+name       = "sram"
+prefix     = "sram_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 6
+addr_width = 32
+data_width = 64
+user_width = 1
+base_addr  = "0x80000000"
+addr_range = "0x01000000"   # 16 MB
+
+[[bridge.slaves]]
+name       = "scratch"
+prefix     = "scratch_s_axi_"
+protocol   = "axi4"
+channels   = "rw"
+id_width   = 6
+addr_width = 32
+data_width = 32
+user_width = 1
+base_addr  = "0x81000000"
+addr_range = "0x01000000"   # 16 MB

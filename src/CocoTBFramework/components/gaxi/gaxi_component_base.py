@@ -25,12 +25,26 @@ FIXED: Now passes resolved signals directly to DataStrategies, eliminating guess
 ADDED: Optional signal_map parameter for manual signal mapping override.
 """
 
+from __future__ import annotations
+
+from logging import Logger
+from typing import Any, Optional, Union
+
 from cocotb.utils import get_sim_time
 
 from ..shared.data_strategies import DataCollectionStrategy, DataDrivingStrategy
 from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.memory_model import MemoryModel
+from ..shared.protocol_types import validate_protocol_type
 from ..shared.signal_mapping_helper import SignalResolver
+
+# Type aliases for cocotb-specific handle types. Cocotb's handle classes are
+# complex and not always import-safe (vendor sim shims), so we accept Any at
+# the API surface and rely on cocotb's own runtime type checking downstream.
+DutHandle = Any
+ClockSignal = Any
+FieldConfigInput = Union[FieldConfig, dict, None]
 
 
 class GAXIComponentBase:
@@ -47,18 +61,25 @@ class GAXIComponentBase:
     ADDED: Coverage hooks for automatic transaction sampling.
     """
 
-    def __init__(self, dut, title, prefix, clock, field_config,
-                    protocol_type,  # Must be specified by subclass
-                    mode='skid',
-                    bus_name='',
-                    pkt_prefix='',
-                    multi_sig=False,
-                    randomizer=None,
-                    memory_model=None,
-                    log=None,
-                    super_debug=False,
-                    signal_map=None,  # NEW: Optional manual signal mapping
-                    **kwargs):
+    def __init__(
+        self,
+        dut: DutHandle,
+        title: str,
+        prefix: str,
+        clock: ClockSignal,
+        field_config: FieldConfigInput,
+        protocol_type: str,  # Must be specified by subclass
+        mode: str = "skid",
+        bus_name: str = "",
+        pkt_prefix: str = "",
+        multi_sig: bool = False,
+        randomizer: Optional[FlexRandomizer] = None,
+        memory_model: Optional[MemoryModel] = None,
+        log: Optional[Logger] = None,
+        super_debug: bool = False,
+        signal_map: Optional[dict] = None,  # NEW: Optional manual signal mapping
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize common GAXI component functionality.
 
@@ -94,23 +115,10 @@ class GAXIComponentBase:
         self.memory_model = memory_model
         self.signal_map = signal_map  # NEW: Store signal map
 
-        # Validate protocol_type - allow GAXI, AXIS, AXI4, and AXI5 protocol types
-        valid_types = [
-            'gaxi_master', 'gaxi_slave',
-            'axis_master', 'axis_slave',
-            'axi4_ar_master', 'axi4_ar_slave',
-            'axi4_r_master', 'axi4_r_slave',
-            'axi4_aw_master', 'axi4_aw_slave',
-            'axi4_w_master', 'axi4_w_slave',
-            'axi4_b_master', 'axi4_b_slave',
-            'axi5_ar_master', 'axi5_ar_slave',
-            'axi5_r_master', 'axi5_r_slave',
-            'axi5_aw_master', 'axi5_aw_slave',
-            'axi5_w_master', 'axi5_w_slave',
-            'axi5_b_master', 'axi5_b_slave'
-        ]
-        if protocol_type not in valid_types:
-            raise ValueError(f"protocol_type must be one of {valid_types}, got: {protocol_type}")
+        # Validate protocol_type against the canonical set (shared/protocol_types.py).
+        # The shared set covers GAXI, AXIS, AXI4, AXI5, and FIFO. FIFO support
+        # for this base added in #6 (FIFO BFMs inherit via FIFOComponentBase alias).
+        validate_protocol_type(protocol_type)
         self.protocol_type = protocol_type
 
         # Normalize field_config - handle dict conversion uniformly
@@ -154,7 +162,7 @@ class GAXIComponentBase:
         # where direction is 'tx' (transmit) or 'rx' (receive)
         self._coverage_hooks = []
 
-    def _normalize_field_config(self, field_config):
+    def _normalize_field_config(self, field_config: FieldConfigInput) -> FieldConfig:
         """
         Standardize field_config handling across all components.
 
@@ -173,7 +181,11 @@ class GAXIComponentBase:
         else:
             raise TypeError(f"field_config must be FieldConfig, dict, or None, got {type(field_config)}")
 
-    def _setup_randomizer(self, randomizer, protocol_type):
+    def _setup_randomizer(
+        self,
+        randomizer: Optional[FlexRandomizer],
+        protocol_type: str,
+    ) -> FlexRandomizer:
         """
         Set up randomizer with appropriate defaults for component type.
 
@@ -187,19 +199,28 @@ class GAXIComponentBase:
         if randomizer is not None:
             return randomizer
 
-        # Default constraints based on component type
+        # Default constraints based on component type. FIFO uses
+        # write_delay/read_delay; ready/valid protocols use valid_delay/ready_delay.
         if protocol_type == 'gaxi_master':
             default_constraints = {
                 'valid_delay': ([(0, 0), (1, 8), (9, 20)], [5, 2, 1])
             }
-        else:  # gaxi_slave
+        elif protocol_type == 'fifo_master':
+            default_constraints = {
+                'write_delay': ([(0, 0), (1, 8), (9, 20)], [5, 2, 1])
+            }
+        elif protocol_type == 'fifo_slave':
+            default_constraints = {
+                'read_delay': ([(0, 1), (2, 8), (9, 30)], [5, 2, 1])
+            }
+        else:  # gaxi_slave, axis_slave, axi4_*_slave, axi5_*_slave (ready_delay path)
             default_constraints = {
                 'ready_delay': ([(0, 1), (2, 8), (9, 30)], [5, 2, 1])
             }
 
         return FlexRandomizer(default_constraints)
 
-    def complete_base_initialization(self, bus=None):
+    def complete_base_initialization(self, bus: Any = None) -> None:
         """
         Complete initialization after cocotb parent class setup.
 
@@ -224,7 +245,7 @@ class GAXIComponentBase:
             self.log.info(f"GAXIComponentBase '{self.title}' initialized: {side_description} side, "
                         f"mode={self.mode}, multi_sig={self.use_multi_signal}, signals={signal_source}")
 
-    def _setup_data_strategies(self):
+    def _setup_data_strategies(self) -> None:
         """
         Set up data collection and driving strategies based on component needs.
 

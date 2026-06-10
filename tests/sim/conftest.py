@@ -129,7 +129,9 @@ def pytest_ignore_collect(collection_path, config):
     """
     global _TIER2_PREREQ_MESSAGE
     path_str = str(collection_path)
-    if "tests/sim/bfm_acceptance" not in path_str:
+    # Tier 2 test directories (need cocotb-test + a simulator)
+    tier2_dirs = ("tests/sim/bfm_acceptance", "tests/sim/bridges")
+    if not any(d in path_str for d in tier2_dirs):
         return None
     if not _has_cocotb_test():
         _TIER2_PREREQ_MESSAGE = (

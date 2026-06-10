@@ -45,7 +45,6 @@ from __future__ import annotations
 
 from typing import Tuple
 
-
 # AMBA APB4 signal sets — APB5 extends this set with USER/PARITY/WAKEUP signals.
 BASE_APB_SIGNALS: Tuple[str, ...] = (
     "PSEL",

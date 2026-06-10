@@ -149,19 +149,38 @@ class DFISlavePHY(BusMonitor):
 
         self.cmd_counts[cmd] = self.cmd_counts.get(cmd, 0) + 1
 
+        beats = self.base.beats_per_burst
+
         if cmd == DRAMCommand.ACT:
             self.dram.on_activate(bank_idx=bank, row=addr)
         elif cmd == DRAMCommand.RD:
             self.dram.on_read(bank_idx=bank)
-            flat = self._flat_addr_for(bank, addr)
-            self._pending_reads.append(_PendingOp(due_cycle=cycle + cl, flat_addr=flat))
+            base_col = addr & self._col_mask
+            open_row = self.dram.banks[bank].row or 0
+            # Queue N consecutive beats at (col, col+1, …, col+N-1).
+            # Each beat lands one DFI cycle after the previous.
+            for k in range(beats):
+                col_k = base_col + k
+                if col_k >= self.mapping.num_cols:
+                    break  # don't wrap past the row end for now
+                flat = self.mapping.tuple_to_flat(0, bank, open_row, col_k)
+                self._pending_reads.append(
+                    _PendingOp(due_cycle=cycle + cl + k, flat_addr=flat)
+                )
             if addr & (1 << 10):
-                # Auto-precharge after the read
                 self._pending_auto_pre(bank)
         elif cmd == DRAMCommand.WR:
             self.dram.on_write(bank_idx=bank)
-            flat = self._flat_addr_for(bank, addr)
-            self._pending_writes.append(_PendingOp(due_cycle=cycle + cwl, flat_addr=flat))
+            base_col = addr & self._col_mask
+            open_row = self.dram.banks[bank].row or 0
+            for k in range(beats):
+                col_k = base_col + k
+                if col_k >= self.mapping.num_cols:
+                    break
+                flat = self.mapping.tuple_to_flat(0, bank, open_row, col_k)
+                self._pending_writes.append(
+                    _PendingOp(due_cycle=cycle + cwl + k, flat_addr=flat)
+                )
             if addr & (1 << 10):
                 self._pending_auto_pre(bank)
         elif cmd == DRAMCommand.PRE:

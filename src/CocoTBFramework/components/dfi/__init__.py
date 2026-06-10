@@ -28,6 +28,7 @@ from .dfi_field_configs import (
 )
 from .dfi_master_mc import DFIMasterMC
 from .dfi_monitor import DFIMonitor
+from .dfi_slave_phy import DFISlavePHY
 from .dram_state import (
     AddressMapping,
     Bank,
@@ -79,6 +80,7 @@ __all__ = [
     "DFIBase",
     "DFIMasterMC",
     "DFIMonitor",
+    "DFISlavePHY",
     "AddressMapping",
     "Bank",
     "BankState",

@@ -1,6 +1,32 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-06-09
+
+This release lands the methodology-review followups (#6–#15) plus a
+substantial test-infrastructure rollup that wasn't tracked by its own
+issues — see the **Test infrastructure** section at the bottom for what
+was rolled in alongside the issue-tracked work. The BFM source-of-truth
+changes are the issue-tracked items; the infrastructure rollup gives
+the DV repo a regression that can validate those changes (and future
+ones) without depending on the RDS \`val/\` suite.
+
+### Breaking changes (BFM API)
+
+The breaking-change details are documented inline in each entry below;
+high-level summary for downstream migration:
+
+- **APB5Master.send()** now returns after queueing instead of after the
+  bus transaction completes. Use \`busy_send()\` for completion semantics.
+  (#15 Phase A — matches what APB4 callers already had.)
+- **APB5Slave** \`ready_delay\` is now measured from PSEL detection (was
+  PENABLE rising). Observable 1-cycle timing difference for cycle-precise
+  testbenches. (#15 Phase B)
+- **APBSlave** now dispatches monitor transactions via \`self._recv()\` —
+  TBs that asserted \`_recvQ\` was empty will see packets now. Strictly
+  additive — most consumers benefit.
+- MRO changes: \`isinstance(x, APBMaster)\` now matches APB5 masters;
+  \`isinstance(x, GAXIComponentBase)\` now matches FIFO BFMs; etc. All
+  document'd per-entry below.
 
 ### Changed
 
@@ -167,6 +193,61 @@
   `APBSlave`, `APB5Slave`, and `GAXISlave` so the convention is discoverable
   from the source.
   ([#12](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/12))
+
+### Test infrastructure (not tracked by individual issues — rolled in)
+
+The following work landed alongside the issue-tracked refactors to give
+the DV repo a regression that can validate the BFM changes (and future
+ones) without depending on the RDS `val/` suite. It wasn't filed as
+individual issues; documented here for visibility.
+
+- **Tier 1 pytest suite** (`tests/unit/`) — 123 tests, runs in <1s, no
+  simulator required. Covers `MemoryModel` API contract, `protocol_types`
+  (#9), `init_kwargs` (#10), `apb_common` (#8), `FieldConfig`,
+  `FlexRandomizer`, packet construction, inheritance hooks (#15), and
+  inheritance structure (#6, #7, #15). **Found and fixed a real bug**:
+  `APBMaster._default_randomizer_constraints` was returning `[0, 0]`
+  (list) bin pairs instead of `(0, 0)` (tuples), which `FlexRandomizer`
+  rejects. Pre-existed #15. Now fixed and guarded by regression test.
+
+- **Tier 2 sim test scaffolding** (`tests/sim/`) — `conftest.py` with
+  prerequisite detection (skips cleanly when `cocotb-test` or a Verilog
+  simulator is missing, so unit tests still run on bare metal); vendored
+  snapshot of RDS `bin/TBClasses/` at commit `7aee11af` under
+  `tests/sim/TBClasses/` so `from TBClasses.shared.tbbase import TBBase`
+  works without an RDS submodule; curated RTL snapshot under
+  `tests/sim/rtl/` (105 SV files, 3.6 MB) including bridges from
+  `projects/components/bridge/`, the APB crossbar, and converters.
+
+- **6 new BFM-stress bridges** — generated via the RDS bridge generator
+  from TOML specs in `tests/sim/bridge_specs/`. Each has ≥ 8 ports and
+  ≥ 2 masters, covering the full AMBA4 master×slave protocol matrix.
+  Bridges: `bridge_a_axi4_widthmix_4x4`, `bridge_b_axi4_axil_3x5`,
+  `bridge_c_dma_heavy_3x6`, `bridge_d_axil_emphasis_4x4`,
+  `bridge_e_grand_mix_5x5`, `bridge_f_fanout_2x8`.
+
+- **Sophisticated concurrent testbench infrastructure**
+  (`tests/sim/bridges/tbclasses/`) — generic TOML-driven `ConcurrentBridgeTB`
+  that auto-builds the right BFM topology for any bridge, pre-seeds
+  slave MemoryModels with a misroute-detection pattern, and exposes 4
+  concurrency-stress helpers (`parallel_storm`, `same_id_storm`,
+  `cross_protocol_race`, `read_response_race`). Cross-master scoreboard
+  with per-(master, slave) tally and per-`(master, txn_id)` read-response
+  matching. 8 concurrent stress tests targeting specific BFM
+  synchronization paths from v0.1.1 (#3, #4, #5) and this release (#15).
+
+- **`env_python`** — DV-appropriate environment setup script. Activates
+  the venv, puts `src/` and `tests/sim/` on `PYTHONPATH`, auto-detects
+  `RDS_RTL_PATH`, exposes test aliases (`ptu` / `pts` / `ptw` / `ptwp` /
+  etc.) mirroring RDS's convention. Replaces a copy of RDS's env script
+  that had a lot of irrelevant exports.
+
+- **`pyproject.toml [sim]` optional dep group** — `cocotb-test`,
+  `pytest-xdist`, `pytest-asyncio`, `pytest-rerunfailures`, `GitPython`,
+  `tomli` (Python 3.10 fallback). Install with `pip install -e ".[sim]"`.
+
+- **`TODO.md`** — root-level project tracker linking each open issue to
+  its target release and status. Will move to GitHub Projects later.
 
 ## [0.1.1] - 2026-06-01
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 from .dfi_signals import MemoryType
 
@@ -111,6 +112,10 @@ class DFIControlPacket:
     # DDR3 only
     reset_n: int = 1   # deasserted (not in reset)
 
+    # Capture-side metadata. Populated by DFIMonitor; ignored by drivers.
+    cmd: Optional["DRAMCommand"] = None
+    timestamp_ns: float = 0.0
+
     @classmethod
     def from_command(
         cls,
@@ -175,6 +180,9 @@ class DFIWriteDataPacket:
     wrdata_en: int = 0    # bit per data slice; asserted during valid beats
     wrdata_mask: int = 0  # bit per 8 wrdata bits; 1=mask (don't write)
 
+    # Capture-side metadata. Populated by DFIMonitor; ignored by drivers.
+    timestamp_ns: float = 0.0
+
 
 # ----------------------------------------------------------------------
 # DFIReadDataPacket — one beat of read data
@@ -188,3 +196,6 @@ class DFIReadDataPacket:
     rddata: int = 0
     rddata_valid: int = 0  # bit per slice; asserted during valid beats
     rddata_dnv: int = 0    # LPDDR2 only: data-not-valid byte mask
+
+    # Capture-side metadata. Populated by DFIMonitor; ignored by drivers.
+    timestamp_ns: float = 0.0

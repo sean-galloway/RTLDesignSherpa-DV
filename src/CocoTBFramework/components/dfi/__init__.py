@@ -26,6 +26,7 @@ from .dfi_field_configs import (
     read_data_field_config,
     write_data_field_config,
 )
+from .dfi_monitor import DFIMonitor
 from .dram_state import (
     AddressMapping,
     Bank,
@@ -75,6 +76,7 @@ __all__ = [
     "is_supported_pair",
     "SUPPORTED_MEMORY_BY_VERSION",
     "DFIBase",
+    "DFIMonitor",
     "AddressMapping",
     "Bank",
     "BankState",

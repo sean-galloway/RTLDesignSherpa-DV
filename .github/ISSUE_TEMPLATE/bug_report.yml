@@ -1,0 +1,76 @@
+name: Bug report
+description: Something doesn't behave the way the docs say it should.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report. The more we can reproduce
+        the problem locally, the faster we can fix it.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the unexpected behavior.
+      placeholder: When I call `APBSlave.start()` after a reset, it raises ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: |
+        A 20-line snippet beats a paragraph of description. If the bug only
+        shows up in a full testbench, link to a branch we can check out.
+      render: python
+    validations:
+      required: false
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Full traceback or log
+      description: Please include the full output, not just the last line.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: framework-version
+    attributes:
+      label: cocotb-framework version
+      description: Output of `pip show cocotb-framework | grep Version` (or a commit SHA if installed from source).
+      placeholder: 0.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: 3.12.3
+    validations:
+      required: true
+
+  - type: input
+    id: simulator
+    attributes:
+      label: Simulator and version
+      description: Only if the bug surfaces in a sim run.
+      placeholder: verilator 5.024
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Ubuntu 24.04

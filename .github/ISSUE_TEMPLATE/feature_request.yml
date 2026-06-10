@@ -1,0 +1,42 @@
+name: Feature request
+description: A new BFM, scoreboard, or framework capability.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. The more concrete the use case, the
+        easier it is to scope the work.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        Describe the pain point or missing capability. If there's a workaround
+        you're using today, mention it — that helps us scope a real fix.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        Rough sketch is fine. Function signature, command flow, API shape, etc.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Spec references, links to similar features in other projects, etc.

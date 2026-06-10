@@ -1,0 +1,88 @@
+# JEDEC timing tables (provisional format)
+
+CSV files in this directory feed the `DFISlavePHY`'s DRAM state model.
+Each file pins one (memory_type, speed_grade) combination's relevant
+JEDEC timings; the slave's runtime checker enforces them against the
+sequence of commands it sees on the wire.
+
+## Pre-alpha note
+
+The format below is a first stab — pretty much guaranteed to be wrong
+once we hit something we hadn't anticipated. Treat it as the v0 schema.
+Iterate freely.
+
+## File naming
+
+```
+<memory_type>-<speed_grade>.csv
+```
+
+Examples: `ddr3-1600.csv`, `ddr3-1866.csv`, `ddr4-2400.csv` (Phase 2),
+`ddr5-6400.csv` (Phase 3).
+
+## File format
+
+UTF-8 CSV, four columns:
+
+```csv
+# Comments allowed on lines starting with '#'.
+parameter, unit, value, description
+tCK,        ns,  1.25,  Clock period
+tRCD,       ns,  13.75, ACT → RD/WR same bank
+tRP,        ns,  13.75, PRE → next ACT same bank
+...
+```
+
+- Lines starting with `#` are ignored.
+- Whitespace around fields is trimmed.
+- Empty lines are ignored.
+- `unit` is one of `ns` (converted to cycles at load time using `tCK`),
+  `CK` (already in cycles), or `beats` (burst length).
+- `description` is free-form — included in error messages.
+
+## Required parameters (MVP — DDR3)
+
+| Parameter | Description | Used by violation check |
+|---|---|---|
+| `tCK` | Clock period (ns) | Conversion factor — must be first |
+| `tRCD` | Activate to Read/Write | hard: `tRCD` (RD/WR too soon after ACT) |
+| `tRP` | Precharge to Activate | hard: `tRP` (ACT too soon after PRE) |
+| `tRAS_min` | Activate to Precharge min | hard: `tRAS_min` (PRE too soon after ACT) |
+| `tRC` | Active-to-Active same bank | hard: `tRC` |
+| `tWR` | Write recovery | hard: `tWR` (PRE too soon after last WR data beat) |
+| `tWTR` | Write to Read same bank | hard: `tWTR` |
+| `tRTP` | Read to Precharge | hard: `tRTP` (PRE too soon after RD) |
+| `tRRD` | Active-to-Active different bank | hard: `tRRD` |
+| `tFAW` | Four-Activate window | soft: `tFAW` (windowed ACT count) |
+| `tREFI` | Refresh interval (average) | soft: `tREFI` (refresh overdue) |
+| `tRFC` | Refresh cycle time | hard: `tRFC` (command during refresh) |
+| `CL` | CAS latency | reference (read-data timing) |
+| `CWL` | CAS write latency | reference (write-data timing) |
+| `BL` | Burst length (fixed) | reference (beat count) |
+
+## Optional parameters (used when present)
+
+Anything else in the CSV is preserved as raw values in
+`JedecTimings.extras` so future violations can opt in without changing
+the schema. Document new parameters here as they're added.
+
+## Override the violation policy
+
+Hard / soft / ignore sets are configurable per-slave at construction:
+
+```python
+from CocoTBFramework.components.dfi.jedec_timings import load_timings
+from CocoTBFramework.components.dfi.dram_state import ViolationPolicy
+
+timings = load_timings("jedec/ddr3-1600.csv")
+policy = ViolationPolicy(
+    hard={"tRCD", "tRP"},       # only these halt sim
+    soft={"tFAW", "tRRD"},      # these warn
+    ignore={"tREFI"},           # this is silently ignored
+)
+slave = DFISlavePHY(dut, clock, timings=timings, violation_policy=policy)
+```
+
+The defaults (`ViolationPolicy()` with no args) follow the split
+documented in issue #16 — JEDEC-critical timings halt sim, windowed /
+average timings warn, init-sequence specifics are ignored.

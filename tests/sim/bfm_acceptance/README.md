@@ -44,15 +44,15 @@ export RDS_RTL_PATH=/path/to/RTLDesignSherpa
   is found.
 - **`RDS_RTL_PATH` or the `_rds/` submodule**: provides the RTL files
   and the `+incdir+` paths the BFMs need to compile against.
-- **`_tb_support/` snapshot**: `tbbase.py`, `utilities.py`, etc. —
+- **`TBClasses/` snapshot**: `tbbase.py`, `utilities.py`, etc. —
   imported as `TBClasses.*` by all tests (`conftest.py` wires this up).
-  Synced from RDS `bin/TBClasses/` — see `_tb_support/PROVENANCE.md`.
+  Synced from RDS `bin/TBClasses/` — see `TBClasses/PROVENANCE.md`.
 
 ## Workflow when RDS or DV changes
 
 | Scenario | Action |
 |---|---|
 | BFM API changes here (e.g. new framework kwarg) | Update relevant acceptance test, document migration in CHANGELOG |
-| New RDS commit you want to track | Update `RDS_VERSION` in `tests/sim/rtl/README.md`; re-sync `_tb_support/` from RDS `bin/TBClasses/` |
+| New RDS commit you want to track | Update `RDS_VERSION` in `tests/sim/rtl/README.md`; re-sync `TBClasses/` from RDS `bin/TBClasses/` |
 | New BFM coverage gap | Copy another test from RDS `val/amba/` and migrate as needed |
 | New bridge config you want to test | Add TOML to `tests/sim/bridge_specs/`, generate RTL in RDS, copy generated to `tests/sim/rtl/bridges/` |

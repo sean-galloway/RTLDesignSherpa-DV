@@ -1,4 +1,4 @@
-# `_tb_support/` provenance
+# `tests/sim/TBClasses/` provenance
 
 Snapshot of RDS's `bin/TBClasses/` — the framework-side test infrastructure
 that the BFM acceptance tests in `tests/sim/bfm_acceptance/` depend on.
@@ -39,13 +39,13 @@ When you want to track a newer RDS commit:
 ```bash
 RDS=/path/to/RTLDesignSherpa
 for sub in shared gaxi fifo amba; do
-  cp "$RDS/bin/TBClasses/$sub"/*.py tests/sim/_tb_support/$sub/
+  cp "$RDS/bin/TBClasses/$sub"/*.py tests/sim/tests/sim/TBClasses/$sub/
 done
 # Update the commit SHA above and commit.
 ```
 
 If RDS adds new `TBClasses/` subpackages you want to use (e.g. `axi4/`),
-add them to the copy and create them under `_tb_support/`.
+add them to the copy and create them under `tests/sim/TBClasses/`.
 
 ## Why a snapshot instead of a submodule
 

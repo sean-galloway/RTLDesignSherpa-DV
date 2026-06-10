@@ -483,7 +483,7 @@ class ConcurrentBridgeTB(TBBase):
           - APBSlave unified state machine under concurrent fan-in (#15 Phase B)
         """
         import random
-        rng = random.Random(0xC0NCC)
+        rng = random.Random(0xC0DECAFE)  # arbitrary deterministic seed
 
         tasks = []
         for m_idx in range(self.num_masters):

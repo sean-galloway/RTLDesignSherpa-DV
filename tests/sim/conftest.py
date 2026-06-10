@@ -2,7 +2,7 @@
 
 Sets up the import path so existing RDS-style tests (which import
 ``TBClasses.*``) work unmodified, sourcing those modules from this
-DV repo's ``_tb_support/`` snapshot rather than from a sibling RDS
+DV repo's ``TBClasses/`` snapshot rather than from a sibling RDS
 checkout.
 
 For the ``$REPO_ROOT`` substitution used by ``get_paths`` and the
@@ -22,30 +22,17 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Make _tb_support/ importable as `TBClasses.*`
+# Make tests/sim/TBClasses/ importable as `TBClasses.*`
 # ---------------------------------------------------------------------------
 
 _HERE = Path(__file__).parent
-_TB_SUPPORT = _HERE / "_tb_support"
 
-# `_tb_support/` contains the snapshot of `bin/TBClasses/` from RDS.
-# We expose it under the `TBClasses` namespace so the existing test
-# files (which `import TBClasses.shared.tbbase` etc.) work unchanged.
-if str(_TB_SUPPORT.parent) not in sys.path:
-    sys.path.insert(0, str(_TB_SUPPORT.parent))
-
-# Register `_tb_support` as the `TBClasses` package
-import importlib.util  # noqa: E402
-
-_spec = importlib.util.spec_from_file_location(
-    "TBClasses",
-    _TB_SUPPORT / "__init__.py",
-    submodule_search_locations=[str(_TB_SUPPORT)],
-)
-if _spec is not None and _spec.loader is not None and "TBClasses" not in sys.modules:
-    _module = importlib.util.module_from_spec(_spec)
-    sys.modules["TBClasses"] = _module
-    _spec.loader.exec_module(_module)
+# `tests/sim/TBClasses/` is a snapshot of RDS's `bin/TBClasses/`. Putting
+# its parent (tests/sim/) on sys.path makes the package importable as
+# `TBClasses.*` — matching what the existing RDS tests in
+# `bfm_acceptance/` already import.
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 
 
 # ---------------------------------------------------------------------------

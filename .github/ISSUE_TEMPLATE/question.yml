@@ -1,0 +1,30 @@
+name: Question or design discussion
+description: Usage question or "is this the right way to model X?"
+title: "[question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome — the answer may end up shaping the docs or
+        spawning a feature request. If this is more of an open-ended
+        discussion, consider opening a thread in
+        [Discussions](https://github.com/sean-galloway/RTLDesignSherpa-DV/discussions)
+        instead.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What have you tried so far?
+      description: |
+        Pointers to docs you've read, code you've looked at, or experiments
+        that didn't behave as expected.
+    validations:
+      required: false

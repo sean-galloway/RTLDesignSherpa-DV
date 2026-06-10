@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or design discussion
+    url: https://github.com/sean-galloway/RTLDesignSherpa-DV/discussions
+    about: For usage questions or "is this the right way to model X?" — please use Discussions.
+  - name: Parent project (RTL designs)
+    url: https://github.com/sean-galloway/RTLDesignSherpa
+    about: For issues with the RTL designs themselves (not the verification framework).

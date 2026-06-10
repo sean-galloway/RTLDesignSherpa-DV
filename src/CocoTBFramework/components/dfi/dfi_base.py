@@ -36,6 +36,7 @@ from .dfi_signals import (
     SubInterface,
     is_supported_pair,
 )
+from .behaviors import DFIv2_1Behavior, behavior_for
 from .dram_state import AddressMapping
 from .jedec_timings import JedecTimings
 
@@ -68,6 +69,7 @@ class DFIBase:
         mapping: AddressMapping,
         sub_interfaces: Optional[FrozenSet[SubInterface]] = None,
         beats_per_burst: Optional[int] = None,
+        behavior: Optional[DFIv2_1Behavior] = None,
     ):
         if not is_supported_pair(dfi_version, memory_type):
             raise ValueError(
@@ -95,6 +97,13 @@ class DFIBase:
             )
         self.beats_per_burst = beats_per_burst
         self.cycle = 0
+
+        # Per-version Strategy. Users can override by passing their own
+        # behavior instance (e.g., to model a board-specific PHY quirk).
+        # Otherwise we look up the registered class for this version.
+        self.behavior: DFIv2_1Behavior = (
+            behavior if behavior is not None else behavior_for(dfi_version)
+        )
 
     # ----- Cycle accounting -----
 

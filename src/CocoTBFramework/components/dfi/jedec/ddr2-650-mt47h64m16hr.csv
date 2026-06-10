@@ -1,0 +1,37 @@
+# Micron MT47H64M16HR-25:H (1 Gib DDR2, x16) on the Digilent Atlys/Nexys
+# class board. The part is -25 speed grade (rated DDR2-800, tCK_min = 2.5 ns)
+# but the board runs it at DDR2-650 because the 100 MHz oscillator on
+# E3 can be cleanly multiplied to the DDR2-650 frequency via MMCM but
+# not all the way to DDR2-800. Digilent reference value is tCK = 3077 ps
+# (650 Mbps); the part is also valid at tCK = 3000 ps (667 Mbps).
+#
+# Sources:
+#   - Micron MT47H64M16 datasheet (1Gb_DDR2_SDRAM.pdf rev N)
+#   - Digilent board reference manual (recommended clock = 3077 ps)
+#
+# DDR2 differences from the DDR3-1600 reference:
+#   - CWL = CL - 1 (DDR2 convention, not independently programmable)
+#   - BL = 4 (DDR2 default; BL8 is the on-the-fly option)
+#   - Address geometry captured as extras (8 banks × 8192 rows × 1024 cols)
+
+parameter, unit,  value, description
+tCK,       ns,    3.077, Clock period (650 Mbps effective, board MMCM-limited)
+tRCD,      ns,    15.0,  Activate to Read/Write same bank
+tRP,       ns,    15.0,  Precharge command period
+tRAS_min,  ns,    45.0,  Active to Precharge minimum
+tRC,       ns,    60.0,  Active-to-Active same bank
+tWR,       ns,    15.0,  Write recovery (PRE after last WR data beat)
+tWTR,      ns,    7.5,   Write to Read same bank
+tRTP,      ns,    7.5,   Internal Read to Precharge
+tRRD,      ns,    7.5,   Active to Active different bank
+tFAW,      ns,    45.0,  Four-Activate Window (x16 device)
+tREFI,     ns,    7800,  Average refresh interval (8192 rows / 64 ms)
+tRFC,      ns,    127.5, Refresh cycle time (1Gb density)
+CL,        CK,    5,     CAS latency (DDR2-650)
+CWL,       CK,    4,     CAS write latency (= CL - 1, DDR2 convention)
+BL,        beats, 4,     Burst length (BL4 default; BL8 OTF option exists)
+# Address geometry — stashed in extras for the BFM's flat-address mapping
+banks,     CK,    8,     Banks per rank
+rows,      CK,    8192,  Rows per bank
+cols,      CK,    1024,  Columns per row (x16 → 16 bytes per col)
+data_width_bits, CK, 16, DDR x16 organization

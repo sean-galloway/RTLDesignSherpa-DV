@@ -21,11 +21,150 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Deque, FrozenSet, List, Optional
+from typing import Deque, Dict, FrozenSet, List, Optional, Tuple
 
 from .jedec_timings import JedecTimings
+
+
+# ----------------------------------------------------------------------
+# Address mapping
+# ----------------------------------------------------------------------
+
+
+# Field names recognized in the mapping string. Order matters: MSB→LSB
+# in the resulting flat index, per the mapping string the user supplies.
+_ADDR_FIELDS = ("rank", "bank", "row", "col")
+
+
+def _is_pow2(n: int) -> bool:
+    return n > 0 and (n & (n - 1)) == 0
+
+
+def _bit_width(n: int) -> int:
+    """Number of bits needed to address ``n`` distinct values (n=1 → 0)."""
+    if n <= 1:
+        return 0
+    return (n - 1).bit_length()
+
+
+@dataclass(frozen=True)
+class AddressMapping:
+    """Configurable flat ↔ (rank, bank, row, col) decoder.
+
+    Models DRAMsim3's late-binding address decode (configuration.cc
+    SetAddressMapping). The mapping string is a pipe-separated MSB→LSB
+    field order, e.g. ``"row|bank|col"`` for the conventional
+    row-buffer-friendly layout, or ``"row|col|bank"`` to push banks
+    into the LSBs.
+
+    Geometry args set the per-field widths; the mapping just dictates
+    the slice order. All counts must be powers of 2.
+
+    The decoder works in **column units** (not bytes). The caller is
+    responsible for the column-to-byte stride (``col * BL * bus_width/8``)
+    if a byte offset is needed.
+    """
+
+    num_ranks: int
+    num_banks: int
+    num_rows: int
+    num_cols: int
+    mapping: str = "row|bank|col"
+
+    # Computed at __post_init__ — kept private to the frozen dataclass.
+    _widths: Dict[str, int] = field(default_factory=dict, repr=False, compare=False)
+    _shifts: Dict[str, int] = field(default_factory=dict, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        for name, n in (
+            ("num_ranks", self.num_ranks),
+            ("num_banks", self.num_banks),
+            ("num_rows", self.num_rows),
+            ("num_cols", self.num_cols),
+        ):
+            if not _is_pow2(n):
+                raise ValueError(f"{name}={n} must be a power of 2")
+
+        fields = [f.strip() for f in self.mapping.split("|") if f.strip()]
+        for f in fields:
+            if f not in _ADDR_FIELDS:
+                raise ValueError(
+                    f"unknown field {f!r} in mapping {self.mapping!r}; "
+                    f"expected one of {_ADDR_FIELDS}"
+                )
+        if len(set(fields)) != len(fields):
+            raise ValueError(f"duplicate field in mapping {self.mapping!r}")
+
+        # col is always required; bank/row required when their count > 1.
+        if "col" not in fields:
+            raise ValueError(f"mapping {self.mapping!r} missing 'col' field")
+        if self.num_banks > 1 and "bank" not in fields:
+            raise ValueError(f"mapping {self.mapping!r} missing 'bank' field")
+        if self.num_rows > 1 and "row" not in fields:
+            raise ValueError(f"mapping {self.mapping!r} missing 'row' field")
+        if self.num_ranks > 1 and "rank" not in fields:
+            raise ValueError(
+                f"mapping {self.mapping!r} missing 'rank' field "
+                f"(num_ranks={self.num_ranks})"
+            )
+
+        widths = {
+            "rank": _bit_width(self.num_ranks),
+            "bank": _bit_width(self.num_banks),
+            "row": _bit_width(self.num_rows),
+            "col": _bit_width(self.num_cols),
+        }
+        # Walk MSB→LSB to assign shifts: rightmost field has shift 0.
+        shifts: Dict[str, int] = {f: 0 for f in _ADDR_FIELDS}
+        running = 0
+        for f in reversed(fields):
+            shifts[f] = running
+            running += widths[f]
+
+        # Dataclass is frozen → bypass __setattr__ for the cached dicts.
+        object.__setattr__(self, "_widths", widths)
+        object.__setattr__(self, "_shifts", shifts)
+
+    @property
+    def total_size(self) -> int:
+        """Number of distinct flat addresses (column units)."""
+        return self.num_ranks * self.num_banks * self.num_rows * self.num_cols
+
+    def tuple_to_flat(self, rank: int, bank: int, row: int, col: int) -> int:
+        """Pack ``(rank, bank, row, col)`` into a flat index."""
+        for name, val, limit in (
+            ("rank", rank, self.num_ranks),
+            ("bank", bank, self.num_banks),
+            ("row", row, self.num_rows),
+            ("col", col, self.num_cols),
+        ):
+            if not (0 <= val < limit):
+                raise ValueError(
+                    f"{name}={val} out of range [0, {limit})"
+                )
+        return (
+            (rank << self._shifts["rank"])
+            | (bank << self._shifts["bank"])
+            | (row << self._shifts["row"])
+            | (col << self._shifts["col"])
+        )
+
+    def flat_to_tuple(self, flat: int) -> Tuple[int, int, int, int]:
+        """Unpack a flat index to ``(rank, bank, row, col)``."""
+        def _extract(name: str, limit: int) -> int:
+            width = self._widths[name]
+            if width == 0:
+                return 0
+            mask = (1 << width) - 1
+            return (flat >> self._shifts[name]) & mask
+        return (
+            _extract("rank", self.num_ranks),
+            _extract("bank", self.num_banks),
+            _extract("row", self.num_rows),
+            _extract("col", self.num_cols),
+        )
 
 # ----------------------------------------------------------------------
 # Violation policy

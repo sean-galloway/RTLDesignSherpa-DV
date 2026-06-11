@@ -1,0 +1,36 @@
+#
+# Modified LiteDRAM config for DDR4 co-sim — based on
+# litedram/examples/kcu105.yml. Drops the CPU + AXI ECC port (we
+# don't need ECC for DFI BFM testing), keeps Wishbone for cocotb.
+#
+# Source: /mnt/data/github/mem-ctrl-ref/litedram/examples/kcu105.yml
+# License: BSD-2-Clause
+{
+    "speedgrade": -2,
+    "cpu":        "None",
+    "memtype":    "DDR4",
+    "uart":       "stub",
+
+    "cmd_latency":     1,
+    "sdram_module":    "EDY4016A",
+    "sdram_module_nb": 8,
+    "sdram_rank_nb":   1,
+    "sdram_phy":       "USDDRPHY",
+
+    "rtt_nom": "80ohm",
+    "rtt_wr":  "80ohm",
+    "ron":     "34ohm",
+
+    "input_clk_freq":   200e6,
+    "sys_clk_freq":     150e6,
+    "iodelay_clk_freq": 200e6,
+
+    "cmd_buffer_depth": 16,
+
+    "user_ports": {
+        "wishbone_0" : {
+            "type":  "wishbone",
+            "block_until_ready": True,
+        },
+    },
+}

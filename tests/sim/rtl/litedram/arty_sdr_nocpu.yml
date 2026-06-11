@@ -1,0 +1,26 @@
+#
+# SDR (single-data-rate) LiteDRAM config for co-sim — 1:1 gear ratio.
+# Based on litedram/examples/ulx3s.yml.
+#
+# License: BSD-2-Clause
+{
+    "device":  "LFE5U-45F-6BG381C",
+    "cpu":     "None",
+    "memtype": "SDR",
+    "uart":    "stub",
+
+    "sdram_module":    "MT48LC16M16",
+    "sdram_module_nb": 2,
+    "sdram_phy":       "GENSDRPHY",
+
+    "sys_clk_freq":     50e6,
+
+    "cmd_buffer_depth": 16,
+
+    "user_ports": {
+        "wishbone_0" : {
+            "type":  "wishbone",
+            "block_until_ready": True,
+        },
+    },
+}

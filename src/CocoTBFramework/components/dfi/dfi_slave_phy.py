@@ -282,25 +282,42 @@ class DFISlavePHY(BusMonitor):
     # ----- Pending operation servicing -----
 
     def _serve_writes(self) -> None:
-        """Commit any pending writes whose CWL has elapsed."""
+        """Commit one pending write per ``wrdata_en`` cycle (FIFO match).
+
+        DFI semantics: the MC asserts ``wrdata_en`` for one cycle per
+        wrdata beat it places on the bus. The slave latches each beat
+        into the oldest pending write in FIFO order. The ``due_cycle``
+        on each pending op is a *no-earlier-than* hint (CWL window),
+        not a strict deadline — real MCs delay wrdata by CWL, while
+        debug-path injectors (e.g. LiteDRAM's DFII) emit wrdata on the
+        same cycle as the WR command. Both forms are valid; the slave
+        accepts whichever arrives first.
+        """
+        if _v(self.bus.wrdata_en) == 0:
+            return
+        if not self._pending_writes:
+            self.log.warning(
+                f"{self.title}: wrdata_en asserted but no pending write "
+                "— stray data beat?"
+            )
+            return
         cycle = self.dram.cycle
-        while self._pending_writes and self._pending_writes[0].due_cycle <= cycle:
-            op = self._pending_writes.popleft()
-            if _v(self.bus.wrdata_en) == 0:
-                self.log.warning(
-                    f"{self.title}: pending write at flat=0x{op.flat_addr:x} "
-                    f"due cycle {op.due_cycle} but wrdata_en is deasserted — "
-                    "did the MC forget the data beat?"
-                )
-                continue
-            data = _v(self.bus.wrdata)
-            mask = _v(self.bus.wrdata_mask)
-            ba = self.memory.integer_to_bytearray(data, self.bytes_per_beat)
-            # Strobe is 1 per byte unmasked. The DFI mask convention is
-            # 1=*don't* write the byte, hence invert.
-            strobe = (~mask) & ((1 << self.bytes_per_beat) - 1)
-            self.memory.write(self._byte_addr(op.flat_addr), ba, strobe=strobe)
-            self.writes_committed += 1
+        op = self._pending_writes[0]
+        if op.due_cycle > cycle:
+            # MC is emitting wrdata early. Permitted on debug paths but
+            # log for visibility — the strict-mode warning lives here.
+            self.log.debug(
+                f"{self.title}: early wrdata at cycle {cycle} for op due "
+                f"{op.due_cycle} — committing immediately (debug-injector path)"
+            )
+        self._pending_writes.popleft()
+        data = _v(self.bus.wrdata)
+        mask = _v(self.bus.wrdata_mask)
+        ba = self.memory.integer_to_bytearray(data, self.bytes_per_beat)
+        # DFI mask convention: 1 means *don't* write that byte.
+        strobe = (~mask) & ((1 << self.bytes_per_beat) - 1)
+        self.memory.write(self._byte_addr(op.flat_addr), ba, strobe=strobe)
+        self.writes_committed += 1
 
     def _serve_reads(self) -> None:
         """Drive rddata + rddata_valid for one cycle when a read is due.

@@ -58,4 +58,7 @@ tests/sim/local_sim_build/
 tests/sim/logs/
 
 # LiteDRAM-generated Verilog (regenerate via tests/sim/rtl/litedram/regen.sh)
+tests/sim/rtl/litedram/sdr/
+tests/sim/rtl/litedram/ddr2/
 tests/sim/rtl/litedram/ddr3/
+tests/sim/rtl/litedram/ddr4/

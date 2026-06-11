@@ -57,33 +57,42 @@ source env_python
 
 Output: `tests/sim/rtl/litedram/ddr3/gateware/litedram_core.v`.
 
-## DFI signal hierarchy
+## DFI exposure: the wrapper
 
-LiteDRAM emits 4-phase DFI internally. Cocotb hierarchy access
-patterns (for a co-sim test where `dut` = `litedram_core`):
+LiteDRAM emits 4-phase DFI as **internal** wires (between MC and the
+behavioral PHY model). Rather than probing internals via cocotb
+hierarchy + `--public-flat-rw`, `litedram_dfi_wrapper.sv` makes them
+proper top-level ports via SystemVerilog out-of-module references.
+
+The cocotb test instantiates `litedram_dfi_wrapper`, drives Wishbone
+on the host port, and observes 4-phase DFI as flat ports:
 
 ```python
-# Phase 0 command signals
-dut.soc_litedramcore_master_p0_address    # 14-bit row/col
-dut.soc_litedramcore_master_p0_bank       # 3-bit
-dut.soc_litedramcore_master_p0_cas_n
-dut.soc_litedramcore_master_p0_ras_n
-dut.soc_litedramcore_master_p0_we_n
-dut.soc_litedramcore_master_p0_cs_n
-dut.soc_litedramcore_master_p0_cke
-dut.soc_litedramcore_master_p0_odt
-dut.soc_litedramcore_master_p0_reset_n
-dut.soc_litedramcore_master_p0_act_n      # DDR4 ACT_n (unused for DDR3)
-# Write data
-dut.soc_litedramcore_master_p0_wrdata        # 32-bit
-dut.soc_litedramcore_master_p0_wrdata_en
-dut.soc_litedramcore_master_p0_wrdata_mask   # 4-bit
-# Read data
-dut.soc_litedramcore_master_p0_rddata        # 32-bit
-dut.soc_litedramcore_master_p0_rddata_en
-dut.soc_litedramcore_master_p0_rddata_valid
-# Repeat for p1, p2, p3
+# Phase 0 (and identical for p1, p2, p3)
+dut.dfi_p0_address       # 14-bit
+dut.dfi_p0_bank          # 3-bit
+dut.dfi_p0_act_n         # DDR4 ACT_n (unused for DDR3)
+dut.dfi_p0_cas_n / ras_n / we_n / cs_n / cke / odt / reset_n
+dut.dfi_p0_wrdata        # 32-bit
+dut.dfi_p0_wrdata_en
+dut.dfi_p0_wrdata_mask   # 4-bit
+dut.dfi_p0_rddata        # 32-bit
+dut.dfi_p0_rddata_en
+dut.dfi_p0_rddata_valid
 ```
 
-These feed into `DFIPhaseAdapter(n_phases=4)` for the cocotb-side
-demux into our 1-phase `DFISlavePHY`.
+16 signals × 4 phases = 64 ports. The wrapper is **observation-only**
+on the DFI side (no signals driven inward), so the MC's behavioral
+PHY+DRAM model still runs closed-loop. Our `DFIPhaseAdapter(n_phases=4)`
+samples these ports and demuxes them into the 1-phase `DFISlavePHY`.
+
+## Why a wrapper, not internal hierarchy access
+
+- Verilator wouldn't need `--public-flat-rw`
+- xsim / questa / vcs all see normal ports
+- The hierarchy paths inside the generated Verilog can change between
+  LiteDRAM versions (regen could rename `soc_litedramcore_master_p0_*`
+  to something else); the wrapper isolates the dependency
+- An eventual swap of the host interface (Wishbone → AXI4 via a
+  converter) is just a different set of wrapper ports — no test-side
+  changes required

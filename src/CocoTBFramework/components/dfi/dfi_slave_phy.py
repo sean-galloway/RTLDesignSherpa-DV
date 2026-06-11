@@ -217,15 +217,45 @@ class DFISlavePHY(BusMonitor):
 
     # ----- Command dispatch -----
 
+    def _is_lpddr2_family(self) -> bool:
+        from .dfi_signals import MemoryType
+        return self.base.memory_type in (
+            MemoryType.LPDDR2, MemoryType.LPDDR3,
+        )
+
     def _decode_command(self) -> DRAMCommand:
+        if self._is_lpddr2_family():
+            # LPDDR2/3 carry the command on the dfi_address CA bus;
+            # ras_n/cas_n/we_n are held idle and useless for decode.
+            from .lpddr_ca import decode_lpddr2_ca
+            addr = _v(self.bus.address)
+            cmd, _args = decode_lpddr2_ca(addr)
+            # Stash the decoded args so _handle_command can use them
+            # without re-decoding the address.
+            self._lpddr_args = _args
+            return cmd
         ras = _v(self.bus.ras_n)
         cas = _v(self.bus.cas_n)
         we  = _v(self.bus.we_n)
         return _CMD_DECODE.get((ras, cas, we), DRAMCommand.NOP)
 
     def _handle_command(self, cmd: DRAMCommand) -> None:
-        bank = _v(self.bus.bank)
-        addr = _v(self.bus.address)
+        if self._is_lpddr2_family():
+            # Pull bank/row/col/etc. from the decoded CA args, not the
+            # raw bus fields (which are held idle for LPDDR2/3).
+            args = getattr(self, "_lpddr_args", {}) or {}
+            bank = args.get("bank", 0)
+            if cmd == DRAMCommand.ACT:
+                addr = args.get("row", 0)
+            else:
+                addr = args.get("col", 0)
+                if args.get("auto_precharge"):
+                    addr |= (1 << 10)
+                if args.get("all_banks"):
+                    addr |= (1 << 10)
+        else:
+            bank = _v(self.bus.bank)
+            addr = _v(self.bus.address)
         cycle = self.dram.cycle  # cycle as the dram model sees it
         cwl = self.dram.timings.CWL
         cl  = self.dram.timings.CL

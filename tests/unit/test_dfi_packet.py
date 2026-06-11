@@ -117,12 +117,36 @@ def test_precharge_all_banks_sets_addr_bit10():
 # ---------------------------------------------------------------------
 
 
-def test_lpddr2_command_helper_raises():
-    """LPDDR2 uses the CA encoding instead of the DDR RAS/CAS/WE signals."""
-    with pytest.raises(NotImplementedError, match="LPDDR2"):
-        DFIControlPacket.from_command(
-            DRAMCommand.RD, memory_type=MemoryType.LPDDR2,
-        )
+def test_lpddr2_command_packs_into_ca_word():
+    """LPDDR2 carries the command on dfi_address as a 20-bit CA word;
+    ras_n/cas_n/we_n/bank are held at idle per DFI v2.1 Table 1."""
+    pkt = DFIControlPacket.from_command(
+        DRAMCommand.RD,
+        memory_type=MemoryType.LPDDR2,
+        bank=3, address=0x55,
+    )
+    # ras/cas/we/bank idle, cs_n asserted, CA word non-zero
+    assert pkt.ras_n == 1
+    assert pkt.cas_n == 1
+    assert pkt.we_n == 1
+    assert pkt.bank == 0
+    assert pkt.cs_n == 0
+    # CA1[2:0] = 0b101 (READ command class per JESD209-2)
+    assert (pkt.address & 0x7) == 0b101
+
+
+def test_lpddr3_uses_same_ca_encoding():
+    """LPDDR3 inherits the LPDDR2 CA bus encoding."""
+    pkt2 = DFIControlPacket.from_command(
+        DRAMCommand.WR, memory_type=MemoryType.LPDDR2,
+        bank=1, address=0x40,
+    )
+    pkt3 = DFIControlPacket.from_command(
+        DRAMCommand.WR, memory_type=MemoryType.LPDDR3,
+        bank=1, address=0x40,
+    )
+    assert pkt2.address == pkt3.address
+    assert pkt2.ras_n == pkt3.ras_n == 1
 
 
 # ---------------------------------------------------------------------

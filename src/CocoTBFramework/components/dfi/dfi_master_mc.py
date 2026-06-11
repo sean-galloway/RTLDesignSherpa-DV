@@ -75,6 +75,7 @@ class DFIMasterMC(BusDriver):
         clock,
         side: str = "mc",
         title: Optional[str] = None,
+        memory_type=None,
         **kwargs,
     ):
         if side != "mc":
@@ -83,6 +84,13 @@ class DFIMasterMC(BusDriver):
             )
         self.side = side
         self.title = title or "DFIMasterMC"
+
+        # memory_type defaults to a DDR-family member that uses the
+        # ras/cas/we encoding. LPDDR2/3 callers should pass
+        # MemoryType.LPDDR2 (or LPDDR3) so the primitives drive the
+        # 20-bit CA word on dfi_address instead.
+        from .dfi_signals import MemoryType
+        self.memory_type = memory_type or MemoryType.DDR3
 
         BusDriver.__init__(self, entity, f"{side}_dfi", clock, **kwargs)
         self.clock = clock
@@ -123,7 +131,13 @@ class DFIMasterMC(BusDriver):
         self.bus.disconnect_ack.value = 0
         self.bus.phymstr_ack.value = 0
 
-    # ----- Internal: drive a 1-cycle command pulse -----
+    # ----- Internal: family check -----
+
+    def _is_lpddr2_family(self) -> bool:
+        from .dfi_signals import MemoryType
+        return self.memory_type in (MemoryType.LPDDR2, MemoryType.LPDDR3)
+
+    # ----- Internal: drive a 1-cycle command pulse (DDR-style) -----
 
     async def _drive_command(
         self,
@@ -147,32 +161,103 @@ class DFIMasterMC(BusDriver):
         self.bus.cas_n.value = 1
         self.bus.we_n.value = 1
 
+    # ----- Internal: drive a 1-cycle LPDDR2/3 CA command -----
+
+    async def _drive_lpddr2_command(self, ca_word: int) -> None:
+        """Drive the 20-bit CA word on dfi_address; hold ras/cas/we/bank
+        at idle per DFI v2.1 Table 1 for LPDDR2 memory."""
+        self.bus.cs_n.value = 0
+        self.bus.address.value = ca_word
+        # ras_n/cas_n/we_n/bank already idle from init_idle / return path
+        self.bus.bank.value = 0
+        self.bus.ras_n.value = 1
+        self.bus.cas_n.value = 1
+        self.bus.we_n.value = 1
+        await RisingEdge(self.clock)
+        self.bus.cs_n.value = 1
+        self.bus.address.value = 0
+
     # ----- Command-interface primitives -----
 
     async def activate(self, bank: int, row: int) -> None:
-        """ACT bank → row. (ras_n=0, cas_n=1, we_n=1)"""
+        """ACT bank → row.
+
+        DDR3-family: (ras_n=0, cas_n=1, we_n=1)
+        LPDDR2/3:    CA1[2:0]=0b011 packed into dfi_address
+        """
+        if self._is_lpddr2_family():
+            from .lpddr_ca import encode_lpddr2_ca
+            from .dfi_packet import DRAMCommand
+            ca = encode_lpddr2_ca(DRAMCommand.ACT, bank=bank, row=row)
+            await self._drive_lpddr2_command(ca)
+            return
         await self._drive_command(ras_n=0, cas_n=1, we_n=1, bank=bank, address=row)
 
     async def read(self, bank: int, col: int, auto_precharge: bool = False) -> None:
-        """RD bank, col. (ras_n=1, cas_n=0, we_n=1)
+        """RD bank, col.
 
-        ``auto_precharge`` sets address bit 10 per the JEDEC convention.
+        DDR3-family: (ras_n=1, cas_n=0, we_n=1), addr[10]=AP
+        LPDDR2/3:    CA1[2:0]=0b101 with AP on CA1[9]
         """
+        if self._is_lpddr2_family():
+            from .lpddr_ca import encode_lpddr2_ca
+            from .dfi_packet import DRAMCommand
+            ca = encode_lpddr2_ca(
+                DRAMCommand.RD, bank=bank, col=col,
+                auto_precharge=auto_precharge,
+            )
+            await self._drive_lpddr2_command(ca)
+            return
         addr = col | (1 << 10) if auto_precharge else col
         await self._drive_command(ras_n=1, cas_n=0, we_n=1, bank=bank, address=addr)
 
     async def write(self, bank: int, col: int, auto_precharge: bool = False) -> None:
-        """WR bank, col. (ras_n=1, cas_n=0, we_n=0)"""
+        """WR bank, col.
+
+        DDR3-family: (ras_n=1, cas_n=0, we_n=0)
+        LPDDR2/3:    CA1[2:0]=0b100
+        """
+        if self._is_lpddr2_family():
+            from .lpddr_ca import encode_lpddr2_ca
+            from .dfi_packet import DRAMCommand
+            ca = encode_lpddr2_ca(
+                DRAMCommand.WR, bank=bank, col=col,
+                auto_precharge=auto_precharge,
+            )
+            await self._drive_lpddr2_command(ca)
+            return
         addr = col | (1 << 10) if auto_precharge else col
         await self._drive_command(ras_n=1, cas_n=0, we_n=0, bank=bank, address=addr)
 
     async def precharge(self, bank: int = 0, all_banks: bool = False) -> None:
-        """PRE bank (or PREA all-banks). (ras_n=0, cas_n=1, we_n=0)"""
+        """PRE bank (or PREA all-banks).
+
+        DDR3-family: (ras_n=0, cas_n=1, we_n=0)
+        LPDDR2/3:    CA1[2:0]=0b110, CA1[3]=AB, CA1[9:7]=bank
+        """
+        if self._is_lpddr2_family():
+            from .lpddr_ca import encode_lpddr2_ca
+            from .dfi_packet import DRAMCommand
+            ca = encode_lpddr2_ca(
+                DRAMCommand.PRE, bank=bank, all_banks=all_banks,
+            )
+            await self._drive_lpddr2_command(ca)
+            return
         addr = (1 << 10) if all_banks else 0
         await self._drive_command(ras_n=0, cas_n=1, we_n=0, bank=bank, address=addr)
 
     async def refresh(self) -> None:
-        """REF (all-bank refresh). (ras_n=0, cas_n=0, we_n=1)"""
+        """REF (all-bank refresh).
+
+        DDR3-family: (ras_n=0, cas_n=0, we_n=1)
+        LPDDR2/3:    CA1[2:0]=0b110 with REF flag CA1[6]=1
+        """
+        if self._is_lpddr2_family():
+            from .lpddr_ca import encode_lpddr2_ca
+            from .dfi_packet import DRAMCommand
+            ca = encode_lpddr2_ca(DRAMCommand.REF)
+            await self._drive_lpddr2_command(ca)
+            return
         await self._drive_command(ras_n=0, cas_n=0, we_n=1)
 
     async def nop(self, cycles: int = 1) -> None:

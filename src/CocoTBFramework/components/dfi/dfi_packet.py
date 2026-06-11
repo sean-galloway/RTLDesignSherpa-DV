@@ -136,10 +136,31 @@ class DFIControlPacket:
         memory and the addr[10] usage for auto-precharge / all-banks
         variants.
         """
-        if memory_type == MemoryType.LPDDR2:
-            raise NotImplementedError(
-                "LPDDR2 uses the dfi_address bus as a 20-bit CA encoding (Table 1); "
-                "build the address word directly and pass it as address=."
+        if memory_type in (MemoryType.LPDDR2, MemoryType.LPDDR3):
+            # LPDDR2/3 carry the command on the 20-bit dfi_address CA
+            # bus and hold bank/ras_n/cas_n/we_n at idle per DFI v2.1
+            # Table 1. The ``address`` parameter is interpreted as
+            # row for ACT, col for RD/WR/etc.
+            from .lpddr_ca import encode_lpddr2_ca
+            is_rdwr = cmd in (
+                DRAMCommand.RD, DRAMCommand.RDA,
+                DRAMCommand.WR, DRAMCommand.WRA,
+            )
+            ca_word = encode_lpddr2_ca(
+                cmd,
+                bank=bank,
+                row=address if cmd == DRAMCommand.ACT else 0,
+                col=address if is_rdwr else 0,
+                auto_precharge=auto_precharge,
+                all_banks=all_banks,
+            )
+            return cls(
+                address=ca_word,
+                bank=0,            # held idle per spec
+                cke=cke,
+                cs_n=cs_n,         # still asserted to issue the command
+                ras_n=1, cas_n=1, we_n=1,   # held idle per spec Table 1
+                odt=odt,
             )
 
         cs_bit, ras_bit, cas_bit, we_bit = _DDR3_ENCODING[cmd]

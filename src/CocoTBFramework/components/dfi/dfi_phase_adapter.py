@@ -138,8 +138,14 @@ class DFIPhaseAdapter:
                        (e.g., ``"mc_dfi"`` to drive ``dut.mc_dfi_address``,
                        ``dut.mc_dfi_bank``, etc.).
         n_phases:      gear ratio. Must be one of {1, 2, 4, 8, 16}.
-        dfi_clock:     the DFI clock signal — the adapter advances one
-                       phase per rising edge.
+        dfi_clock:     PHY-side DFI clock — the adapter drains one
+                       phase per rising edge. For an N-phase gear
+                       ratio, this clock should be N× the controller-
+                       (MC-)side clock that emits N phases per cycle.
+                       When the upstream MC and downstream PHY share
+                       a clock (single-domain pure-Python tests), pass
+                       that single clock; over-feed must then be
+                       avoided by the caller.
         idle_values:   optional dict overriding the default
                        deselected-idle signal values driven between
                        fed phases.

@@ -29,8 +29,23 @@ module litedram_cosim_top #(
     parameter int ERROR_INFO_WIDTH  = 8,
     parameter int TRAINING_PHASE_WIDTH = 3
 ) (
-    // ----- LiteDRAM clock + status -----
+    // ----- Clocks + status -----
+    //
+    // Two clock domains:
+    //   clk      = MC-side (mc_clk). LiteDRAM runs here; 4-phase DFI
+    //              is emitted at this rate.
+    //   phy_clk  = PHY-side. N× faster (4× for DDR3 1:4 gear). The
+    //              cocotb-side DFIPhaseAdapter drains one phase per
+    //              phy_clk and DFISlavePHY samples phy_dfi_* on phy_clk.
+    //              With the 4:1 ratio, 4 phases arrive per clk and 4
+    //              phy_clks happen per clk → exactly balanced, no
+    //              queue growth.
+    //
+    // The dfi_shim is pure combinational passthrough, so it doesn't
+    // care which clock — its phy_dfi_* outputs follow mc_dfi_* inputs
+    // with zero latency.
     input  logic         clk,
+    input  logic         phy_clk,
     input  logic         dfi_rstn,
     input  logic         sim_trace,
     output logic         init_done,

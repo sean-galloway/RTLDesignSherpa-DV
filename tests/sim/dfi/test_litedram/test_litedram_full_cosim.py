@@ -86,7 +86,12 @@ async def wb_ctrl_write(dut, addr: int, data: int, timeout: int = 100):
 
 
 async def _bring_up(dut, settle_cycles: int = 10):
+    # MC clock at 100 MHz (10 ns) — what LiteDRAM emits 4-phase DFI on.
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    # PHY clock at 400 MHz (2.5 ns) — what the adapter drains and the
+    # slave samples on. 4× faster than clk per the 1:4 gear ratio, so
+    # 4 phases arrive per clk and 4 phy_clks happen per clk → balanced.
+    cocotb.start_soon(Clock(dut.phy_clk, 2500, units="ps").start())
     dut.sim_trace.value = 0
     dut.dfi_rstn.value = 1
     for sig in (
@@ -103,23 +108,12 @@ async def _bring_up(dut, settle_cycles: int = 10):
 
 
 async def _sample_litedram_4phase(dut, adapter):
-    """Each clock, snapshot all 4 phases from LiteDRAM's DFI output
-    and feed the batch to DFIPhaseAdapter — but only if at least one
-    phase carries an active command (cs_n=0).
-
-    Throttling matters here because the adapter gears 4 phases → 1
-    phase per dest clock. If we fed every MC cycle (~4× over-feed),
-    the queue would grow without bound. Active LiteDRAM cycles are
-    sparse (a handful per test), so command-gated feeding lets the
-    adapter drain promptly and the slave see each command in turn."""
+    """Each MC clock, snapshot all 4 phases from LiteDRAM's DFI output
+    and feed the batch to DFIPhaseAdapter. No throttling — phy_clk runs
+    at 4× clk, so the adapter drains 4 phases per clk, exactly matching
+    the feed rate."""
     while True:
         await RisingEdge(dut.clk)
-        any_active = any(
-            int(getattr(dut, f"dfi_p{p}_cs_n").value) == 0
-            for p in range(4)
-        )
-        if not any_active:
-            continue
         batch = []
         for p in range(4):
             phase = {}
@@ -147,13 +141,17 @@ async def litedram_full_cosim_test(dut):
         mapping=mapping,
         beats_per_burst=1,
     )
-    # Slave is attached to phy_dfi_* ports of the cosim_top
+    # Slave is attached to phy_dfi_* ports of the cosim_top and runs
+    # on the fast PHY clock — same domain the adapter drives on.
     memory = MemoryModel(num_lines=128, bytes_per_line=8)
-    slave = DFISlavePHY(dut, dut.clk, base=base, memory=memory)
+    slave = DFISlavePHY(dut, dut.phy_clk, base=base, memory=memory)
 
     # ----- Set up the DFIPhaseAdapter (4-phase → 1-phase) -----
+    # Adapter drains one phase per dfi_clock edge. dfi_clock is the PHY
+    # clock (fast), so for gear=4 with phy_clk=4× clk, the drain rate
+    # exactly matches the 4-phases-per-clk feed rate.
     adapter = DFIPhaseAdapter(
-        dut, dest_prefix="mc_dfi", n_phases=4, dfi_clock=dut.clk,
+        dut, dest_prefix="mc_dfi", n_phases=4, dfi_clock=dut.phy_clk,
     )
     cocotb.start_soon(adapter.run())
 
@@ -185,9 +183,7 @@ async def litedram_full_cosim_test(dut):
     await wb_ctrl_write(dut, CSR_SDRAM_DFII_PI0_BADDRESS, 2)
     await wb_ctrl_write(dut, CSR_SDRAM_DFII_PI0_COMMAND,  MODE_REGISTER)
     await wb_ctrl_write(dut, CSR_SDRAM_DFII_PI0_COMMAND_ISSUE, 1)
-    # Each gated batch takes ~4 dest cycles to clock through the
-    # adapter; give it generous headroom before checking the slave.
-    for _ in range(200):
+    for _ in range(50):
         await RisingEdge(dut.clk)
 
     dut._log.info(f"slave: {slave}")

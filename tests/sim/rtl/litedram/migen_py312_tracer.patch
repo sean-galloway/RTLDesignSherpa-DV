@@ -1,0 +1,101 @@
+From: DFI BFM co-sim infrastructure (issue #16)
+Subject: [PATCH] Python 3.12 bytecode compatibility for the Migen tracer
+
+Migen's get_var_name() walks frame bytecode to recover assignment-target
+names (e.g., `self.clock_domains.cd_sys = ClockDomain()` → "cd_sys").
+The tracer dates from Python 3.6-era bytecode (CALL_FUNCTION etc.).
+
+Python 3.11 unified everything onto a single CALL opcode and inlined
+CACHE entries after several load/build opcodes, changing the per-
+opcode byte length. Python 3.12 expanded the cache count for LOAD_ATTR.
+
+This patch:
+  - Recognizes the new CALL opcode (8 bytes: 2 + 6 cache)
+  - Updates LOAD_ATTR length to 20 bytes (2 + 18 cache, 9 entries in 3.12)
+  - Updates LOAD_GLOBAL length to 10 bytes (2 + 8 cache, 4 entries)
+  - Adds LOAD_FAST_LOAD_FAST (new 3.12 fused opcode)
+  - Wraps the byte-walk in try/except (IndexError, KeyError) so
+    misalignment caused by un-patched opcodes returns None instead
+    of crashing — trace_back() walks many frames and one bad frame
+    shouldn't kill the whole walk.
+
+Apply with:
+  cd $(python3 -c "import migen, os; print(os.path.dirname(migen.__file__))")
+  patch -p1 < .../migen_py312_tracer.patch
+
+Verified on Migen 0.9.2 + Python 3.12.3.
+
+--- a/fhdl/tracer.py
++++ b/fhdl/tracer.py
+@@ -20,6 +20,11 @@
+     _call_opcodes["CALL_FUNCTION_EX"] = 2
+     _call_opcodes["CALL_METHOD"] = 2
+
++# Python 3.11+ unified call opcode. Local patch for LiteX+Python 3.12
++# compatibility (issue #16 / DFI BFM). Python 3.12 inlines CACHE entries
++# in the bytecode after the call opcode itself.
++if version_info >= (3, 11):
++    _call_opcodes["CALL"] = 8                  # 2 + 6 cache
++
+ _load_build_opcodes = {
+     "LOAD_GLOBAL" : _bytecode_length_version_guard(3),
+     "LOAD_ATTR" : _bytecode_length_version_guard(3),
+@@ -27,8 +32,18 @@
+     "LOAD_DEREF" : _bytecode_length_version_guard(3),
+     "DUP_TOP" : _bytecode_length_version_guard(1),
+     "BUILD_LIST" : _bytecode_length_version_guard(3),
++    # Python 3.12 LOAD_FAST_LOAD_FAST — combined push of two locals
++    "LOAD_FAST_LOAD_FAST" : 2,
+ }
+
++# Python 3.11+ inline-cache lengths. The 3.6+ default of 2 bytes is too
++# small once Python adds CACHE entries after LOAD_*. Verified via
++# dis.dis() on Python 3.12.3.
++if version_info >= (3, 11):
++    _load_build_opcodes["LOAD_ATTR"] = 20      # 2 + 18 cache (3.12: 9 entries)
++    _load_build_opcodes["LOAD_GLOBAL"] = 10    # 2 + 8 cache (3.12: 4 entries)
++
+
+ def get_var_name(frame):
+     code = frame.f_code
+@@ -37,18 +52,24 @@
+     if call_opc not in _call_opcodes:
+         return None
+     index = call_index+_call_opcodes[call_opc]
+-    while True:
+-        opc = opname[code.co_code[index]]
+-        if opc == "STORE_NAME" or opc == "STORE_ATTR":
+-            name_index = int(code.co_code[index+1])
+-            return code.co_names[name_index]
+-        elif opc == "STORE_FAST":
+-            name_index = int(code.co_code[index+1])
+-            return code.co_varnames[name_index]
+-        elif opc == "STORE_DEREF":
+-            name_index = int(code.co_code[index+1])
+-            return code.co_cellvars[name_index]
+-        elif opc in _load_build_opcodes:
+-            index += _load_build_opcodes[opc]
+-        else:
+-            return None
++    # Wrap the byte-walk in a try/except so byte misalignment (caused
++    # by Python-version-specific cache/opcode shifts we may not have
++    # patched) returns None instead of crashing the caller. trace_back()
++    # walks many frames and one bad frame shouldn't kill the whole walk.
++    try:
++        while True:
++            opc = opname[code.co_code[index]]
++            if opc == "STORE_NAME" or opc == "STORE_ATTR":
++                name_index = int(code.co_code[index+1])
++                return code.co_names[name_index]
++            elif opc == "STORE_FAST":
++                name_index = int(code.co_code[index+1])
++                return code.co_varnames[name_index]
++            elif opc == "STORE_DEREF":
++                name_index = int(code.co_code[index+1])
++                return code.co_cellvars[name_index]
++            elif opc in _load_build_opcodes:
++                index += _load_build_opcodes[opc]
++            else:
++                return None
++    except (IndexError, KeyError):
++        return None

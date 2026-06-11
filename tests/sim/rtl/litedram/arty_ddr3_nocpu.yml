@@ -1,0 +1,43 @@
+#
+# Modified LiteDRAM config for DFI BFM co-sim — based on
+# litedram/examples/arty.yml. Drops the CPU (we don't need a soft
+# core; cocotb drives the Wishbone port directly) and limits user
+# ports to just Wishbone so we keep the generated RTL small.
+#
+# Source: /mnt/data/github/mem-ctrl-ref/litedram/examples/arty.yml
+# License: BSD-2-Clause (matches upstream)
+{
+    # General ------------------------------------------------------------------
+    "speedgrade": -1,           # FPGA speedgrade
+    "cpu":        "None",       # no soft CPU; cocotb drives Wishbone
+    "memtype":    "DDR3",       # DRAM type
+    "uart":       "stub",       # no UART needed without a CPU
+
+    # PHY ----------------------------------------------------------------------
+    "cmd_latency":     0,
+    "sdram_module":    "MT41K128M16",
+    "sdram_module_nb": 2,
+    "sdram_rank_nb":   1,
+    "sdram_phy":       "A7DDRPHY",
+
+    # Electrical ---------------------------------------------------------------
+    "rtt_nom": "60ohm",
+    "rtt_wr":  "60ohm",
+    "ron":     "34ohm",
+
+    # Frequency ----------------------------------------------------------------
+    "input_clk_freq":   100e6,
+    "sys_clk_freq":     100e6,  # DDR clk = 4 × sys_clk → 400 MHz → DDR3-800
+    "iodelay_clk_freq": 200e6,
+
+    # Core ---------------------------------------------------------------------
+    "cmd_buffer_depth": 16,
+
+    # User Ports — just Wishbone for cocotb -----------------------------------
+    "user_ports": {
+        "wishbone_0" : {
+            "type":  "wishbone",
+            "block_until_ready": True,
+        },
+    },
+}

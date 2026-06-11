@@ -56,3 +56,6 @@ Thumbs.db
 # cocotb sim build artifacts
 tests/sim/local_sim_build/
 tests/sim/logs/
+
+# LiteDRAM-generated Verilog (regenerate via tests/sim/rtl/litedram/regen.sh)
+tests/sim/rtl/litedram/ddr3/

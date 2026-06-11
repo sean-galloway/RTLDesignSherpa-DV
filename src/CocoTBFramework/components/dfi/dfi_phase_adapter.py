@@ -53,6 +53,67 @@ from cocotb.triggers import RisingEdge
 VALID_PHASE_COUNTS: Set[int] = {1, 2, 4, 8, 16}
 
 
+# ---------------------------------------------------------------------
+# Phase-dict builders
+# ---------------------------------------------------------------------
+#
+# Convenience constructors for the per-cycle phase dicts the adapter
+# consumes. Each returns a dict with just the signals the named DFI
+# command requires; missing signals are filled in by the adapter's
+# idle defaults. Encoded per JESD79-3F Table 67 (DDR3, DDR2, DDR4
+# share these (ras_n, cas_n, we_n) tuples).
+
+
+def phase_nop() -> Dict[str, int]:
+    """Deselected NOP — let the adapter's idle defaults take over."""
+    return {}
+
+
+def phase_act(bank: int, row: int) -> Dict[str, int]:
+    """ACT bank → row. (ras_n=0, cas_n=1, we_n=1)"""
+    return {
+        "cs_n": 0, "ras_n": 0, "cas_n": 1, "we_n": 1,
+        "bank": bank, "address": row,
+    }
+
+
+def phase_rd(bank: int, col: int, auto_precharge: bool = False) -> Dict[str, int]:
+    """RD bank, col. (ras_n=1, cas_n=0, we_n=1) — addr[10] = auto-pre."""
+    addr = col | (1 << 10) if auto_precharge else col
+    return {
+        "cs_n": 0, "ras_n": 1, "cas_n": 0, "we_n": 1,
+        "bank": bank, "address": addr,
+    }
+
+
+def phase_wr(bank: int, col: int, auto_precharge: bool = False) -> Dict[str, int]:
+    """WR bank, col. (ras_n=1, cas_n=0, we_n=0) — addr[10] = auto-pre."""
+    addr = col | (1 << 10) if auto_precharge else col
+    return {
+        "cs_n": 0, "ras_n": 1, "cas_n": 0, "we_n": 0,
+        "bank": bank, "address": addr,
+    }
+
+
+def phase_pre(bank: int = 0, all_banks: bool = False) -> Dict[str, int]:
+    """PRE bank (or PREA if all_banks). (ras_n=0, cas_n=1, we_n=0)"""
+    addr = (1 << 10) if all_banks else 0
+    return {
+        "cs_n": 0, "ras_n": 0, "cas_n": 1, "we_n": 0,
+        "bank": bank, "address": addr,
+    }
+
+
+def phase_ref() -> Dict[str, int]:
+    """REF (all-bank refresh). (ras_n=0, cas_n=0, we_n=1)"""
+    return {"cs_n": 0, "ras_n": 0, "cas_n": 0, "we_n": 1}
+
+
+def phase_wrdata(data: int, mask: int = 0) -> Dict[str, int]:
+    """One beat of write data."""
+    return {"wrdata": data, "wrdata_en": 1, "wrdata_mask": mask}
+
+
 # Signals the adapter drives on the 1-phase shim. These are the
 # MC-to-PHY direction signals on the command + write-data interfaces;
 # read-data and update/training/error etc. are driven by the slave

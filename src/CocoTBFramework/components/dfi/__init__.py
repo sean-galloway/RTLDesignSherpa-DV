@@ -21,7 +21,17 @@ packet types, field configs) plus Tier 1 unit tests.
 """
 
 from .dfi_base import DFIBase
-from .dfi_phase_adapter import DFIPhaseAdapter, VALID_PHASE_COUNTS
+from .dfi_phase_adapter import (
+    DFIPhaseAdapter,
+    VALID_PHASE_COUNTS,
+    phase_act,
+    phase_nop,
+    phase_pre,
+    phase_rd,
+    phase_ref,
+    phase_wr,
+    phase_wrdata,
+)
 from .dfi_field_configs import (
     command_field_config,
     read_data_field_config,
@@ -62,6 +72,13 @@ from .dfi_signals import (
 __all__ = [
     "DFIPhaseAdapter",
     "VALID_PHASE_COUNTS",
+    "phase_act",
+    "phase_nop",
+    "phase_pre",
+    "phase_rd",
+    "phase_ref",
+    "phase_wr",
+    "phase_wrdata",
     "DFIVersion",
     "MemoryType",
     "SubInterface",

@@ -24,7 +24,7 @@ internally consistent, not that it matches the spec.
 
 | Standard | DFI ver. | Internal val | Co-sim (MC ref) | Co-sim (PHY ref) | JEDEC CSV |
 |---|---|---|---|---|---|
-| **ddr2** | v2.1+ | ✓ slave + master | — | — | `ddr2-650-mt47h64m16hr.csv` (Micron MT47H64M16HR-25:H, Digilent FPGA target) |
+| **ddr2** | v2.1+ | ✓ slave + master + gear-1/2/4 | — | — | `ddr2-650-mt47h64m16hr.csv` (Micron MT47H64M16HR-25:H, Digilent FPGA target) |
 | lpddr2 | v2.1+ | — | — | — | — |
 | ddr3 | v2.1+ | — | — | — | `ddr3-1600.csv` available |
 | lpddr3 | v3.1+ | — | — | — | — |

@@ -1,5 +1,203 @@
 # Changelog
 
+## [Unreleased]
+
+This release lands the DDR PHY Interface (DFI) BFM for spec versions
+2.1 through 5.x — the per-version Strategy + Registry behavior
+architecture, all eight semantic-shift areas plumbed end-to-end against
+a SystemVerilog wire shim, and the JEDEC timing/state infrastructure
+the slave-side BFM uses to model DRAM behavior. The design pressure-
+test that preceded the implementation lives in
+`docs/internal/dfi-semantic-shifts.md`; the architecture is documented
+in commit messages as it landed.
+
+### Added — DFI BFM (issue #16)
+
+**Core infrastructure** — `src/CocoTBFramework/components/dfi/`
+
+- `dfi_signals.py` — signal envelope for v2.1-v5.x. Encodes 30+
+  `SignalSpec` entries with per-spec-revision `min_version` /
+  `max_version` and per-memory-type gating. `SUPPORTED_MEMORY_BY_VERSION`
+  matrix maps each version to its applicable memory types (DDR1-5,
+  LPDDR1-5). `MVP_VERSIONS` / `MVP_MEMORY_TYPES` / `MVP_SUB_INTERFACES`
+  define the envelope `validate_configuration()` enforces at BFM init.
+
+- `dfi_base.py` — `DFIBase` chassis. Holds the JEDEC timings,
+  `AddressMapping`, sub-interface selection, and the per-version
+  `behavior` instance. Validates `(dfi_version, memory_type)` against
+  the spec at construction. `beats_per_burst` parameter handles DDR3
+  BL=8 with K=2 PHY ratio (4 DFI beats per burst); overridable.
+
+- `dfi_master_mc.py` — `DFIMasterMC` cocotb_bus.BusDriver subclass.
+  Primitive API: `activate`, `read`, `write`, `write_data`,
+  `write_burst`, `precharge`, `refresh`, `nop`. Plus area-specific
+  drivers: `set_ctrlupd_req`, `set_phyupd_ack`, `set_parity_in`,
+  `set_freq_change`, `set_disconnect_ack`, `set_phymstr_ack`.
+
+- `dfi_slave_phy.py` — `DFISlavePHY` cocotb_bus.BusMonitor subclass.
+  Auto-commits writes after CWL, serves reads CL cycles after RD
+  commands, queues reads behind in-flight writes (queue-don't-collide
+  semantics). Owns `DramStateModel` for per-bank state + JEDEC timing
+  enforcement, and `MemoryModel` for numpy-backed storage. Drives
+  PHY-side signals via `set_error`, `set_crc_alert`, `set_phyupd_req`,
+  `set_ctrlupd_ack`, `set_training`, `set_parity_check`,
+  `set_freq_change_ack`, `set_disconnect_req`, `set_phymstr_req`.
+
+- `dfi_monitor.py` — passive `DFIMonitor` with `side="mc"` /
+  `side="phy"` parameter. Per-sub-interface capture queues
+  (`command_q`, `write_data_q`, `read_data_q`) populated each cycle.
+
+- `dfi_packet.py` — `DFIControlPacket`, `DFIWriteDataPacket`,
+  `DFIReadDataPacket` dataclasses. `DRAMCommand` enum + DDR3 (ras_n,
+  cas_n, we_n) encoding table. `DFIControlPacket.from_command()`
+  builder handles auto_precharge / all_banks via addr[10].
+
+- `dfi_field_configs.py` — `command_field_config`,
+  `write_data_field_config`, `read_data_field_config` builders.
+
+**JEDEC + DRAM modeling** — `src/CocoTBFramework/components/dfi/`
+
+- `jedec_timings.py` — `JedecTimings` dataclass + CSV loader.
+  Converts ns values to cycles using ceil at the configured tCK.
+  Forward-compatible: unknown parameters preserved in `.extras`.
+
+- `jedec/ddr3-1600.csv` — DDR3-1600 reference (Micron MT41J512M8
+  timings, JESD79-3F).
+
+- `jedec/ddr2-650-mt47h64m16hr.csv` — DDR2-650 reference for the
+  Micron MT47H64M16HR-25:H part used on Digilent FPGA boards. This
+  is the planned first hard-test target once the MC RTL lands.
+
+- `dram_state.py` — `DramStateModel` (per-bank state machine + 8 hard
+  JEDEC timing checks + tFAW soft check), `Bank` dataclass, `BankState`
+  enum, `ViolationPolicy` with configurable hard/soft/ignore
+  categorization. `AddressMapping` for late-binding flat ↔
+  (rank, bank, row, col) decode — `row|bank|col` default, configurable
+  ordering string supports `row|col|bank` etc. Pattern mirrors
+  DRAMsim3's `SetAddressMapping`; the alternative wired-in slicing
+  (LiteDRAM's pattern) was deliberately rejected.
+
+**Per-version behavior classes** — `src/CocoTBFramework/components/dfi/behaviors/`
+
+- Strategy + Registry pattern. One method per semantic-shift area
+  on the base class; subclasses override areas that change in their
+  version. The `VERSION_BEHAVIOR` dict in `registry.py` is the only
+  place that maps `DFIVersion` to a behavior class. Adding a new DFI
+  revision is one row in the dict.
+
+  - `base.py` — `DFIv2_1Behavior`. All post-v2.1 areas raise
+    `NotSupportedInThisVersionError` (subclass of `NotImplementedError`).
+    Basic frequency-change sampling (the one v2.1-native area).
+  - `v3_1.py` — `DFIv3_1Behavior`. Implements `crc`, `update_request`,
+    `update_grant`, `training_step`, `error_event`, `ca_parity_check`
+    (v3.0 introductions) plus the v3.1 PHY-requested training mode
+    (encoded as `TrainingPhase.PHY_REQUESTED`).
+  - `v4_0.py` — `DFIv4_0Behavior`. Implements `phy_takeover`,
+    `phy_release`, `disconnect_request`, `disconnect_release` (v4.0
+    introductions), plus the v4.0 Ack/Not-Ack `freq_change` split via
+    `FreqChangeProtocol` enum decode. Inherits everything else from
+    v3.1.
+  - `registry.py` — `VERSION_BEHAVIOR` dict + `behavior_for(version)`
+    helper. V2_1 → base; V3_1 → v3.1; V4_0 → v4.0; V5_2 → v4.0
+    (PHY-Master rename has no behavior implication per the catalog).
+    Unknown versions raise loudly at construction.
+  - `events.py` — eight frozen dataclasses, one per shift area:
+    `CRCEvent`, `UpdateEvent`, `TakeoverEvent`, `DisconnectEvent`,
+    `FreqChangeEvent`, `TrainingEvent`, `ErrorEvent`, `CAParityEvent`.
+    Pattern-matchable types; enum fields carry kind/phase/protocol/
+    state distinctions.
+  - `exceptions.py` — `NotSupportedInThisVersionError` with
+    machine-readable `(area, version, introduced_in)` fields.
+
+**Custom behavior override**: `DFIBase(behavior=MyCustomV4Behavior())`
+bypasses the registry; lets users model board-specific PHY quirks.
+
+**Eight semantic-shift areas, end-to-end plumbed**
+
+Each area added: SignalSpec entries, shim wires, per-area Event
+type/enum, slave queue + `_dispatch_behavior_X` helper, master or
+slave drive primitives, behavior method implementation, Tier 1 unit
+tests, and a Tier 2 cocotb proof test:
+
+- **Error interface** — `dfi_error` + `dfi_error_info`; v3.0+
+- **CRC handshake** — `dfi_crc_alert` (active high; mirrors DDR4
+  ALERT_n); v3.0+ DDR4
+- **Update interface** — `dfi_ctrlupd_req/ack` (v2.1+) and
+  `dfi_phyupd_req/ack` (v3.0+). MC-initiated wins when both asserted
+  same cycle.
+- **Training interface** — `dfi_training_active` + 3-bit
+  `dfi_training_phase`. Single-method shape validated after the
+  LiteDRAM survey (catalog section 6 risk retired): training is
+  parallel hardware under software sequencing; phase distinction is
+  data on `TrainingEvent.phase`, not separate methods. Covers
+  read/write/DQ/CA/DB leveling phases.
+- **CA parity** — `dfi_parity_in` + `dfi_parity_check`; v3.0+ DDR4
+- **Frequency change** — `dfi_freq_change_req/ack` (v2.1+) +
+  `dfi_freq_change_protocol` (v4.0+; 2-bit Basic/Ack/NotAck variant).
+  First multi-version implementation: v2.1 base emits BASIC; v4.0
+  override decodes protocol field.
+- **Disconnect Protocol** — `dfi_disconnect_req/ack`; v4.0+ only
+- **PHY Master/Managed Interface** — `dfi_phymstr_req/ack`; v4.0+ only
+
+### Added — SystemVerilog wire shim
+
+- `tests/sim/rtl/dfi/dfi_shim.sv` — pure-passthrough shim with all
+  29 DFI signals exposed on both MC- and PHY-facing ports. Lets two
+  monitors (or master + slave) verify the same packet stream lands on
+  both sides without simulating actual logic between them. Parameters:
+  `ADDR_WIDTH`, `BANK_WIDTH`, `CS_WIDTH`, `CTRL_WIDTH`, `DATA_WIDTH`,
+  `DATA_EN_WIDTH`, `DATA_MASK_BITS`, `RD_VALID_WIDTH`,
+  `ERROR_INFO_WIDTH`, `TRAINING_PHASE_WIDTH`.
+
+### Added — Tests
+
+- **104 new Tier 1 unit tests** covering signal-envelope validation,
+  packet builders, field configs, JEDEC CSV loader, ViolationPolicy,
+  DramStateModel (incl. tFAW windowing), AddressMapping (geometry
+  parsing, bit-slice ordering, round-trip), DFIBase configuration
+  + behavior selection + custom override, all 11 behavior methods on
+  all three behavior classes, all 8 Event dataclass shapes.
+
+- **11 new Tier 2 cocotb sim tests** (in 10 distinct sim builds):
+  dual-monitor round-trip, master primitive sequence, end-to-end
+  write/read loopback, BL=8 burst, and 7 proof-of-life tests covering
+  every semantic-shift area against the wire shim through verilator.
+
+### Documentation
+
+- `docs/internal/dfi-semantic-shifts.md` — design catalog of every
+  shift area, written before any code, used as the pressure-test for
+  the per-version-class architecture. Section 6's open question on the
+  training method shape was retired by the LiteDRAM survey + the
+  implementation that landed.
+
+### Changed
+
+- **`SUPPORTED_MEMORY_BY_VERSION` scoped to v2.1-v5.x.** v6.0 dropped
+  DDR1-4 + LPDDR1-4 — that's a sufficient discontinuity to be a future
+  BFM generation, not an extension of this one. v6.0 / LPDDR6 / HBM4
+  removed from the active scope; research preserved in the memory note.
+
+- **`MVP_VERSIONS` widened to {V2_1, V3_1}** and **`MVP_MEMORY_TYPES`
+  widened to include DDR4** — needed for the v3.0 error/CRC/CA-parity
+  proofs. Phase 2 will further widen for v4.0/v5.2.
+
+### Reference (cloned alongside this repo, not in-repo)
+
+- LiteDRAM at `../mem-ctrl-ref/litedram/` — open-source DDR1-4 + LPDDR4
+  controller in Python+Migen. Reference for the per-bank state machine
+  pattern, refresh scheduling, vendor PHY shim layering. Does **not**
+  implement DFI v3.0+ training signals (uses CSR-only training instead).
+- DRAMsim3 at `../mem-ctrl-ref/DRAMsim3/` — UMD DRAM simulator with 60+
+  JEDEC chip configs. Reference for the late-binding `AddressMapping`
+  pattern we adopted (vs LiteDRAM's wired-in slicing).
+
+### Tests
+
+- **Tier 1**: 359 unit tests pass in <1 second
+- **Tier 2**: 11 cocotb sim tests pass across 10 verilator builds
+  in ~7 seconds fresh / <2 seconds cached
+
 ## [0.2.0] - 2026-06-09
 
 This release lands the methodology-review followups (#6–#15) plus a

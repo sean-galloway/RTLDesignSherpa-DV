@@ -463,6 +463,42 @@ _CRC_SIGNALS: Tuple[SignalSpec, ...] = (
 )
 
 
+# Frequency-change handshake. Existed in v2.1 (basic single-flavor
+# request/ack). v3.0 added a frequency-indicator. v4.0 split the
+# protocol into Acknowledged (req+ack handshake) and Not-Acknowledged
+# (fire-and-forget) variants. The protocol_type signal (2 bits)
+# carries the variant: 0=basic, 1=ack, 2=nak.
+_FREQ_CHANGE_SIGNALS: Tuple[SignalSpec, ...] = (
+    SignalSpec(
+        name="freq_change_req",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.STATUS,
+        min_version=DFIVersion.V2_1,
+        memory_types=_ALL,
+        description="MC frequency-change request (active high)",
+    ),
+    SignalSpec(
+        name="freq_change_ack",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.STATUS,
+        min_version=DFIVersion.V2_1,
+        memory_types=_ALL,
+        description="PHY frequency-change ack",
+    ),
+    SignalSpec(
+        name="freq_change_protocol",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.STATUS,
+        min_version=DFIVersion.V4_0,
+        memory_types=_ALL,
+        description="v4.0+ protocol variant: 0=basic, 1=ack, 2=nak",
+    ),
+)
+
+
 # CA parity — introduced v3.0 for DDR4. MC drives a parity bit
 # alongside the command bus (dfi_parity_in); the PHY relays an error
 # indicator if the DRAM detects a mismatch (dfi_parity_check).
@@ -567,7 +603,7 @@ _UPDATE_SIGNALS: Tuple[SignalSpec, ...] = (
 _ALL_SIGNALS: Tuple[SignalSpec, ...] = (
     _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS
     + _ERROR_SIGNALS + _CRC_SIGNALS + _UPDATE_SIGNALS + _TRAINING_SIGNALS
-    + _CA_PARITY_SIGNALS
+    + _CA_PARITY_SIGNALS + _FREQ_CHANGE_SIGNALS
 )
 
 

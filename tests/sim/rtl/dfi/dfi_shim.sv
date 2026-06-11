@@ -63,6 +63,10 @@ module dfi_shim #(
     // CA parity (MC drives parity_in; PHY drives parity_check; v3.0+, DDR4)
     input  logic [CTRL_WIDTH-1:0]     mc_dfi_parity_in,
     output logic [CTRL_WIDTH-1:0]     mc_dfi_parity_check,
+    // Frequency-change handshake (MC drives req+protocol; PHY drives ack)
+    input  logic [CTRL_WIDTH-1:0]     mc_dfi_freq_change_req,
+    output logic [CTRL_WIDTH-1:0]     mc_dfi_freq_change_ack,
+    input  logic [1:0]                mc_dfi_freq_change_protocol,
 
     // ----- PHY-facing port -----
     // Command sub-interface (PHY observes)
@@ -99,7 +103,11 @@ module dfi_shim #(
     input  logic [TRAINING_PHASE_WIDTH-1:0] phy_dfi_training_phase,
     // CA parity mirror
     output logic [CTRL_WIDTH-1:0]     phy_dfi_parity_in,
-    input  logic [CTRL_WIDTH-1:0]     phy_dfi_parity_check
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_parity_check,
+    // Frequency-change mirror
+    output logic [CTRL_WIDTH-1:0]     phy_dfi_freq_change_req,
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_freq_change_ack,
+    output logic [1:0]                phy_dfi_freq_change_protocol
 );
 
     // ----- MC → PHY (command + write-data + rddata_en) -----
@@ -128,10 +136,13 @@ module dfi_shim #(
     assign mc_dfi_training_active = phy_dfi_training_active;
     assign mc_dfi_training_phase  = phy_dfi_training_phase;
     assign mc_dfi_parity_check    = phy_dfi_parity_check;
+    assign mc_dfi_freq_change_ack = phy_dfi_freq_change_ack;
 
-    // ----- MC → PHY (also update + CA parity mirror) -----
-    assign phy_dfi_ctrlupd_req = mc_dfi_ctrlupd_req;
-    assign phy_dfi_phyupd_ack  = mc_dfi_phyupd_ack;
-    assign phy_dfi_parity_in   = mc_dfi_parity_in;
+    // ----- MC → PHY (also update + CA parity + freq-change mirror) -----
+    assign phy_dfi_ctrlupd_req         = mc_dfi_ctrlupd_req;
+    assign phy_dfi_phyupd_ack          = mc_dfi_phyupd_ack;
+    assign phy_dfi_parity_in           = mc_dfi_parity_in;
+    assign phy_dfi_freq_change_req     = mc_dfi_freq_change_req;
+    assign phy_dfi_freq_change_protocol = mc_dfi_freq_change_protocol;
 
 endmodule

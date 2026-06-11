@@ -78,6 +78,9 @@ _TRAINING_SIGNALS = ("training_active", "training_phase")
 # check. Always-present on the shim regardless of memory type.
 _CA_PARITY_SIGNALS = ("parity_in", "parity_check")
 
+# Frequency-change handshake (v2.1+; v4.0 added protocol variants).
+_FREQ_CHANGE_SIGNALS = ("freq_change_req", "freq_change_ack", "freq_change_protocol")
+
 
 def _v(sig) -> int:
     """Read a cocotb signal as int, returning 0 if unresolvable (X/Z)."""
@@ -106,6 +109,7 @@ class DFIMonitor(BusMonitor):
         + list(_UPDATE_SIGNALS)
         + list(_TRAINING_SIGNALS)
         + list(_CA_PARITY_SIGNALS)
+        + list(_FREQ_CHANGE_SIGNALS)
     )
     _optional_signals: List[str] = []
 

@@ -18,6 +18,7 @@ from CocoTBFramework.components.dfi.behaviors import (
     DFIv2_1Behavior,
     DFIv3_1Behavior,
     DFIv4_0Behavior,
+    FreqChangeProtocol,
     NotSupportedInThisVersionError,
 )
 
@@ -108,3 +109,34 @@ def test_error_event_inherited_from_v3_x(b):
 
 def test_ca_parity_inherited_from_v3_x(b):
     assert b.ca_parity_check(_BUS, _STATE) is None
+
+
+# ---------------------------------------------------------------------
+# freq_change() — v4.0 Ack/Not-Ack split
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "protocol_code, expected_proto",
+    [
+        (0, FreqChangeProtocol.BASIC),
+        (1, FreqChangeProtocol.ACKNOWLEDGED),
+        (2, FreqChangeProtocol.NOT_ACKNOWLEDGED),
+    ],
+)
+def test_v4_0_freq_change_decodes_protocol(b, protocol_code, expected_proto):
+    bus = MockBus(freq_change_req=1, freq_change_protocol=protocol_code)
+    evt = b.freq_change(bus, None)
+    assert evt is not None
+    assert evt.protocol == expected_proto
+
+
+def test_v4_0_freq_change_returns_none_when_no_request(b):
+    bus = MockBus(freq_change_req=0, freq_change_protocol=1)
+    assert b.freq_change(bus, None) is None
+
+
+def test_v4_0_freq_change_unknown_code_falls_back_to_basic(b):
+    bus = MockBus(freq_change_req=1, freq_change_protocol=3)
+    evt = b.freq_change(bus, None)
+    assert evt.protocol == FreqChangeProtocol.BASIC

@@ -15,8 +15,11 @@ import pytest
 
 from CocoTBFramework.components.dfi.behaviors import (
     DFIv2_1Behavior,
+    FreqChangeProtocol,
     NotSupportedInThisVersionError,
 )
+
+from .conftest import MockBus
 
 
 @pytest.fixture
@@ -24,8 +27,8 @@ def b():
     return DFIv2_1Behavior()
 
 
-# Sentinel objects — base methods don't dereference them so type doesn't matter
-_BUS = object()
+# MockBus auto-defaults missing signals to 0, so freq_change reads 0 and returns None.
+_BUS = MockBus()
 _STATE = object()
 
 
@@ -74,10 +77,16 @@ def test_update_request_returns_none_in_v2_1(b):
     assert b.update_request(_BUS, _STATE) is None
 
 
-def test_freq_change_returns_none_in_v2_1(b):
-    """v2.1 supports basic frequency change — stub returns None
-    until wire sampling is plumbed in."""
+def test_freq_change_returns_none_when_no_request(b):
+    """v2.1 supports basic frequency change. With request=0, returns None."""
     assert b.freq_change(_BUS, _STATE) is None
+
+
+def test_freq_change_v2_1_emits_basic_protocol(b):
+    bus = MockBus(freq_change_req=1)
+    evt = b.freq_change(bus, _STATE)
+    assert evt is not None
+    assert evt.protocol == FreqChangeProtocol.BASIC
 
 
 # ---------------------------------------------------------------------

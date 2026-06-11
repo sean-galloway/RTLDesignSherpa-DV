@@ -36,11 +36,24 @@ from .events import (
     CRCEvent,
     DisconnectEvent,
     FreqChangeEvent,
+    FreqChangeProtocol,
     TakeoverEvent,
     TrainingEvent,
     UpdateEvent,
 )
 from .v3_1 import DFIv3_1Behavior
+
+
+_PROTOCOL_DECODE = {
+    0: FreqChangeProtocol.BASIC,
+    1: FreqChangeProtocol.ACKNOWLEDGED,
+    2: FreqChangeProtocol.NOT_ACKNOWLEDGED,
+}
+
+
+def _bus_value(sig) -> int:
+    v = sig.value
+    return v.integer if v.is_resolvable else 0
 
 
 class DFIv4_0Behavior(DFIv3_1Behavior):
@@ -110,18 +123,19 @@ class DFIv4_0Behavior(DFIv3_1Behavior):
         """v4.0 frequency change has Acknowledged and Not-Acknowledged
         sub-protocols (§4.11.1, §4.11.2 in v5.2 spec).
 
-        Stub returns None. When implemented, the BFM will distinguish
-        the two protocols by sampling the spec-defined handshake
-        signals and constructing
-        ``FreqChangeEvent(protocol=FreqChangeProtocol.ACKNOWLEDGED, …)``
-        or ``FreqChangeProtocol.NOT_ACKNOWLEDGED``.
-
-        v3.x's FreqChangeProtocol.BASIC is still reachable for
-        backward-compat scenarios — the BFM decides per cycle which
-        protocol is in flight.
+        Samples ``bus.freq_change_req`` and decodes
+        ``bus.freq_change_protocol`` (2-bit field) into the right
+        FreqChangeProtocol enum. BASIC remains reachable for
+        backward-compat scenarios (protocol=0). Unknown protocol
+        codes fall back to BASIC.
         """
-        del bus, state
-        return None
+        del state
+        if not _bus_value(bus.freq_change_req):
+            return None
+        protocol = _PROTOCOL_DECODE.get(
+            _bus_value(bus.freq_change_protocol), FreqChangeProtocol.BASIC,
+        )
+        return FreqChangeEvent(protocol=protocol)
 
     # ----- Training: optional flag + per-slice leveling (v4.0) -----
 

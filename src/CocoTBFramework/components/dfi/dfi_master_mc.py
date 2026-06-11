@@ -33,6 +33,7 @@ from .dfi_monitor import (
     _COMMAND_SIGNALS,
     _CRC_SIGNALS,
     _ERROR_SIGNALS,
+    _FREQ_CHANGE_SIGNALS,
     _READ_DATA_SIGNALS,
     _TRAINING_SIGNALS,
     _UPDATE_SIGNALS,
@@ -60,6 +61,7 @@ class DFIMasterMC(BusDriver):
         + list(_UPDATE_SIGNALS)
         + list(_TRAINING_SIGNALS)  # MC observes; PHY-driven
         + list(_CA_PARITY_SIGNALS)  # MC drives parity_in; observes parity_check
+        + list(_FREQ_CHANGE_SIGNALS)  # MC drives req + protocol; observes ack
     )
     _optional_signals: list = []
 
@@ -110,6 +112,9 @@ class DFIMasterMC(BusDriver):
         self.bus.phyupd_ack.value = 0
         # CA parity MC-driven output
         self.bus.parity_in.value = 0
+        # Frequency-change MC-driven outputs
+        self.bus.freq_change_req.value = 0
+        self.bus.freq_change_protocol.value = 0
 
     # ----- Internal: drive a 1-cycle command pulse -----
 
@@ -232,3 +237,14 @@ class DFIMasterMC(BusDriver):
     def set_parity_in(self, value: int) -> None:
         """Drive the MC-computed CA parity bit (DDR4)."""
         self.bus.parity_in.value = value
+
+    def set_freq_change(self, req: int, protocol: int = 0) -> None:
+        """Drive the MC's frequency-change request.
+
+        ``protocol`` is the v4.0+ variant selector:
+        0=basic (v2.1-v3.x), 1=acknowledged, 2=not-acknowledged.
+        v2.1/v3.1 BFMs ignore the protocol field; the wire is
+        still driven for shim simplicity.
+        """
+        self.bus.freq_change_req.value = req
+        self.bus.freq_change_protocol.value = protocol

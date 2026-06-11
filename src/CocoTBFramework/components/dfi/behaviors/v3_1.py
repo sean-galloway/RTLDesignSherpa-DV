@@ -189,18 +189,10 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
         return None
 
     # ----- Frequency change: extended v3.0 with frequency-indicator -----
-
-    def freq_change(self, bus: Any, state: Any) -> Optional[FreqChangeEvent]:
-        """v3.0 added the frequency-indicator signal — PHY can declare
-        its current operating frequency back to the MC.
-
-        Still using FreqChangeProtocol.BASIC for v3.x; the explicit
-        Acknowledged/Not-Acknowledged split came in v4.0.
-
-        Stub returns None until wire sampling lands.
-        """
-        del bus, state
-        return None
+    #
+    # v3.x still uses the BASIC protocol — the Acknowledged/Not-Acknowledged
+    # split came in v4.0. So we inherit the v2.1 implementation which
+    # already emits FreqChangeEvent(protocol=BASIC) on request.
 
     # PHY Master, Disconnect, Acknowledged freq-change: still raise
     # (inherited from v2.1). They land in DFIv4_0Behavior.

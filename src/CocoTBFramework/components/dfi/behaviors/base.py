@@ -41,6 +41,12 @@ from .events import (
 from .exceptions import NotSupportedInThisVersionError
 
 
+def _bus_value(sig) -> int:
+    """Return the integer value of a cocotb signal, 0 if unresolvable."""
+    v = sig.value
+    return v.integer if v.is_resolvable else 0
+
+
 _V2_1 = "v2.1"
 
 
@@ -123,15 +129,16 @@ class DFIv2_1Behavior:
     def freq_change(self, bus: Any, state: Any) -> Optional[FreqChangeEvent]:
         """Sample for a frequency-change request.
 
-        v2.1 supports the basic protocol (single-cycle request, no
-        explicit ack/nak). v4.0 adds Acknowledged and Not-Acknowledged
-        variants — see ``DFIv4_0Behavior.freq_change``.
+        v2.1 supports only the basic protocol — single-cycle request,
+        no explicit ack/nak variant. When ``bus.freq_change_req`` is
+        asserted, emit ``FreqChangeEvent(protocol=BASIC)``.
 
-        Stub returns None until wire-level sampling is wired in. When
-        implemented, a v2.1 detection should construct a
-        ``FreqChangeEvent(protocol=FreqChangeProtocol.BASIC, …)``.
+        v4.0 overrides to inspect ``bus.freq_change_protocol`` and emit
+        ACKNOWLEDGED or NOT_ACKNOWLEDGED variants.
         """
-        del bus, state  # placeholder — implementation lands later
+        del state
+        if _bus_value(bus.freq_change_req):
+            return FreqChangeEvent(protocol=FreqChangeProtocol.BASIC)
         return None
 
     # ----- Training (introduced v3.0) -----

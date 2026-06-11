@@ -35,13 +35,14 @@ from cocotb_bus.monitors import BusMonitor
 
 from ..shared.memory_model import MemoryModel
 from .dfi_base import DFIBase
-from .behaviors.events import CRCEvent, ErrorEvent
+from .behaviors.events import CRCEvent, ErrorEvent, UpdateEvent
 from .dfi_monitor import (
     _CMD_DECODE,
     _COMMAND_SIGNALS,
     _CRC_SIGNALS,
     _ERROR_SIGNALS,
     _READ_DATA_SIGNALS,
+    _UPDATE_SIGNALS,
     _WRITE_DATA_SIGNALS,
     _v,
 )
@@ -74,6 +75,7 @@ class DFISlavePHY(BusMonitor):
         + list(_READ_DATA_SIGNALS)
         + list(_ERROR_SIGNALS)
         + list(_CRC_SIGNALS)
+        + list(_UPDATE_SIGNALS)
     )
     _optional_signals: list = []
 
@@ -127,6 +129,11 @@ class DFISlavePHY(BusMonitor):
         # bus.crc_alert asserts (v3.0+ DDR4 path).
         self.crc_events: Deque[CRCEvent] = deque()
 
+        # Update-interface event queue. Populated by
+        # behavior.update_request() when MC- or PHY-initiated requests
+        # appear on the wire.
+        self.update_events: Deque[UpdateEvent] = deque()
+
         # Statistics
         self.cmd_counts = {cmd: 0 for cmd in DRAMCommand}
         self.writes_committed = 0
@@ -138,6 +145,9 @@ class DFISlavePHY(BusMonitor):
         self.bus.error.value = 0
         self.bus.error_info.value = 0
         self.bus.crc_alert.value = 0
+        # PHY-driven update-interface signals
+        self.bus.ctrlupd_ack.value = 0
+        self.bus.phyupd_req.value = 0
 
     # ----- Address helpers -----
 
@@ -297,6 +307,7 @@ class DFISlavePHY(BusMonitor):
             # doesn't define the area).
             self._dispatch_behavior_error()
             self._dispatch_behavior_crc()
+            self._dispatch_behavior_update()
 
     def _dispatch_behavior_error(self) -> None:
         """Call the per-version behavior.error_event() and queue any event."""
@@ -315,6 +326,15 @@ class DFISlavePHY(BusMonitor):
             return  # version doesn't define CRC
         if evt is not None:
             self.crc_events.append(evt)
+
+    def _dispatch_behavior_update(self) -> None:
+        """Call the per-version behavior.update_request() and queue any event."""
+        try:
+            evt = self.base.behavior.update_request(self.bus, None)
+        except NotImplementedError:
+            return
+        if evt is not None:
+            self.update_events.append(evt)
 
     # ----- Error-interface drive (PHY → MC) -----
 
@@ -336,6 +356,14 @@ class DFISlavePHY(BusMonitor):
         """
         self.bus.crc_alert.value = active
 
+    def set_phyupd_req(self, active: int) -> None:
+        """Drive the PHY-initiated update request (PHY→MC, v3.0+)."""
+        self.bus.phyupd_req.value = active
+
+    def set_ctrlupd_ack(self, active: int) -> None:
+        """Drive the PHY's ack of an MC-initiated update."""
+        self.bus.ctrlupd_ack.value = active
+
     # ----- Convenience -----
 
     def __str__(self) -> str:
@@ -344,5 +372,6 @@ class DFISlavePHY(BusMonitor):
             f"reads_served={self.reads_served} "
             f"error_events={len(self.error_events)} "
             f"crc_events={len(self.crc_events)} "
+            f"update_events={len(self.update_events)} "
             f"cmd_counts={ {c.value: n for c, n in self.cmd_counts.items() if n} }"
         )

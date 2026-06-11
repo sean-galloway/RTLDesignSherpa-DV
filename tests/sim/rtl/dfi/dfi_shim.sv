@@ -50,6 +50,12 @@ module dfi_shim #(
     output logic [ERROR_INFO_WIDTH-1:0] mc_dfi_error_info,
     // CRC alert (PHY drives; v3.0+, DDR4-specific)
     output logic [CTRL_WIDTH-1:0]     mc_dfi_crc_alert,
+    // Update interface — MC-initiated (MC drives req, PHY acks)
+    input  logic [CTRL_WIDTH-1:0]     mc_dfi_ctrlupd_req,
+    output logic [CTRL_WIDTH-1:0]     mc_dfi_ctrlupd_ack,
+    // Update interface — PHY-initiated (PHY drives req, MC acks; v3.0+)
+    output logic [CTRL_WIDTH-1:0]     mc_dfi_phyupd_req,
+    input  logic [CTRL_WIDTH-1:0]     mc_dfi_phyupd_ack,
 
     // ----- PHY-facing port -----
     // Command sub-interface (PHY observes)
@@ -74,7 +80,13 @@ module dfi_shim #(
     input  logic [CTRL_WIDTH-1:0]     phy_dfi_error,
     input  logic [ERROR_INFO_WIDTH-1:0] phy_dfi_error_info,
     // CRC alert (PHY drives; v3.0+, DDR4-specific)
-    input  logic [CTRL_WIDTH-1:0]     phy_dfi_crc_alert
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_crc_alert,
+    // Update interface — MC-initiated mirror
+    output logic [CTRL_WIDTH-1:0]     phy_dfi_ctrlupd_req,
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_ctrlupd_ack,
+    // Update interface — PHY-initiated mirror (v3.0+)
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_phyupd_req,
+    output logic [CTRL_WIDTH-1:0]     phy_dfi_phyupd_ack
 );
 
     // ----- MC → PHY (command + write-data + rddata_en) -----
@@ -92,11 +104,17 @@ module dfi_shim #(
     assign phy_dfi_wrdata_mask = mc_dfi_wrdata_mask;
     assign phy_dfi_rddata_en   = mc_dfi_rddata_en;
 
-    // ----- PHY → MC (read data + error + CRC alert) -----
+    // ----- PHY → MC (read data + error + CRC alert + ack/req updates) -----
     assign mc_dfi_rddata       = phy_dfi_rddata;
     assign mc_dfi_rddata_valid = phy_dfi_rddata_valid;
     assign mc_dfi_error        = phy_dfi_error;
     assign mc_dfi_error_info   = phy_dfi_error_info;
     assign mc_dfi_crc_alert    = phy_dfi_crc_alert;
+    assign mc_dfi_ctrlupd_ack  = phy_dfi_ctrlupd_ack;
+    assign mc_dfi_phyupd_req   = phy_dfi_phyupd_req;
+
+    // ----- MC → PHY (also update mirror) -----
+    assign phy_dfi_ctrlupd_req = mc_dfi_ctrlupd_req;
+    assign phy_dfi_phyupd_ack  = mc_dfi_phyupd_ack;
 
 endmodule

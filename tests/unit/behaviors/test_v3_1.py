@@ -16,6 +16,7 @@ from CocoTBFramework.components.dfi.behaviors import (
     DFIv3_1Behavior,
     ErrorKind,
     NotSupportedInThisVersionError,
+    UpdateState,
 )
 
 from .conftest import MockBus
@@ -160,3 +161,37 @@ def test_crc_mvp_slice_idx_is_zero(b):
     bus = MockBus(crc_alert=1)
     evt = b.crc(bus, None)
     assert evt.slice_idx == 0
+
+
+# ---------------------------------------------------------------------
+# update_request() — bidirectional handshake (v3.0 introduction)
+# ---------------------------------------------------------------------
+
+
+def test_update_returns_none_when_quiet(b):
+    bus = MockBus(ctrlupd_req=0, phyupd_req=0)
+    assert b.update_request(bus, None) is None
+
+
+def test_update_detects_mc_initiated(b):
+    bus = MockBus(ctrlupd_req=1, phyupd_req=0)
+    evt = b.update_request(bus, None)
+    assert evt is not None
+    assert evt.state == UpdateState.REQUESTED
+    assert evt.initiator == "mc"
+
+
+def test_update_detects_phy_initiated(b):
+    bus = MockBus(ctrlupd_req=0, phyupd_req=1)
+    evt = b.update_request(bus, None)
+    assert evt is not None
+    assert evt.state == UpdateState.REQUESTED
+    assert evt.initiator == "phy"
+
+
+def test_update_mc_takes_priority_when_both_asserted(b):
+    """Per the spec, an active MC-initiated request wins over a
+    simultaneous PHY-initiated one."""
+    bus = MockBus(ctrlupd_req=1, phyupd_req=1)
+    evt = b.update_request(bus, None)
+    assert evt.initiator == "mc"

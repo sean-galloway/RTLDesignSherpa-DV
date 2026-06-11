@@ -463,10 +463,54 @@ _CRC_SIGNALS: Tuple[SignalSpec, ...] = (
 )
 
 
-# All signals across the catalog. Phase 2 adds update/status/training.
+# Update Interface — existed v2.1 in MC-initiated form (ctrlupd_req/
+# ctrlupd_ack). v3.0 added the PHY-initiated path (phyupd_req/
+# phyupd_ack) for bidirectional request/grant. v4.0 added self-refresh
+# exit semantics atop these signals.
+_UPDATE_SIGNALS: Tuple[SignalSpec, ...] = (
+    SignalSpec(
+        name="ctrlupd_req",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.UPDATE,
+        min_version=DFIVersion.V2_1,
+        memory_types=_ALL,
+        description="MC requests PHY to perform an update window",
+    ),
+    SignalSpec(
+        name="ctrlupd_ack",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.UPDATE,
+        min_version=DFIVersion.V2_1,
+        memory_types=_ALL,
+        description="PHY acknowledges MC's update request",
+    ),
+    SignalSpec(
+        name="phyupd_req",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.UPDATE,
+        min_version=DFIVersion.V3_1,
+        memory_types=_ALL,
+        description="PHY requests an update window from MC (v3.0+)",
+    ),
+    SignalSpec(
+        name="phyupd_ack",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.UPDATE,
+        min_version=DFIVersion.V3_1,
+        memory_types=_ALL,
+        description="MC grants the PHY's update request",
+    ),
+)
+
+
+# All signals across the catalog.
 _ALL_SIGNALS: Tuple[SignalSpec, ...] = (
     _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS
-    + _ERROR_SIGNALS + _CRC_SIGNALS
+    + _ERROR_SIGNALS + _CRC_SIGNALS + _UPDATE_SIGNALS
 )
 
 

@@ -33,6 +33,7 @@ from .dfi_monitor import (
     _CRC_SIGNALS,
     _ERROR_SIGNALS,
     _READ_DATA_SIGNALS,
+    _UPDATE_SIGNALS,
     _WRITE_DATA_SIGNALS,
 )
 
@@ -54,6 +55,7 @@ class DFIMasterMC(BusDriver):
         + list(_READ_DATA_SIGNALS)
         + list(_ERROR_SIGNALS)   # MC observes but doesn't drive
         + list(_CRC_SIGNALS)
+        + list(_UPDATE_SIGNALS)
     )
     _optional_signals: list = []
 
@@ -99,6 +101,9 @@ class DFIMasterMC(BusDriver):
         self.bus.wrdata_en.value = 0
         self.bus.wrdata_mask.value = 0
         self.bus.rddata_en.value = 0
+        # Update-interface MC-driven outputs
+        self.bus.ctrlupd_req.value = 0
+        self.bus.phyupd_ack.value = 0
 
     # ----- Internal: drive a 1-cycle command pulse -----
 
@@ -207,3 +212,13 @@ class DFIMasterMC(BusDriver):
         deassert around the expected read-data window.
         """
         self.bus.rddata_en.value = value
+
+    # ----- Update-interface MC drives -----
+
+    def set_ctrlupd_req(self, value: int = 1) -> None:
+        """Drive the MC-initiated update request signal."""
+        self.bus.ctrlupd_req.value = value
+
+    def set_phyupd_ack(self, value: int = 1) -> None:
+        """Drive the MC's grant of a PHY-initiated update."""
+        self.bus.phyupd_ack.value = value

@@ -40,6 +40,7 @@ from .events import (
     FreqChangeEvent,
     TrainingEvent,
     UpdateEvent,
+    UpdateState,
 )
 
 
@@ -76,20 +77,28 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
     # ----- Update interface: rewritten v3.0 (request/grant handshake) -----
 
     def update_request(self, bus: Any, state: Any) -> Optional[UpdateEvent]:
-        """v3.0 update request supports both MC-initiated and
-        PHY-initiated forms (bidirectional request/grant handshake).
+        """v3.0 update interface supports both MC- and PHY-initiated
+        requests (bidirectional handshake).
 
-        Stub returns None until wire sampling lands. When implemented,
-        an active request should construct an
-        ``UpdateEvent(state=UpdateState.REQUESTED, initiator=…)``.
+        Samples ``bus.ctrlupd_req`` (MC→PHY) and ``bus.phyupd_req``
+        (PHY→MC). When either is asserted, emit an UpdateEvent with the
+        ``initiator`` field set accordingly. If both are asserted in the
+        same cycle, MC-initiated wins (the spec gives priority to
+        active MC requests).
         """
-        del bus, state
+        del state
+        if _bus_value(bus.ctrlupd_req):
+            return UpdateEvent(state=UpdateState.REQUESTED, initiator="mc")
+        if _bus_value(bus.phyupd_req):
+            return UpdateEvent(state=UpdateState.REQUESTED, initiator="phy")
         return None
 
     def update_grant(self, bus: Any, state: Any) -> None:
         """v3.0 added the grant path that v2.1 lacked.
 
-        Stub is a no-op until the BFM plumbs the wire-drive side.
+        Currently a no-op observer — the actual grant signals are
+        driven by the BFM's set_ctrlupd_ack/set_phyupd_ack primitives,
+        not by this behavior method. Method exists for API symmetry.
         """
         del bus, state
         return None

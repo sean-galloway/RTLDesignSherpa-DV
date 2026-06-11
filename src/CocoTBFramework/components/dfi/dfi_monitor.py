@@ -66,6 +66,9 @@ _ERROR_SIGNALS = ("error", "error_info")
 # only meaningful when memory_type=DDR4 and version >= V3_1.
 _CRC_SIGNALS = ("crc_alert",)
 
+# Update interface (v2.1+ for ctrlupd, v3.0+ for phyupd).
+_UPDATE_SIGNALS = ("ctrlupd_req", "ctrlupd_ack", "phyupd_req", "phyupd_ack")
+
 
 def _v(sig) -> int:
     """Read a cocotb signal as int, returning 0 if unresolvable (X/Z)."""
@@ -91,6 +94,7 @@ class DFIMonitor(BusMonitor):
         + list(_READ_DATA_SIGNALS)
         + list(_ERROR_SIGNALS)
         + list(_CRC_SIGNALS)
+        + list(_UPDATE_SIGNALS)
     )
     _optional_signals: List[str] = []
 

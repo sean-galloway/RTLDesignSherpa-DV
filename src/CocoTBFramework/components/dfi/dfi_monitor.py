@@ -81,6 +81,12 @@ _CA_PARITY_SIGNALS = ("parity_in", "parity_check")
 # Frequency-change handshake (v2.1+; v4.0 added protocol variants).
 _FREQ_CHANGE_SIGNALS = ("freq_change_req", "freq_change_ack", "freq_change_protocol")
 
+# Disconnect Protocol (v4.0+).
+_DISCONNECT_SIGNALS = ("disconnect_req", "disconnect_ack")
+
+# PHY Master / PHY Managed Interface (v4.0+).
+_PHY_MASTER_SIGNALS = ("phymstr_req", "phymstr_ack")
+
 
 def _v(sig) -> int:
     """Read a cocotb signal as int, returning 0 if unresolvable (X/Z)."""
@@ -110,6 +116,8 @@ class DFIMonitor(BusMonitor):
         + list(_TRAINING_SIGNALS)
         + list(_CA_PARITY_SIGNALS)
         + list(_FREQ_CHANGE_SIGNALS)
+        + list(_DISCONNECT_SIGNALS)
+        + list(_PHY_MASTER_SIGNALS)
     )
     _optional_signals: List[str] = []
 

@@ -35,6 +35,7 @@ from typing import Any, Optional
 from .events import (
     CRCEvent,
     DisconnectEvent,
+    DisconnectPhase,
     FreqChangeEvent,
     FreqChangeProtocol,
     TakeoverEvent,
@@ -78,20 +79,25 @@ class DFIv4_0Behavior(DFIv3_1Behavior):
     # ----- PHY Master Interface: introduced v4.0 -----
 
     def phy_takeover(self, bus: Any, state: Any) -> Optional[TakeoverEvent]:
-        """v4.0 PHY-master mode — PHY can take bus ownership.
+        """v4.0 PHY-master mode — PHY takes bus ownership.
 
-        Stub returns None. When implemented, a takeover detection
-        constructs ``TakeoverEvent(reason="…")`` where reason names
-        the spec-defined justification ("recalibration",
-        "autonomous_refresh", etc.).
+        Samples ``bus.phymstr_req``. Returns
+        ``TakeoverEvent(reason="phy_managed")`` on assertion. The spec
+        defines a reason field on the wire which we'd map to specific
+        reason strings (recalibration / autonomous_refresh / training);
+        the MVP uses a generic tag.
         """
-        del bus, state
+        del state
+        if _bus_value(bus.phymstr_req):
+            return TakeoverEvent(reason="phy_managed")
         return None
 
     def phy_release(self, bus: Any, state: Any) -> None:
-        """v4.0 PHY-master mode release — PHY hands the bus back.
+        """v4.0 PHY-master release — observed via phymstr_req deassertion.
 
-        Stub is a no-op until the BFM plumbs the wire-drive side.
+        No-op observer; the deassertion edge is captured by absence of
+        a takeover event on subsequent cycles. Method exists for API
+        symmetry.
         """
         del bus, state
         return None
@@ -101,18 +107,21 @@ class DFIv4_0Behavior(DFIv3_1Behavior):
     def disconnect_request(self, bus: Any, state: Any) -> Optional[DisconnectEvent]:
         """v4.0 Disconnect Protocol — coordinated PHY disengagement.
 
-        Stub returns None. When implemented, a detection at the
-        request phase constructs
-        ``DisconnectEvent(phase=DisconnectPhase.REQUEST)``;
-        the ack/release phases land via the same event type.
+        Samples ``bus.disconnect_req`` (active high). Returns
+        ``DisconnectEvent(phase=DisconnectPhase.REQUEST)`` on assertion.
+        Ack and release phases are tracked via the wire-drive side
+        (``set_disconnect_req(0)``).
         """
-        del bus, state
+        del state
+        if _bus_value(bus.disconnect_req):
+            return DisconnectEvent(phase=DisconnectPhase.REQUEST)
         return None
 
     def disconnect_release(self, bus: Any, state: Any) -> None:
-        """v4.0 Disconnect Protocol — release side of the handshake.
+        """v4.0 Disconnect release — paired with disconnect_request.
 
-        Stub is a no-op until the BFM plumbs the wire-drive side.
+        No-op observer; release is implicit in disconnect_req deassertion.
+        Method exists for API symmetry.
         """
         del bus, state
         return None

@@ -38,8 +38,10 @@ from .dfi_base import DFIBase
 from .behaviors.events import (
     CAParityEvent,
     CRCEvent,
+    DisconnectEvent,
     ErrorEvent,
     FreqChangeEvent,
+    TakeoverEvent,
     TrainingEvent,
     UpdateEvent,
 )
@@ -48,8 +50,10 @@ from .dfi_monitor import (
     _CMD_DECODE,
     _COMMAND_SIGNALS,
     _CRC_SIGNALS,
+    _DISCONNECT_SIGNALS,
     _ERROR_SIGNALS,
     _FREQ_CHANGE_SIGNALS,
+    _PHY_MASTER_SIGNALS,
     _READ_DATA_SIGNALS,
     _TRAINING_SIGNALS,
     _UPDATE_SIGNALS,
@@ -89,6 +93,8 @@ class DFISlavePHY(BusMonitor):
         + list(_TRAINING_SIGNALS)
         + list(_CA_PARITY_SIGNALS)
         + list(_FREQ_CHANGE_SIGNALS)
+        + list(_DISCONNECT_SIGNALS)
+        + list(_PHY_MASTER_SIGNALS)
     )
     _optional_signals: list = []
 
@@ -159,6 +165,12 @@ class DFISlavePHY(BusMonitor):
         # when bus.freq_change_req is asserted.
         self.freq_change_events: Deque[FreqChangeEvent] = deque()
 
+        # Disconnect-protocol event queue (v4.0+).
+        self.disconnect_events: Deque[DisconnectEvent] = deque()
+
+        # PHY-Master/Managed takeover event queue (v4.0+).
+        self.takeover_events: Deque[TakeoverEvent] = deque()
+
         # Statistics
         self.cmd_counts = {cmd: 0 for cmd in DRAMCommand}
         self.writes_committed = 0
@@ -180,6 +192,9 @@ class DFISlavePHY(BusMonitor):
         self.bus.parity_check.value = 0
         # PHY-driven freq-change ack
         self.bus.freq_change_ack.value = 0
+        # PHY-driven disconnect / phymstr requests
+        self.bus.disconnect_req.value = 0
+        self.bus.phymstr_req.value = 0
 
     # ----- Address helpers -----
 
@@ -343,6 +358,8 @@ class DFISlavePHY(BusMonitor):
             self._dispatch_behavior_training()
             self._dispatch_behavior_ca_parity()
             self._dispatch_behavior_freq_change()
+            self._dispatch_behavior_disconnect()
+            self._dispatch_behavior_takeover()
 
     def _dispatch_behavior_error(self) -> None:
         """Call the per-version behavior.error_event() and queue any event."""
@@ -398,6 +415,24 @@ class DFISlavePHY(BusMonitor):
         if evt is not None:
             self.freq_change_events.append(evt)
 
+    def _dispatch_behavior_disconnect(self) -> None:
+        """Call the per-version behavior.disconnect_request() and queue any event."""
+        try:
+            evt = self.base.behavior.disconnect_request(self.bus, None)
+        except NotImplementedError:
+            return
+        if evt is not None:
+            self.disconnect_events.append(evt)
+
+    def _dispatch_behavior_takeover(self) -> None:
+        """Call the per-version behavior.phy_takeover() and queue any event."""
+        try:
+            evt = self.base.behavior.phy_takeover(self.bus, None)
+        except NotImplementedError:
+            return
+        if evt is not None:
+            self.takeover_events.append(evt)
+
     # ----- Error-interface drive (PHY → MC) -----
 
     def set_error(self, active: int, info: int = 0) -> None:
@@ -443,6 +478,14 @@ class DFISlavePHY(BusMonitor):
         """Drive the PHY's frequency-change acknowledgement."""
         self.bus.freq_change_ack.value = active
 
+    def set_disconnect_req(self, active: int) -> None:
+        """Drive the PHY disconnect request (v4.0+)."""
+        self.bus.disconnect_req.value = active
+
+    def set_phymstr_req(self, active: int) -> None:
+        """Drive the PHY Master/Managed takeover request (v4.0+)."""
+        self.bus.phymstr_req.value = active
+
     # ----- Convenience -----
 
     def __str__(self) -> str:
@@ -455,5 +498,7 @@ class DFISlavePHY(BusMonitor):
             f"training_events={len(self.training_events)} "
             f"ca_parity_events={len(self.ca_parity_events)} "
             f"freq_change_events={len(self.freq_change_events)} "
+            f"disconnect_events={len(self.disconnect_events)} "
+            f"takeover_events={len(self.takeover_events)} "
             f"cmd_counts={ {c.value: n for c, n in self.cmd_counts.items() if n} }"
         )

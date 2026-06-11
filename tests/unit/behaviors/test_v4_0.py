@@ -140,3 +140,35 @@ def test_v4_0_freq_change_unknown_code_falls_back_to_basic(b):
     bus = MockBus(freq_change_req=1, freq_change_protocol=3)
     evt = b.freq_change(bus, None)
     assert evt.protocol == FreqChangeProtocol.BASIC
+
+
+# ---------------------------------------------------------------------
+# phy_takeover / disconnect_request — v4.0 introductions
+# ---------------------------------------------------------------------
+
+
+def test_v4_0_phy_takeover_returns_none_when_quiet(b):
+    bus = MockBus(phymstr_req=0)
+    assert b.phy_takeover(bus, None) is None
+
+
+def test_v4_0_phy_takeover_returns_event_when_req_high(b):
+    bus = MockBus(phymstr_req=1)
+    evt = b.phy_takeover(bus, None)
+    assert evt is not None
+    assert evt.reason == "phy_managed"
+
+
+def test_v4_0_disconnect_returns_none_when_quiet(b):
+    from CocoTBFramework.components.dfi.behaviors import DisconnectPhase
+    del DisconnectPhase  # for import side-effect / re-import safety
+    bus = MockBus(disconnect_req=0)
+    assert b.disconnect_request(bus, None) is None
+
+
+def test_v4_0_disconnect_returns_event_when_req_high(b):
+    from CocoTBFramework.components.dfi.behaviors import DisconnectPhase
+    bus = MockBus(disconnect_req=1)
+    evt = b.disconnect_request(bus, None)
+    assert evt is not None
+    assert evt.phase == DisconnectPhase.REQUEST

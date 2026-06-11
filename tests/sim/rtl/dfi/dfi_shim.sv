@@ -67,6 +67,12 @@ module dfi_shim #(
     input  logic [CTRL_WIDTH-1:0]     mc_dfi_freq_change_req,
     output logic [CTRL_WIDTH-1:0]     mc_dfi_freq_change_ack,
     input  logic [1:0]                mc_dfi_freq_change_protocol,
+    // Disconnect Protocol (v4.0+; PHY drives req, MC acks)
+    output logic [CTRL_WIDTH-1:0]     mc_dfi_disconnect_req,
+    input  logic [CTRL_WIDTH-1:0]     mc_dfi_disconnect_ack,
+    // PHY Master/Managed Interface (v4.0+; PHY drives req, MC acks)
+    output logic [CTRL_WIDTH-1:0]     mc_dfi_phymstr_req,
+    input  logic [CTRL_WIDTH-1:0]     mc_dfi_phymstr_ack,
 
     // ----- PHY-facing port -----
     // Command sub-interface (PHY observes)
@@ -107,7 +113,13 @@ module dfi_shim #(
     // Frequency-change mirror
     output logic [CTRL_WIDTH-1:0]     phy_dfi_freq_change_req,
     input  logic [CTRL_WIDTH-1:0]     phy_dfi_freq_change_ack,
-    output logic [1:0]                phy_dfi_freq_change_protocol
+    output logic [1:0]                phy_dfi_freq_change_protocol,
+    // Disconnect Protocol mirror
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_disconnect_req,
+    output logic [CTRL_WIDTH-1:0]     phy_dfi_disconnect_ack,
+    // PHY Master/Managed mirror
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_phymstr_req,
+    output logic [CTRL_WIDTH-1:0]     phy_dfi_phymstr_ack
 );
 
     // ----- MC → PHY (command + write-data + rddata_en) -----
@@ -137,6 +149,8 @@ module dfi_shim #(
     assign mc_dfi_training_phase  = phy_dfi_training_phase;
     assign mc_dfi_parity_check    = phy_dfi_parity_check;
     assign mc_dfi_freq_change_ack = phy_dfi_freq_change_ack;
+    assign mc_dfi_disconnect_req  = phy_dfi_disconnect_req;
+    assign mc_dfi_phymstr_req     = phy_dfi_phymstr_req;
 
     // ----- MC → PHY (also update + CA parity + freq-change mirror) -----
     assign phy_dfi_ctrlupd_req         = mc_dfi_ctrlupd_req;
@@ -144,5 +158,7 @@ module dfi_shim #(
     assign phy_dfi_parity_in           = mc_dfi_parity_in;
     assign phy_dfi_freq_change_req     = mc_dfi_freq_change_req;
     assign phy_dfi_freq_change_protocol = mc_dfi_freq_change_protocol;
+    assign phy_dfi_disconnect_ack       = mc_dfi_disconnect_ack;
+    assign phy_dfi_phymstr_ack          = mc_dfi_phymstr_ack;
 
 endmodule

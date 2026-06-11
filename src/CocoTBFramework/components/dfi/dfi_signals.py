@@ -463,6 +463,56 @@ _CRC_SIGNALS: Tuple[SignalSpec, ...] = (
 )
 
 
+# Disconnect Protocol (v4.0+). Coordinated PHY disengagement from the
+# DFI bus. PHY drives a request; MC acks; PHY releases. Phase encoded
+# in a 2-bit field on the request line per the §4.16 spec.
+_DISCONNECT_SIGNALS: Tuple[SignalSpec, ...] = (
+    SignalSpec(
+        name="disconnect_req",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.STATUS,
+        min_version=DFIVersion.V4_0,
+        memory_types=_ALL,
+        description="PHY disconnect-protocol request (active high)",
+    ),
+    SignalSpec(
+        name="disconnect_ack",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.STATUS,
+        min_version=DFIVersion.V4_0,
+        memory_types=_ALL,
+        description="MC acknowledges disconnect request",
+    ),
+)
+
+
+# PHY Master / PHY Managed Interface (v4.0+; renamed v5.2). PHY takes
+# bus ownership for autonomous operations. takeover_req carries a
+# reason code in its info-vector field.
+_PHY_MASTER_SIGNALS: Tuple[SignalSpec, ...] = (
+    SignalSpec(
+        name="phymstr_req",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.PHY_MANAGED,
+        min_version=DFIVersion.V4_0,
+        memory_types=_ALL,
+        description="PHY takeover request (v4.0: 'PHY Master'; v5.2: 'PHY Managed')",
+    ),
+    SignalSpec(
+        name="phymstr_ack",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.PHY_MANAGED,
+        min_version=DFIVersion.V4_0,
+        memory_types=_ALL,
+        description="MC grants PHY bus ownership",
+    ),
+)
+
+
 # Frequency-change handshake. Existed in v2.1 (basic single-flavor
 # request/ack). v3.0 added a frequency-indicator. v4.0 split the
 # protocol into Acknowledged (req+ack handshake) and Not-Acknowledged
@@ -603,7 +653,8 @@ _UPDATE_SIGNALS: Tuple[SignalSpec, ...] = (
 _ALL_SIGNALS: Tuple[SignalSpec, ...] = (
     _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS
     + _ERROR_SIGNALS + _CRC_SIGNALS + _UPDATE_SIGNALS + _TRAINING_SIGNALS
-    + _CA_PARITY_SIGNALS + _FREQ_CHANGE_SIGNALS
+    + _CA_PARITY_SIGNALS + _FREQ_CHANGE_SIGNALS + _DISCONNECT_SIGNALS
+    + _PHY_MASTER_SIGNALS
 )
 
 

@@ -32,8 +32,10 @@ from .dfi_monitor import (
     _CA_PARITY_SIGNALS,
     _COMMAND_SIGNALS,
     _CRC_SIGNALS,
+    _DISCONNECT_SIGNALS,
     _ERROR_SIGNALS,
     _FREQ_CHANGE_SIGNALS,
+    _PHY_MASTER_SIGNALS,
     _READ_DATA_SIGNALS,
     _TRAINING_SIGNALS,
     _UPDATE_SIGNALS,
@@ -62,6 +64,8 @@ class DFIMasterMC(BusDriver):
         + list(_TRAINING_SIGNALS)  # MC observes; PHY-driven
         + list(_CA_PARITY_SIGNALS)  # MC drives parity_in; observes parity_check
         + list(_FREQ_CHANGE_SIGNALS)  # MC drives req + protocol; observes ack
+        + list(_DISCONNECT_SIGNALS)  # MC acks; observes req
+        + list(_PHY_MASTER_SIGNALS)  # MC acks; observes req
     )
     _optional_signals: list = []
 
@@ -115,6 +119,9 @@ class DFIMasterMC(BusDriver):
         # Frequency-change MC-driven outputs
         self.bus.freq_change_req.value = 0
         self.bus.freq_change_protocol.value = 0
+        # Disconnect / PHY-Master MC-driven acks
+        self.bus.disconnect_ack.value = 0
+        self.bus.phymstr_ack.value = 0
 
     # ----- Internal: drive a 1-cycle command pulse -----
 
@@ -248,3 +255,11 @@ class DFIMasterMC(BusDriver):
         """
         self.bus.freq_change_req.value = req
         self.bus.freq_change_protocol.value = protocol
+
+    def set_disconnect_ack(self, active: int) -> None:
+        """Drive the MC's ack of a PHY-initiated disconnect."""
+        self.bus.disconnect_ack.value = active
+
+    def set_phymstr_ack(self, active: int) -> None:
+        """Drive the MC's grant of PHY bus takeover."""
+        self.bus.phymstr_ack.value = active

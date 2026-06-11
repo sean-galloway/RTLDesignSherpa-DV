@@ -60,6 +60,9 @@ module dfi_shim #(
     // Training interface (PHY drives; v3.0+)
     output logic [CTRL_WIDTH-1:0]           mc_dfi_training_active,
     output logic [TRAINING_PHASE_WIDTH-1:0] mc_dfi_training_phase,
+    // CA parity (MC drives parity_in; PHY drives parity_check; v3.0+, DDR4)
+    input  logic [CTRL_WIDTH-1:0]     mc_dfi_parity_in,
+    output logic [CTRL_WIDTH-1:0]     mc_dfi_parity_check,
 
     // ----- PHY-facing port -----
     // Command sub-interface (PHY observes)
@@ -93,7 +96,10 @@ module dfi_shim #(
     output logic [CTRL_WIDTH-1:0]     phy_dfi_phyupd_ack,
     // Training interface mirror (PHY drives)
     input  logic [CTRL_WIDTH-1:0]           phy_dfi_training_active,
-    input  logic [TRAINING_PHASE_WIDTH-1:0] phy_dfi_training_phase
+    input  logic [TRAINING_PHASE_WIDTH-1:0] phy_dfi_training_phase,
+    // CA parity mirror
+    output logic [CTRL_WIDTH-1:0]     phy_dfi_parity_in,
+    input  logic [CTRL_WIDTH-1:0]     phy_dfi_parity_check
 );
 
     // ----- MC → PHY (command + write-data + rddata_en) -----
@@ -121,9 +127,11 @@ module dfi_shim #(
     assign mc_dfi_phyupd_req   = phy_dfi_phyupd_req;
     assign mc_dfi_training_active = phy_dfi_training_active;
     assign mc_dfi_training_phase  = phy_dfi_training_phase;
+    assign mc_dfi_parity_check    = phy_dfi_parity_check;
 
-    // ----- MC → PHY (also update mirror) -----
+    // ----- MC → PHY (also update + CA parity mirror) -----
     assign phy_dfi_ctrlupd_req = mc_dfi_ctrlupd_req;
     assign phy_dfi_phyupd_ack  = mc_dfi_phyupd_ack;
+    assign phy_dfi_parity_in   = mc_dfi_parity_in;
 
 endmodule

@@ -463,6 +463,31 @@ _CRC_SIGNALS: Tuple[SignalSpec, ...] = (
 )
 
 
+# CA parity — introduced v3.0 for DDR4. MC drives a parity bit
+# alongside the command bus (dfi_parity_in); the PHY relays an error
+# indicator if the DRAM detects a mismatch (dfi_parity_check).
+_CA_PARITY_SIGNALS: Tuple[SignalSpec, ...] = (
+    SignalSpec(
+        name="parity_in",
+        direction=SignalDirection.MC_TO_PHY,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.COMMAND,
+        min_version=DFIVersion.V3_1,
+        memory_types=frozenset({MemoryType.DDR4}),
+        description="MC-computed CA parity bit; checked at DRAM",
+    ),
+    SignalSpec(
+        name="parity_check",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.PHY_ERROR,
+        min_version=DFIVersion.V3_1,
+        memory_types=frozenset({MemoryType.DDR4}),
+        description="PHY-driven CA parity error indicator (active high)",
+    ),
+)
+
+
 # Training interface — introduced v3.0. PHY-driven `training_active`
 # flag plus a `training_phase` encoding (3 bits: 0=read_lvl, 1=write_lvl,
 # 2=dq, 3=ca, 4=db). v4.0 added per-slice indexing — we leave slice_idx
@@ -542,6 +567,7 @@ _UPDATE_SIGNALS: Tuple[SignalSpec, ...] = (
 _ALL_SIGNALS: Tuple[SignalSpec, ...] = (
     _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS
     + _ERROR_SIGNALS + _CRC_SIGNALS + _UPDATE_SIGNALS + _TRAINING_SIGNALS
+    + _CA_PARITY_SIGNALS
 )
 
 

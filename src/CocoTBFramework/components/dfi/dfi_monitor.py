@@ -74,6 +74,10 @@ _UPDATE_SIGNALS = ("ctrlupd_req", "ctrlupd_ack", "phyupd_req", "phyupd_ack")
 # sequential phase, so the phase distinction lives in event data.
 _TRAINING_SIGNALS = ("training_active", "training_phase")
 
+# CA parity (v3.0+, DDR4 only). MC-driven parity bit, PHY-driven error
+# check. Always-present on the shim regardless of memory type.
+_CA_PARITY_SIGNALS = ("parity_in", "parity_check")
+
 
 def _v(sig) -> int:
     """Read a cocotb signal as int, returning 0 if unresolvable (X/Z)."""
@@ -101,6 +105,7 @@ class DFIMonitor(BusMonitor):
         + list(_CRC_SIGNALS)
         + list(_UPDATE_SIGNALS)
         + list(_TRAINING_SIGNALS)
+        + list(_CA_PARITY_SIGNALS)
     )
     _optional_signals: List[str] = []
 

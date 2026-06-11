@@ -171,13 +171,21 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
     # ----- CA parity: introduced v3.0 (DDR4 only) -----
 
     def ca_parity_check(self, bus: Any, state: Any) -> Optional[CAParityEvent]:
-        """v3.0 CA-bus parity, gated on memory_type=DDR4 at the BFM.
+        """v3.0 CA-bus parity, DDR4-only at the BFM gating layer.
 
-        Stub returns None. When implemented, a parity mismatch
-        constructs ``CAParityEvent(parity_bit_expected=…,
-        parity_bit_received=…)``.
+        Samples ``bus.parity_check`` (PHY-driven). When asserted,
+        emit a CAParityEvent — the MVP doesn't compute the
+        expected/received parity bits (that would require the slave
+        to maintain a CRC over the recent command stream). The
+        ``parity_bit_received`` field carries ``bus.parity_in`` for
+        traceability; expected stays 0.
         """
-        del bus, state
+        del state
+        if _bus_value(bus.parity_check):
+            return CAParityEvent(
+                parity_bit_expected=0,
+                parity_bit_received=_bus_value(bus.parity_in),
+            )
         return None
 
     # ----- Frequency change: extended v3.0 with frequency-indicator -----

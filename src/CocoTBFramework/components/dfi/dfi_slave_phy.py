@@ -35,8 +35,15 @@ from cocotb_bus.monitors import BusMonitor
 
 from ..shared.memory_model import MemoryModel
 from .dfi_base import DFIBase
-from .behaviors.events import CRCEvent, ErrorEvent, TrainingEvent, UpdateEvent
+from .behaviors.events import (
+    CAParityEvent,
+    CRCEvent,
+    ErrorEvent,
+    TrainingEvent,
+    UpdateEvent,
+)
 from .dfi_monitor import (
+    _CA_PARITY_SIGNALS,
     _CMD_DECODE,
     _COMMAND_SIGNALS,
     _CRC_SIGNALS,
@@ -78,6 +85,7 @@ class DFISlavePHY(BusMonitor):
         + list(_CRC_SIGNALS)
         + list(_UPDATE_SIGNALS)
         + list(_TRAINING_SIGNALS)
+        + list(_CA_PARITY_SIGNALS)
     )
     _optional_signals: list = []
 
@@ -140,6 +148,10 @@ class DFISlavePHY(BusMonitor):
         # when bus.training_active is asserted.
         self.training_events: Deque[TrainingEvent] = deque()
 
+        # CA parity event queue. Populated by behavior.ca_parity_check()
+        # when bus.parity_check is asserted (DDR4 only).
+        self.ca_parity_events: Deque[CAParityEvent] = deque()
+
         # Statistics
         self.cmd_counts = {cmd: 0 for cmd in DRAMCommand}
         self.writes_committed = 0
@@ -157,6 +169,8 @@ class DFISlavePHY(BusMonitor):
         # PHY-driven training-interface signals
         self.bus.training_active.value = 0
         self.bus.training_phase.value = 0
+        # PHY-driven CA parity check
+        self.bus.parity_check.value = 0
 
     # ----- Address helpers -----
 
@@ -318,6 +332,7 @@ class DFISlavePHY(BusMonitor):
             self._dispatch_behavior_crc()
             self._dispatch_behavior_update()
             self._dispatch_behavior_training()
+            self._dispatch_behavior_ca_parity()
 
     def _dispatch_behavior_error(self) -> None:
         """Call the per-version behavior.error_event() and queue any event."""
@@ -354,6 +369,15 @@ class DFISlavePHY(BusMonitor):
             return
         if evt is not None:
             self.training_events.append(evt)
+
+    def _dispatch_behavior_ca_parity(self) -> None:
+        """Call the per-version behavior.ca_parity_check() and queue any event."""
+        try:
+            evt = self.base.behavior.ca_parity_check(self.bus, None)
+        except NotImplementedError:
+            return
+        if evt is not None:
+            self.ca_parity_events.append(evt)
 
     # ----- Error-interface drive (PHY → MC) -----
 
@@ -392,6 +416,10 @@ class DFISlavePHY(BusMonitor):
         self.bus.training_active.value = active
         self.bus.training_phase.value = phase
 
+    def set_parity_check(self, active: int) -> None:
+        """Drive the PHY's CA parity error indicator (DDR4)."""
+        self.bus.parity_check.value = active
+
     # ----- Convenience -----
 
     def __str__(self) -> str:
@@ -402,5 +430,6 @@ class DFISlavePHY(BusMonitor):
             f"crc_events={len(self.crc_events)} "
             f"update_events={len(self.update_events)} "
             f"training_events={len(self.training_events)} "
+            f"ca_parity_events={len(self.ca_parity_events)} "
             f"cmd_counts={ {c.value: n for c, n in self.cmd_counts.items() if n} }"
         )

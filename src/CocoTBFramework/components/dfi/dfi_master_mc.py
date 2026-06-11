@@ -29,6 +29,7 @@ from cocotb.triggers import RisingEdge
 from cocotb_bus.drivers import BusDriver
 
 from .dfi_monitor import (
+    _CA_PARITY_SIGNALS,
     _COMMAND_SIGNALS,
     _CRC_SIGNALS,
     _ERROR_SIGNALS,
@@ -58,6 +59,7 @@ class DFIMasterMC(BusDriver):
         + list(_CRC_SIGNALS)
         + list(_UPDATE_SIGNALS)
         + list(_TRAINING_SIGNALS)  # MC observes; PHY-driven
+        + list(_CA_PARITY_SIGNALS)  # MC drives parity_in; observes parity_check
     )
     _optional_signals: list = []
 
@@ -106,6 +108,8 @@ class DFIMasterMC(BusDriver):
         # Update-interface MC-driven outputs
         self.bus.ctrlupd_req.value = 0
         self.bus.phyupd_ack.value = 0
+        # CA parity MC-driven output
+        self.bus.parity_in.value = 0
 
     # ----- Internal: drive a 1-cycle command pulse -----
 
@@ -224,3 +228,7 @@ class DFIMasterMC(BusDriver):
     def set_phyupd_ack(self, value: int = 1) -> None:
         """Drive the MC's grant of a PHY-initiated update."""
         self.bus.phyupd_ack.value = value
+
+    def set_parity_in(self, value: int) -> None:
+        """Drive the MC-computed CA parity bit (DDR4)."""
+        self.bus.parity_in.value = value

@@ -235,3 +235,26 @@ def test_training_unknown_phase_code_falls_back_to_read_lvl(b):
     evt = b.training_step(bus, None)
     assert evt is not None
     assert evt.phase == TrainingPhase.READ_LEVELING
+
+
+# ---------------------------------------------------------------------
+# ca_parity_check() — DDR4 parity error
+# ---------------------------------------------------------------------
+
+
+def test_ca_parity_returns_none_when_check_low(b):
+    bus = MockBus(parity_check=0, parity_in=1)
+    assert b.ca_parity_check(bus, None) is None
+
+
+def test_ca_parity_returns_event_when_check_high(b):
+    bus = MockBus(parity_check=1, parity_in=1)
+    evt = b.ca_parity_check(bus, None)
+    assert evt is not None
+    assert evt.parity_bit_received == 1
+
+
+def test_ca_parity_received_field_mirrors_parity_in(b):
+    bus = MockBus(parity_check=1, parity_in=0)
+    evt = b.ca_parity_check(bus, None)
+    assert evt.parity_bit_received == 0

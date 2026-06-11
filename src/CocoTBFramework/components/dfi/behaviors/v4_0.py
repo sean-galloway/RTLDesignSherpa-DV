@@ -62,19 +62,11 @@ class DFIv4_0Behavior(DFIv3_1Behavior):
 
     version_label: str = "v4.0"
 
-    # ----- CRC: phycrc_mode parameter added (v4.0) -----
-
-    def crc(self, bus: Any, state: Any) -> Optional[CRCEvent]:
-        """v4.0 extends v3.0 CRC with phycrc_mode branching.
-
-        Stub returns None. When implemented, the BFM will check the
-        ``phycrc_mode`` configuration parameter on ``state`` and
-        either:
-          - sample the MC-driven CRC path (phycrc_mode=0; v3.0 behavior)
-          - sample the PHY-driven CRC path (phycrc_mode=1; v4.0 addition)
-        """
-        del bus, state
-        return None
+    # CRC: v4.0 spec adds `phycrc_mode` branching atop v3.0 behavior.
+    # Stub-only override removed — v3.1's crc() does real wire sampling
+    # and is inherited. When phycrc_mode wiring lands, an override here
+    # will read `state.phycrc_mode` and select the MC-driven (=0) or
+    # PHY-driven (=1) sampling path.
 
     # ----- PHY Master Interface: introduced v4.0 -----
 
@@ -146,39 +138,17 @@ class DFIv4_0Behavior(DFIv3_1Behavior):
         )
         return FreqChangeEvent(protocol=protocol)
 
-    # ----- Training: optional flag + per-slice leveling (v4.0) -----
+    # Training: v4.0 spec adds optional flag + per-slice leveling +
+    # DB training atop v3.0 behavior. Stub-only override removed —
+    # v3.1's training_step() decodes the phase code correctly and is
+    # inherited. When per-slice indexing wires land, an override here
+    # will read slice_idx from a new bus signal.
 
-    def training_step(self, bus: Any, state: Any) -> Optional[TrainingEvent]:
-        """v4.0 made training optional and added per-slice operations.
-
-        Stub returns None. When implemented:
-          - The ``slice_idx`` field on TrainingEvent carries the
-            v4.0+ per-slice index (ignored for v3.x callers).
-          - TrainingPhase.DB_TRAINING covers the LPDDR4 DB-training
-            mode v4.0 introduced.
-          - "Training optional" surfaces as the BFM having an
-            ``enable_training`` flag on its config; this method
-            returns None when training is disabled.
-
-        Per the catalog's open question on training: if this single
-        method shape doesn't fit the read/write/DQ/CA leveling state
-        machines, decompose into per-phase methods in a follow-up.
-        """
-        del bus, state
-        return None
-
-    # ----- Update: self-refresh exit (v4.0) -----
-
-    def update_request(self, bus: Any, state: Any) -> Optional[UpdateEvent]:
-        """v4.0 update can interleave with self-refresh exit.
-
-        Stub returns None. When implemented, an exit-from-self-refresh
-        update path constructs
-        ``UpdateEvent(state=UpdateState.SELF_REFRESH_EXIT, initiator=…)``.
-        Normal v3.x update request paths (UpdateState.REQUESTED) still
-        reachable.
-        """
-        del bus, state
-        return None
+    # Update: v4.0 spec adds self-refresh exit atop v3.0 behavior.
+    # Stub-only override removed — v3.1's update_request() handles
+    # the bidirectional handshake correctly and is inherited. When
+    # self-refresh-exit wiring lands, an override here will emit
+    # UpdateEvent(state=UpdateState.SELF_REFRESH_EXIT, …) when the
+    # spec-defined signal pattern is observed.
 
     # Error interface and CA parity unchanged from v3.x — inherited.

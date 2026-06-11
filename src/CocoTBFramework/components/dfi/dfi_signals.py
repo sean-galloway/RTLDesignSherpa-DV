@@ -463,6 +463,37 @@ _CRC_SIGNALS: Tuple[SignalSpec, ...] = (
 )
 
 
+# Training interface — introduced v3.0. PHY-driven `training_active`
+# flag plus a `training_phase` encoding (3 bits: 0=read_lvl, 1=write_lvl,
+# 2=dq, 3=ca, 4=db). v4.0 added per-slice indexing — we leave slice_idx
+# at 0 for the v3.0 MVP.
+#
+# Method-shape note: LiteDRAM doesn't model these signals (they use
+# CSR-only training); the spec-faithful wire interface lives here.
+# Per the catalog's open question on training: single `training_step`
+# method works because the phase enum is data, not control flow.
+_TRAINING_SIGNALS: Tuple[SignalSpec, ...] = (
+    SignalSpec(
+        name="training_active",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.TRAINING,
+        min_version=DFIVersion.V3_1,
+        memory_types=_ALL,
+        description="PHY-driven training-in-progress flag (active high)",
+    ),
+    SignalSpec(
+        name="training_phase",
+        direction=SignalDirection.PHY_TO_MC,
+        width_key=WIDTH_CTRL,
+        sub_interface=SubInterface.TRAINING,
+        min_version=DFIVersion.V3_1,
+        memory_types=_ALL,
+        description="Encoded phase: 0=read_lvl, 1=write_lvl, 2=dq, 3=ca, 4=db",
+    ),
+)
+
+
 # Update Interface — existed v2.1 in MC-initiated form (ctrlupd_req/
 # ctrlupd_ack). v3.0 added the PHY-initiated path (phyupd_req/
 # phyupd_ack) for bidirectional request/grant. v4.0 added self-refresh
@@ -510,7 +541,7 @@ _UPDATE_SIGNALS: Tuple[SignalSpec, ...] = (
 # All signals across the catalog.
 _ALL_SIGNALS: Tuple[SignalSpec, ...] = (
     _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS
-    + _ERROR_SIGNALS + _CRC_SIGNALS + _UPDATE_SIGNALS
+    + _ERROR_SIGNALS + _CRC_SIGNALS + _UPDATE_SIGNALS + _TRAINING_SIGNALS
 )
 
 

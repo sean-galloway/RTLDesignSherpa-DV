@@ -33,6 +33,7 @@ from .dfi_monitor import (
     _CRC_SIGNALS,
     _ERROR_SIGNALS,
     _READ_DATA_SIGNALS,
+    _TRAINING_SIGNALS,
     _UPDATE_SIGNALS,
     _WRITE_DATA_SIGNALS,
 )
@@ -56,6 +57,7 @@ class DFIMasterMC(BusDriver):
         + list(_ERROR_SIGNALS)   # MC observes but doesn't drive
         + list(_CRC_SIGNALS)
         + list(_UPDATE_SIGNALS)
+        + list(_TRAINING_SIGNALS)  # MC observes; PHY-driven
     )
     _optional_signals: list = []
 

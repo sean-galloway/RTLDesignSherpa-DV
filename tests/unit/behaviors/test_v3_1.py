@@ -16,6 +16,7 @@ from CocoTBFramework.components.dfi.behaviors import (
     DFIv3_1Behavior,
     ErrorKind,
     NotSupportedInThisVersionError,
+    TrainingPhase,
     UpdateState,
 )
 
@@ -195,3 +196,42 @@ def test_update_mc_takes_priority_when_both_asserted(b):
     bus = MockBus(ctrlupd_req=1, phyupd_req=1)
     evt = b.update_request(bus, None)
     assert evt.initiator == "mc"
+
+
+# ---------------------------------------------------------------------
+# training_step() — pressure-tested single-method shape
+# ---------------------------------------------------------------------
+
+
+def test_training_returns_none_when_inactive(b):
+    bus = MockBus(training_active=0, training_phase=0)
+    assert b.training_step(bus, None) is None
+
+
+@pytest.mark.parametrize(
+    "phase_code, expected_phase",
+    [
+        (0, TrainingPhase.READ_LEVELING),
+        (1, TrainingPhase.WRITE_LEVELING),
+        (2, TrainingPhase.DQ_TRAINING),
+        (3, TrainingPhase.CA_TRAINING),
+        (4, TrainingPhase.DB_TRAINING),
+    ],
+)
+def test_training_decodes_each_phase(b, phase_code, expected_phase):
+    """Validates the single-method shape: one method, phase distinction
+    is data — exactly what the LiteDRAM survey recommended."""
+    bus = MockBus(training_active=1, training_phase=phase_code)
+    evt = b.training_step(bus, None)
+    assert evt is not None
+    assert evt.phase == expected_phase
+    assert evt.slice_idx == 0   # v3 MVP
+
+
+def test_training_unknown_phase_code_falls_back_to_read_lvl(b):
+    """Forward-compat: phase codes we don't recognize don't crash
+    — they fall back to READ_LEVELING (the v3.0 baseline phase)."""
+    bus = MockBus(training_active=1, training_phase=7)  # not in decode table
+    evt = b.training_step(bus, None)
+    assert evt is not None
+    assert evt.phase == TrainingPhase.READ_LEVELING

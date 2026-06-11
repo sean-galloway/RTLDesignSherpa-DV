@@ -20,7 +20,8 @@ module dfi_shim #(
     parameter int DATA_EN_WIDTH  = 1,
     parameter int DATA_MASK_BITS = 8,    // data_width / 8
     parameter int RD_VALID_WIDTH = 1,
-    parameter int ERROR_INFO_WIDTH = 8    // v3.0+ error sub-interface code width
+    parameter int ERROR_INFO_WIDTH = 8,   // v3.0+ error sub-interface code width
+    parameter int TRAINING_PHASE_WIDTH = 3 // 0..4 covers our v3.0 phase enum
 ) (
     input  logic dfi_clk,
     input  logic dfi_rstn,
@@ -56,6 +57,9 @@ module dfi_shim #(
     // Update interface — PHY-initiated (PHY drives req, MC acks; v3.0+)
     output logic [CTRL_WIDTH-1:0]     mc_dfi_phyupd_req,
     input  logic [CTRL_WIDTH-1:0]     mc_dfi_phyupd_ack,
+    // Training interface (PHY drives; v3.0+)
+    output logic [CTRL_WIDTH-1:0]           mc_dfi_training_active,
+    output logic [TRAINING_PHASE_WIDTH-1:0] mc_dfi_training_phase,
 
     // ----- PHY-facing port -----
     // Command sub-interface (PHY observes)
@@ -86,7 +90,10 @@ module dfi_shim #(
     input  logic [CTRL_WIDTH-1:0]     phy_dfi_ctrlupd_ack,
     // Update interface — PHY-initiated mirror (v3.0+)
     input  logic [CTRL_WIDTH-1:0]     phy_dfi_phyupd_req,
-    output logic [CTRL_WIDTH-1:0]     phy_dfi_phyupd_ack
+    output logic [CTRL_WIDTH-1:0]     phy_dfi_phyupd_ack,
+    // Training interface mirror (PHY drives)
+    input  logic [CTRL_WIDTH-1:0]           phy_dfi_training_active,
+    input  logic [TRAINING_PHASE_WIDTH-1:0] phy_dfi_training_phase
 );
 
     // ----- MC → PHY (command + write-data + rddata_en) -----
@@ -112,6 +119,8 @@ module dfi_shim #(
     assign mc_dfi_crc_alert    = phy_dfi_crc_alert;
     assign mc_dfi_ctrlupd_ack  = phy_dfi_ctrlupd_ack;
     assign mc_dfi_phyupd_req   = phy_dfi_phyupd_req;
+    assign mc_dfi_training_active = phy_dfi_training_active;
+    assign mc_dfi_training_phase  = phy_dfi_training_phase;
 
     // ----- MC → PHY (also update mirror) -----
     assign phy_dfi_ctrlupd_req = mc_dfi_ctrlupd_req;

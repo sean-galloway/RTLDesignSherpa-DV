@@ -39,9 +39,24 @@ from .events import (
     ErrorKind,
     FreqChangeEvent,
     TrainingEvent,
+    TrainingPhase,
     UpdateEvent,
     UpdateState,
 )
+
+
+# Phase-code → TrainingPhase enum. Encoded on the wire so the spec-
+# defined phase distinction lives in event data, not in separate
+# behavior methods (validated by the LiteDRAM survey — training is
+# parallel hardware circuits under software sequencing, not a
+# sequential state machine).
+_PHASE_DECODE = {
+    0: TrainingPhase.READ_LEVELING,
+    1: TrainingPhase.WRITE_LEVELING,
+    2: TrainingPhase.DQ_TRAINING,
+    3: TrainingPhase.CA_TRAINING,
+    4: TrainingPhase.DB_TRAINING,
+}
 
 
 def _bus_value(sig) -> int:
@@ -106,20 +121,32 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
     # ----- Training: introduced v3.0; PHY-requested mode added v3.1 -----
 
     def training_step(self, bus: Any, state: Any) -> Optional[TrainingEvent]:
-        """v3.0 MC-driven training + v3.1 PHY-requested training.
+        """v3.0 training interface. Single method covers all phases
+        (read/write/DQ/CA/DB leveling) — the phase distinction is
+        carried in the event, not a separate method per phase.
 
-        Stub returns None. When implemented, a training event should
-        construct ``TrainingEvent(phase=TrainingPhase.READ_LEVELING …)``
-        or similar. Use ``TrainingPhase.PHY_REQUESTED`` for the v3.1
-        path where the PHY initiates training rather than the MC.
+        Architecturally validated by the LiteDRAM survey
+        (docs/internal/dfi-semantic-shifts.md, section 6 open
+        question): training circuits run in parallel hardware under
+        software sequencing; phase is data, not control flow. One
+        method, pattern-match the phase code in the event.
 
-        Method shape will likely decompose into per-phase sub-methods
-        when implementation lands — see the open question in the
-        catalog about training being the highest-risk area for the
-        single-method shape.
+        Samples ``bus.training_active`` and ``bus.training_phase``.
+        Returns a TrainingEvent with the decoded phase when active;
+        unknown phase codes fall back to READ_LEVELING (the v3.0
+        baseline phase) rather than raising — forward-compat with
+        v4+ phase encodings.
+
+        slice_idx is 0 for the v3.0 MVP; v4.0 per-slice indexing
+        would override this method to carry the slice number.
         """
-        del bus, state
-        return None
+        del state
+        if not _bus_value(bus.training_active):
+            return None
+        phase = _PHASE_DECODE.get(
+            _bus_value(bus.training_phase), TrainingPhase.READ_LEVELING,
+        )
+        return TrainingEvent(phase=phase, slice_idx=0)
 
     # ----- Error interface: introduced v3.0 -----
 

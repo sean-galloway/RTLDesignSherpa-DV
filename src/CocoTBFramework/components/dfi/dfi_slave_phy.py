@@ -35,13 +35,14 @@ from cocotb_bus.monitors import BusMonitor
 
 from ..shared.memory_model import MemoryModel
 from .dfi_base import DFIBase
-from .behaviors.events import CRCEvent, ErrorEvent, UpdateEvent
+from .behaviors.events import CRCEvent, ErrorEvent, TrainingEvent, UpdateEvent
 from .dfi_monitor import (
     _CMD_DECODE,
     _COMMAND_SIGNALS,
     _CRC_SIGNALS,
     _ERROR_SIGNALS,
     _READ_DATA_SIGNALS,
+    _TRAINING_SIGNALS,
     _UPDATE_SIGNALS,
     _WRITE_DATA_SIGNALS,
     _v,
@@ -76,6 +77,7 @@ class DFISlavePHY(BusMonitor):
         + list(_ERROR_SIGNALS)
         + list(_CRC_SIGNALS)
         + list(_UPDATE_SIGNALS)
+        + list(_TRAINING_SIGNALS)
     )
     _optional_signals: list = []
 
@@ -134,6 +136,10 @@ class DFISlavePHY(BusMonitor):
         # appear on the wire.
         self.update_events: Deque[UpdateEvent] = deque()
 
+        # Training event queue. Populated by behavior.training_step()
+        # when bus.training_active is asserted.
+        self.training_events: Deque[TrainingEvent] = deque()
+
         # Statistics
         self.cmd_counts = {cmd: 0 for cmd in DRAMCommand}
         self.writes_committed = 0
@@ -148,6 +154,9 @@ class DFISlavePHY(BusMonitor):
         # PHY-driven update-interface signals
         self.bus.ctrlupd_ack.value = 0
         self.bus.phyupd_req.value = 0
+        # PHY-driven training-interface signals
+        self.bus.training_active.value = 0
+        self.bus.training_phase.value = 0
 
     # ----- Address helpers -----
 
@@ -308,6 +317,7 @@ class DFISlavePHY(BusMonitor):
             self._dispatch_behavior_error()
             self._dispatch_behavior_crc()
             self._dispatch_behavior_update()
+            self._dispatch_behavior_training()
 
     def _dispatch_behavior_error(self) -> None:
         """Call the per-version behavior.error_event() and queue any event."""
@@ -335,6 +345,15 @@ class DFISlavePHY(BusMonitor):
             return
         if evt is not None:
             self.update_events.append(evt)
+
+    def _dispatch_behavior_training(self) -> None:
+        """Call the per-version behavior.training_step() and queue any event."""
+        try:
+            evt = self.base.behavior.training_step(self.bus, None)
+        except NotImplementedError:
+            return
+        if evt is not None:
+            self.training_events.append(evt)
 
     # ----- Error-interface drive (PHY → MC) -----
 
@@ -364,6 +383,15 @@ class DFISlavePHY(BusMonitor):
         """Drive the PHY's ack of an MC-initiated update."""
         self.bus.ctrlupd_ack.value = active
 
+    def set_training(self, active: int, phase: int = 0) -> None:
+        """Drive the training interface (PHY→MC).
+
+        ``phase`` is the encoded TrainingPhase code:
+        0=read_lvl, 1=write_lvl, 2=dq, 3=ca, 4=db.
+        """
+        self.bus.training_active.value = active
+        self.bus.training_phase.value = phase
+
     # ----- Convenience -----
 
     def __str__(self) -> str:
@@ -373,5 +401,6 @@ class DFISlavePHY(BusMonitor):
             f"error_events={len(self.error_events)} "
             f"crc_events={len(self.crc_events)} "
             f"update_events={len(self.update_events)} "
+            f"training_events={len(self.training_events)} "
             f"cmd_counts={ {c.value: n for c, n in self.cmd_counts.items() if n} }"
         )

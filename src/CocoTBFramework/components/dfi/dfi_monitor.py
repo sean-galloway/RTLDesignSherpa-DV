@@ -69,6 +69,11 @@ _CRC_SIGNALS = ("crc_alert",)
 # Update interface (v2.1+ for ctrlupd, v3.0+ for phyupd).
 _UPDATE_SIGNALS = ("ctrlupd_req", "ctrlupd_ack", "phyupd_req", "phyupd_ack")
 
+# Training interface (v3.0+). Single PHY-driven activity flag plus a
+# phase code; per the LiteDRAM survey, training is by-circuit not by
+# sequential phase, so the phase distinction lives in event data.
+_TRAINING_SIGNALS = ("training_active", "training_phase")
+
 
 def _v(sig) -> int:
     """Read a cocotb signal as int, returning 0 if unresolvable (X/Z)."""
@@ -95,6 +100,7 @@ class DFIMonitor(BusMonitor):
         + list(_ERROR_SIGNALS)
         + list(_CRC_SIGNALS)
         + list(_UPDATE_SIGNALS)
+        + list(_TRAINING_SIGNALS)
     )
     _optional_signals: List[str] = []
 

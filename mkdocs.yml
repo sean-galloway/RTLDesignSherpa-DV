@@ -72,6 +72,7 @@ nav:
       - Overview: components/axi4/components_axi4_overview.md
       - Interfaces: components/axi4/components_axi4_interfaces.md
       - Packet: components/axi4/components_axi4_packet.md
+      - Sequence: components/axi4/components_axi4_sequence.md
       - Compliance Checker: components/axi4/components_axi4_compliance.md
       - Randomization: components/axi4/components_axi4_randomization.md
 

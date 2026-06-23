@@ -253,14 +253,18 @@ class AXI4Sequence:
         for _ in range(count):
             burst_bytes = rng.choices(sizes, weights=weights, k=1)[0]
             length = max(1, burst_bytes // self.bytes_per_beat)
-            # Pick an aligned address inside the range.
+            # Pick an aligned address inside the range. Align the low bound UP
+            # and the high bound DOWN so the result is always aligned AND within
+            # [lo, hi - burst_bytes] (masking a raw pick could underflow lo).
             lo, hi = addr_range
-            usable_hi = hi - burst_bytes
-            if usable_hi < lo:
+            aligned_lo = (lo + align_to - 1) & ~(align_to - 1)
+            usable_hi = (hi - burst_bytes) & ~(align_to - 1)
+            if usable_hi < aligned_lo:
                 raise ValueError(
-                    f"addr_range {addr_range} too narrow for {burst_bytes}B")
-            addr = rng.randrange(lo, usable_hi + 1)
-            addr &= ~(align_to - 1)
+                    f"addr_range {addr_range} too narrow for {burst_bytes}B "
+                    f"aligned to {align_to}")
+            n_slots = (usable_hi - aligned_lo) // align_to
+            addr = aligned_lo + align_to * rng.randrange(0, n_slots + 1)
             is_write = (rng.random() < write_ratio)
             qos = rng.choice(qos_choices)
             axid = rng.choice(id_choices)
@@ -326,7 +330,7 @@ class AXI4Sequence:
         # Default: address-derived pattern so writes are self-describing
         # when the address map echoes back through a memory model.
         mask = (1 << self.data_width) - 1
-        return [((base + i * 8) ^ (seq_idx << 16)) & mask
+        return [((base + i * self.bytes_per_beat) ^ (seq_idx << 16)) & mask
                 for i in range(length)]
 
 
@@ -378,11 +382,17 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
                     raise RuntimeError(
                         f"sequence {seq.name!r} has write at idx {idx} but "
                         f"no master_wr provided")
-                await master_wr.write_transaction(
+                wr = await master_wr.write_transaction(
                     burst.addr, burst.data, burst_len=burst.length,
                     id=burst.axid, qos=burst.qos, size=burst.size,
                     burst_type=burst.burst_type, strb=burst.strb,
                 )
+                # write_transaction reports failure via a result dict (it does
+                # NOT raise); surface it so the runner records the error too,
+                # symmetric with read_transaction (which does raise).
+                if isinstance(wr, dict) and wr.get("success") is False:
+                    raise RuntimeError(
+                        f"write_transaction failed: {wr.get('error', 'unknown')}")
                 result["data"] = list(burst.data)
             else:
                 if master_rd is None:

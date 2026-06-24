@@ -18,8 +18,8 @@
 `AXI4Sequence` is a deferred-execution authoring layer above
 `AXI4MasterWrite` / `AXI4MasterRead`. Author canned sequences once
 (e.g. "random base, then row-hit follow-ons" or "spray across all
-banks") in an include module; tests then pick among them with
-`FlexRandomizer` and exclude broken ones until bugs are fixed.
+banks") in an include module; tests then run them and exclude broken
+ones with `filter()` until bugs are fixed.
 
 Design philosophy mirrors `GAXISequence`:
 
@@ -47,8 +47,6 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from ..shared.flex_randomizer import FlexRandomizer
-
 
 __all__ = [
     "AXI4Burst",
@@ -69,7 +67,8 @@ class AXI4Burst:
     size: int = 3                        # log2(bytes/beat); 3=8B (64-bit bus)
     burst_type: int = 1                  # 0=FIXED, 1=INCR (default), 2=WRAP
     data: Optional[List[int]] = None     # writes only
-    strb: int = 0xFF
+    strb: int = 0xFF                     # all bytes (64-bit default); add_write
+                                         # sets it per data_width automatically
     delay_cycles: int = 0                # idle cycles before issuing
     tag: Optional[str] = None            # debug tag (which sequence it came from)
 
@@ -107,7 +106,8 @@ class AXI4Sequence:
         b = AXI4Burst(
             is_write=True, addr=addr, length=len(data), axid=axid,
             qos=qos, size=self._size_for_bus(), burst_type=1,
-            data=list(data), delay_cycles=delay, tag=tag,
+            data=list(data), strb=(1 << self.bytes_per_beat) - 1,
+            delay_cycles=delay, tag=tag,
         )
         self.bursts.append(b)
         self.stats["writes"] += 1
@@ -194,6 +194,7 @@ class AXI4Sequence:
                           is_write_first: bool = True,
                           is_write_second: bool = True,
                           qos: int = 0, axid: int = 0,
+                          data_fn: Optional[Callable[[int, int], int]] = None,
                           tag: str = "row_miss") -> Tuple[int, int]:
         """Back-to-back bursts to the same bank but different rows.
 
@@ -204,13 +205,13 @@ class AXI4Sequence:
         addr0 = base_addr
         addr1 = base_addr + row_stride_bytes
         if is_write_first:
-            i0 = self.add_write(addr0, [base_addr] * length, axid=axid,
-                                qos=qos, tag=tag)
+            i0 = self.add_write(addr0, self._gen_data(length, addr0, 0, data_fn),
+                                axid=axid, qos=qos, tag=tag)
         else:
             i0 = self.add_read(addr0, length, axid=axid, qos=qos, tag=tag)
         if is_write_second:
-            i1 = self.add_write(addr1, [base_addr + 1] * length, axid=axid,
-                                qos=qos, tag=tag)
+            i1 = self.add_write(addr1, self._gen_data(length, addr1, 1, data_fn),
+                                axid=axid, qos=qos, tag=tag)
         else:
             i1 = self.add_read(addr1, length, axid=axid, qos=qos, tag=tag)
         self.stats["row_miss_pairs"] += 1
@@ -289,6 +290,18 @@ class AXI4Sequence:
         for k in self.stats:
             self.stats[k] = 0
 
+    def _recompute_stats(self) -> None:
+        """Rebuild stats from the current burst list (used after filter())."""
+        for k in self.stats:
+            self.stats[k] = 0
+        for b in self.bursts:
+            self.stats["writes" if b.is_write else "reads"] += 1
+        # category counters are best-effort by the default helper tags
+        self.stats["row_hit_bursts"] = sum(b.tag == "row_hit" for b in self.bursts)
+        self.stats["bank_spray_bursts"] = sum(b.tag == "bank_spray" for b in self.bursts)
+        self.stats["random_bursts"] = sum(b.tag == "random" for b in self.bursts)
+        self.stats["row_miss_pairs"] = sum(b.tag == "row_miss" for b in self.bursts) // 2
+
     def filter(self, predicate: Callable[[AXI4Burst], bool]) -> "AXI4Sequence":
         """Return a new sequence with bursts matching `predicate`.
 
@@ -301,11 +314,16 @@ class AXI4Sequence:
                           id_width=self.id_width,
                           addr_width=self.addr_width)
         out.bursts = [b for b in self.bursts if predicate(b)]
+        out._recompute_stats()
         return out
 
-    def shuffle(self) -> None:
-        """In-place RNG shuffle of bursts (preserves seed reproducibility)."""
+    def shuffle(self) -> "AXI4Sequence":
+        """In-place RNG shuffle of bursts (preserves seed reproducibility).
+
+        Returns ``self`` so it can be chained (e.g. ``seq.shuffle()``).
+        """
         self._rng.shuffle(self.bursts)
+        return self
 
     def __len__(self) -> int:
         return len(self.bursts)
@@ -421,7 +439,10 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
 
         results.append(result)
         if on_burst is not None:
-            on_burst(idx, burst, result)
+            # accept both sync and async callbacks
+            maybe = on_burst(idx, burst, result)
+            if maybe is not None and hasattr(maybe, "__await__"):
+                await maybe
 
     if log is not None:
         n_err = sum(1 for r in results if r["error"])

@@ -63,6 +63,53 @@ from .dfi_monitor import (
 from .dfi_packet import DRAMCommand
 
 
+def decode_phase0_cmd(ras_n_bus: int, cas_n_bus: int,
+                      we_n_bus: int) -> DRAMCommand:
+    """Decode a single command from the DFI command bus's phase 0.
+
+    The DDR2/DDR3 DFI bus carries ``{phase_{N-1}, …, phase_0}`` bit-
+    packed when ``DFI_RATE>1``. The controller's MC drives the command
+    on phase 0 and holds the upper phases as NOP for typical single-
+    cmd-per-cycle traffic. ``_CMD_DECODE`` keys are single-bit
+    ``(ras_n, cas_n, we_n)``, so mask each bus value to its LSB before
+    lookup. Falls through to NOP for unknown encodings.
+
+    Pulled out as a pure function so it can be unit-tested without a
+    live cocotb bus. Regression guard for G-01a — the original BFM
+    read ``cs_n / ras_n / cas_n / we_n`` as full integers and
+    silently dropped every command on a multi-phase bus.
+    """
+    return _CMD_DECODE.get((ras_n_bus & 1, cas_n_bus & 1, we_n_bus & 1),
+                           DRAMCommand.NOP)
+
+
+def slice_phase_wrdata(full_wrdata: int, full_mask: int,
+                       wrdata_en_bits: int,
+                       beat_bytes: int) -> list:
+    """Walk a packed ``wrdata`` / ``wrdata_mask`` bus phase-by-phase.
+
+    Returns a list of ``(phase_idx, data, mask)`` tuples — one entry
+    per asserted ``wrdata_en`` bit (LSB→MSB). For ``DFI_RATE=1`` this
+    collapses to a single-entry list. Regression guard for G-01a's
+    write-side counterpart — the original BFM read the full DFI-rate-
+    wide ``wrdata`` as one beat and tried to fit it into ``beat_bytes``,
+    throwing OverflowError once command decode started working.
+    """
+    if wrdata_en_bits == 0:
+        return []
+    beat_bits = beat_bytes * 8
+    data_mask = (1 << beat_bits) - 1
+    mask_mask = (1 << beat_bytes) - 1
+    out = []
+    for phase in range(wrdata_en_bits.bit_length()):
+        if (wrdata_en_bits >> phase) & 1 == 0:
+            continue
+        data = (full_wrdata >> (phase * beat_bits)) & data_mask
+        mask = (full_mask >> (phase * beat_bytes)) & mask_mask
+        out.append((phase, data, mask))
+    return out
+
+
 @dataclass
 class _PendingOp:
     """One pending memory operation, due at ``due_cycle``."""
@@ -234,14 +281,8 @@ class DFISlavePHY(BusMonitor):
             # without re-decoding the address.
             self._lpddr_args = _args
             return cmd
-        # Always decode phase 0. With DFI_RATE>1 the bus carries
-        # `{phase1, phase0}` bit-packed; phase 1 is held NOP by the MC
-        # for typical single-cmd-per-cycle traffic. _CMD_DECODE keys are
-        # single-bit (ras, cas, we), so mask each signal to its LSB.
-        ras = _v(self.bus.ras_n) & 1
-        cas = _v(self.bus.cas_n) & 1
-        we  = _v(self.bus.we_n)  & 1
-        return _CMD_DECODE.get((ras, cas, we), DRAMCommand.NOP)
+        return decode_phase0_cmd(
+            _v(self.bus.ras_n), _v(self.bus.cas_n), _v(self.bus.we_n))
 
     def _handle_command(self, cmd: DRAMCommand) -> None:
         if self._is_lpddr2_family():
@@ -327,21 +368,14 @@ class DFISlavePHY(BusMonitor):
         same cycle as the WR command. Both forms are valid; the slave
         accepts whichever arrives first.
         """
-        wrdata_en_bits = _v(self.bus.wrdata_en)
-        if wrdata_en_bits == 0:
-            return
-        # DFI_RATE>1: wrdata / wrdata_mask are bit-packed `{phase{N-1},
-        # …, phase0}` and wrdata_en has one bit per phase. Walk phases
-        # LSB→MSB, popping one pending write per active phase. This
-        # collapses cleanly to the original single-phase path when
-        # wrdata_en is 1 bit wide.
         beat_bytes = self.bytes_per_beat
-        beat_bits  = beat_bytes * 8
-        full_data  = _v(self.bus.wrdata)
-        full_mask  = _v(self.bus.wrdata_mask)
-        for phase in range(wrdata_en_bits.bit_length()):
-            if (wrdata_en_bits >> phase) & 1 == 0:
-                continue
+        slices = slice_phase_wrdata(
+            full_wrdata=_v(self.bus.wrdata),
+            full_mask=_v(self.bus.wrdata_mask),
+            wrdata_en_bits=_v(self.bus.wrdata_en),
+            beat_bytes=beat_bytes,
+        )
+        for phase, data, mask in slices:
             if not self._pending_writes:
                 self.log.warning(
                     f"{self.title}: wrdata_en asserted on phase {phase} "
@@ -357,8 +391,6 @@ class DFISlavePHY(BusMonitor):
                     "(debug-injector path)"
                 )
             self._pending_writes.popleft()
-            data = (full_data >> (phase * beat_bits)) & ((1 << beat_bits) - 1)
-            mask = (full_mask >> (phase * beat_bytes)) & ((1 << beat_bytes) - 1)
             ba = self.memory.integer_to_bytearray(data, beat_bytes)
             # DFI mask convention: 1 means *don't* write that byte.
             strobe = (~mask) & ((1 << beat_bytes) - 1)

@@ -33,17 +33,13 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .events import (
-    CRCEvent,
     DisconnectEvent,
     DisconnectPhase,
     FreqChangeEvent,
     FreqChangeProtocol,
     TakeoverEvent,
-    TrainingEvent,
-    UpdateEvent,
 )
 from .v3_1 import DFIv3_1Behavior
-
 
 _PROTOCOL_DECODE = {
     0: FreqChangeProtocol.BASIC,

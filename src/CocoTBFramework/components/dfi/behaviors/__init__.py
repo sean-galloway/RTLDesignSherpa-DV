@@ -14,9 +14,6 @@ The public surface is:
 """
 
 from .base import DFIv2_1Behavior
-from .registry import VERSION_BEHAVIOR, behavior_for
-from .v3_1 import DFIv3_1Behavior
-from .v4_0 import DFIv4_0Behavior
 from .events import (
     CAParityEvent,
     CRCEvent,
@@ -34,6 +31,9 @@ from .events import (
     UpdateState,
 )
 from .exceptions import NotSupportedInThisVersionError
+from .registry import VERSION_BEHAVIOR, behavior_for
+from .v3_1 import DFIv3_1Behavior
+from .v4_0 import DFIv4_0Behavior
 
 __all__ = [
     "DFIv2_1Behavior",

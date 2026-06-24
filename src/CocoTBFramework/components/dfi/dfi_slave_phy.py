@@ -34,7 +34,6 @@ from cocotb.triggers import FallingEdge
 from cocotb_bus.monitors import BusMonitor
 
 from ..shared.memory_model import MemoryModel
-from .dfi_base import DFIBase
 from .behaviors.events import (
     CAParityEvent,
     CRCEvent,
@@ -45,6 +44,7 @@ from .behaviors.events import (
     TrainingEvent,
     UpdateEvent,
 )
+from .dfi_base import DFIBase
 from .dfi_monitor import (
     _CA_PARITY_SIGNALS,
     _CMD_DECODE,

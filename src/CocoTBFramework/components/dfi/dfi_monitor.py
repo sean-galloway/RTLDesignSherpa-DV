@@ -35,7 +35,6 @@ from cocotb_bus.monitors import BusMonitor
 
 from .dfi_packet import DFIControlPacket, DFIReadDataPacket, DFIWriteDataPacket, DRAMCommand
 
-
 # Reverse-lookup table: (ras_n, cas_n, we_n) → DRAMCommand.
 # Matches dfi_packet._DDR3_ENCODING. CS_n is checked separately; this
 # table assumes the chip is already selected.

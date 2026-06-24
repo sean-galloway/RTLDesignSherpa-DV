@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-
 # ---------------------------------------------------------------------
 # CRC (introduced v3.0)
 # ---------------------------------------------------------------------

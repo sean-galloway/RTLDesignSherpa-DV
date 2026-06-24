@@ -28,7 +28,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
-
 # Maps the scoreboard's public area name to the attribute name on
 # DFISlavePHY. The 8 areas match the catalog.
 _AREA_TO_QUEUE: Mapping[str, str] = {

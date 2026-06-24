@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import FrozenSet, Optional
 
 from ..shared.field_config import FieldConfig
+from .behaviors import DFIv2_1Behavior, behavior_for
 from .dfi_field_configs import (
     command_field_config,
     read_data_field_config,
@@ -36,10 +37,8 @@ from .dfi_signals import (
     SubInterface,
     is_supported_pair,
 )
-from .behaviors import DFIv2_1Behavior, behavior_for
 from .dram_state import AddressMapping
 from .jedec_timings import JedecTimings
-
 
 _FIELD_CONFIG_BUILDERS = {
     SubInterface.COMMAND: command_field_config,

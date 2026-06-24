@@ -21,17 +21,6 @@ packet types, field configs) plus Tier 1 unit tests.
 """
 
 from .dfi_base import DFIBase
-from .dfi_phase_adapter import (
-    DFIPhaseAdapter,
-    VALID_PHASE_COUNTS,
-    phase_act,
-    phase_nop,
-    phase_pre,
-    phase_rd,
-    phase_ref,
-    phase_wr,
-    phase_wrdata,
-)
 from .dfi_field_configs import (
     command_field_config,
     read_data_field_config,
@@ -39,21 +28,22 @@ from .dfi_field_configs import (
 )
 from .dfi_master_mc import DFIMasterMC
 from .dfi_monitor import DFIMonitor
-from .dfi_slave_phy import DFISlavePHY
-from .dram_state import (
-    AddressMapping,
-    Bank,
-    BankState,
-    DramStateModel,
-    ViolationCategory,
-    ViolationPolicy,
-)
-from .jedec_timings import JedecTimings, builtin_timings, load_timings, ns_to_cycles
 from .dfi_packet import (
     DFIControlPacket,
     DFIReadDataPacket,
     DFIWriteDataPacket,
     DRAMCommand,
+)
+from .dfi_phase_adapter import (
+    VALID_PHASE_COUNTS,
+    DFIPhaseAdapter,
+    phase_act,
+    phase_nop,
+    phase_pre,
+    phase_rd,
+    phase_ref,
+    phase_wr,
+    phase_wrdata,
 )
 from .dfi_signals import (
     SUPPORTED_MEMORY_BY_VERSION,
@@ -68,6 +58,16 @@ from .dfi_signals import (
     signals_for,
     validate_configuration,
 )
+from .dfi_slave_phy import DFISlavePHY
+from .dram_state import (
+    AddressMapping,
+    Bank,
+    BankState,
+    DramStateModel,
+    ViolationCategory,
+    ViolationPolicy,
+)
+from .jedec_timings import JedecTimings, builtin_timings, load_timings, ns_to_cycles
 
 __all__ = [
     "DFIPhaseAdapter",

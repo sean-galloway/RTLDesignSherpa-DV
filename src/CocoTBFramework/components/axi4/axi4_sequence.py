@@ -44,9 +44,8 @@ DDR/SDRAM-aware helpers built in:
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
-
 
 __all__ = [
     "AXI4Burst",
@@ -375,7 +374,6 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
     Raises if a write burst arrives while `master_wr` is None, or
     a read burst arrives while `master_rd` is None.
     """
-    import cocotb  # local import — runner is async, BFM expects cocotb env
     from cocotb.triggers import RisingEdge
 
     results: List[Dict] = []

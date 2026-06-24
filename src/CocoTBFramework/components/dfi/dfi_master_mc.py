@@ -186,8 +186,8 @@ class DFIMasterMC(BusDriver):
         LPDDR2/3:    CA1[2:0]=0b011 packed into dfi_address
         """
         if self._is_lpddr2_family():
-            from .lpddr_ca import encode_lpddr2_ca
             from .dfi_packet import DRAMCommand
+            from .lpddr_ca import encode_lpddr2_ca
             ca = encode_lpddr2_ca(DRAMCommand.ACT, bank=bank, row=row)
             await self._drive_lpddr2_command(ca)
             return
@@ -200,8 +200,8 @@ class DFIMasterMC(BusDriver):
         LPDDR2/3:    CA1[2:0]=0b101 with AP on CA1[9]
         """
         if self._is_lpddr2_family():
-            from .lpddr_ca import encode_lpddr2_ca
             from .dfi_packet import DRAMCommand
+            from .lpddr_ca import encode_lpddr2_ca
             ca = encode_lpddr2_ca(
                 DRAMCommand.RD, bank=bank, col=col,
                 auto_precharge=auto_precharge,
@@ -218,8 +218,8 @@ class DFIMasterMC(BusDriver):
         LPDDR2/3:    CA1[2:0]=0b100
         """
         if self._is_lpddr2_family():
-            from .lpddr_ca import encode_lpddr2_ca
             from .dfi_packet import DRAMCommand
+            from .lpddr_ca import encode_lpddr2_ca
             ca = encode_lpddr2_ca(
                 DRAMCommand.WR, bank=bank, col=col,
                 auto_precharge=auto_precharge,
@@ -236,8 +236,8 @@ class DFIMasterMC(BusDriver):
         LPDDR2/3:    CA1[2:0]=0b110, CA1[3]=AB, CA1[9:7]=bank
         """
         if self._is_lpddr2_family():
-            from .lpddr_ca import encode_lpddr2_ca
             from .dfi_packet import DRAMCommand
+            from .lpddr_ca import encode_lpddr2_ca
             ca = encode_lpddr2_ca(
                 DRAMCommand.PRE, bank=bank, all_banks=all_banks,
             )
@@ -253,8 +253,8 @@ class DFIMasterMC(BusDriver):
         LPDDR2/3:    CA1[2:0]=0b110 with REF flag CA1[6]=1
         """
         if self._is_lpddr2_family():
-            from .lpddr_ca import encode_lpddr2_ca
             from .dfi_packet import DRAMCommand
+            from .lpddr_ca import encode_lpddr2_ca
             ca = encode_lpddr2_ca(DRAMCommand.REF)
             await self._drive_lpddr2_command(ca)
             return

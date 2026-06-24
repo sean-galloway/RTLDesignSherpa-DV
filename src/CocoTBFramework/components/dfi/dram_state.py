@@ -27,7 +27,6 @@ from typing import Deque, Dict, FrozenSet, List, Optional, Tuple
 
 from .jedec_timings import JedecTimings
 
-
 # ----------------------------------------------------------------------
 # Address mapping
 # ----------------------------------------------------------------------

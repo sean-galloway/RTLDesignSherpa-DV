@@ -40,7 +40,6 @@ from typing import Tuple
 
 from .dfi_packet import DRAMCommand
 
-
 # ---------------------------------------------------------------------
 # CA1[2:0] command codes (JESD209-2 Table)
 # ---------------------------------------------------------------------

@@ -36,7 +36,6 @@ from .events import (
     TakeoverEvent,
     TrainingEvent,
     UpdateEvent,
-    UpdateState,
 )
 from .exceptions import NotSupportedInThisVersionError
 

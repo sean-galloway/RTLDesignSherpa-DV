@@ -27,7 +27,6 @@ from .base import DFIv2_1Behavior
 from .v3_1 import DFIv3_1Behavior
 from .v4_0 import DFIv4_0Behavior
 
-
 VERSION_BEHAVIOR: Dict[DFIVersion, Type[DFIv2_1Behavior]] = {
     DFIVersion.V2_1: DFIv2_1Behavior,
     DFIVersion.V3_1: DFIv3_1Behavior,

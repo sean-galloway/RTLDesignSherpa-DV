@@ -47,7 +47,6 @@ from typing import Any, Deque, Dict, Iterable, Optional, Set
 
 from cocotb.triggers import RisingEdge
 
-
 # Valid gear ratios per the user spec; constrains the adapter to
 # sensible values for DDR1-5 / LPDDR controllers.
 VALID_PHASE_COUNTS: Set[int] = {1, 2, 4, 8, 16}

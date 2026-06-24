@@ -37,13 +37,11 @@ from .events import (
     CRCKind,
     ErrorEvent,
     ErrorKind,
-    FreqChangeEvent,
     TrainingEvent,
     TrainingPhase,
     UpdateEvent,
     UpdateState,
 )
-
 
 # Phase-code → TrainingPhase enum. Encoded on the wire so the spec-
 # defined phase distinction lives in event data, not in separate

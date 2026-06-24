@@ -234,9 +234,13 @@ class DFISlavePHY(BusMonitor):
             # without re-decoding the address.
             self._lpddr_args = _args
             return cmd
-        ras = _v(self.bus.ras_n)
-        cas = _v(self.bus.cas_n)
-        we  = _v(self.bus.we_n)
+        # Always decode phase 0. With DFI_RATE>1 the bus carries
+        # `{phase1, phase0}` bit-packed; phase 1 is held NOP by the MC
+        # for typical single-cmd-per-cycle traffic. _CMD_DECODE keys are
+        # single-bit (ras, cas, we), so mask each signal to its LSB.
+        ras = _v(self.bus.ras_n) & 1
+        cas = _v(self.bus.cas_n) & 1
+        we  = _v(self.bus.we_n)  & 1
         return _CMD_DECODE.get((ras, cas, we), DRAMCommand.NOP)
 
     def _handle_command(self, cmd: DRAMCommand) -> None:
@@ -323,31 +327,44 @@ class DFISlavePHY(BusMonitor):
         same cycle as the WR command. Both forms are valid; the slave
         accepts whichever arrives first.
         """
-        if _v(self.bus.wrdata_en) == 0:
+        wrdata_en_bits = _v(self.bus.wrdata_en)
+        if wrdata_en_bits == 0:
             return
-        if not self._pending_writes:
-            self.log.warning(
-                f"{self.title}: wrdata_en asserted but no pending write "
-                "— stray data beat?"
-            )
-            return
-        cycle = self.dram.cycle
-        op = self._pending_writes[0]
-        if op.due_cycle > cycle:
-            # MC is emitting wrdata early. Permitted on debug paths but
-            # log for visibility — the strict-mode warning lives here.
-            self.log.debug(
-                f"{self.title}: early wrdata at cycle {cycle} for op due "
-                f"{op.due_cycle} — committing immediately (debug-injector path)"
-            )
-        self._pending_writes.popleft()
-        data = _v(self.bus.wrdata)
-        mask = _v(self.bus.wrdata_mask)
-        ba = self.memory.integer_to_bytearray(data, self.bytes_per_beat)
-        # DFI mask convention: 1 means *don't* write that byte.
-        strobe = (~mask) & ((1 << self.bytes_per_beat) - 1)
-        self.memory.write(self._byte_addr(op.flat_addr), ba, strobe=strobe)
-        self.writes_committed += 1
+        # DFI_RATE>1: wrdata / wrdata_mask are bit-packed `{phase{N-1},
+        # …, phase0}` and wrdata_en has one bit per phase. Walk phases
+        # LSB→MSB, popping one pending write per active phase. This
+        # collapses cleanly to the original single-phase path when
+        # wrdata_en is 1 bit wide.
+        beat_bytes = self.bytes_per_beat
+        beat_bits  = beat_bytes * 8
+        full_data  = _v(self.bus.wrdata)
+        full_mask  = _v(self.bus.wrdata_mask)
+        for phase in range(wrdata_en_bits.bit_length()):
+            if (wrdata_en_bits >> phase) & 1 == 0:
+                continue
+            if not self._pending_writes:
+                self.log.warning(
+                    f"{self.title}: wrdata_en asserted on phase {phase} "
+                    "but no pending write — stray data beat?"
+                )
+                return
+            cycle = self.dram.cycle
+            op = self._pending_writes[0]
+            if op.due_cycle > cycle:
+                self.log.debug(
+                    f"{self.title}: early wrdata at cycle {cycle} for op "
+                    f"due {op.due_cycle} — committing immediately "
+                    "(debug-injector path)"
+                )
+            self._pending_writes.popleft()
+            data = (full_data >> (phase * beat_bits)) & ((1 << beat_bits) - 1)
+            mask = (full_mask >> (phase * beat_bytes)) & ((1 << beat_bytes) - 1)
+            ba = self.memory.integer_to_bytearray(data, beat_bytes)
+            # DFI mask convention: 1 means *don't* write that byte.
+            strobe = (~mask) & ((1 << beat_bytes) - 1)
+            self.memory.write(self._byte_addr(op.flat_addr), ba,
+                              strobe=strobe)
+            self.writes_committed += 1
 
     def _serve_reads(self) -> None:
         """Drive rddata + rddata_valid for one cycle when a read is due.
@@ -381,7 +398,10 @@ class DFISlavePHY(BusMonitor):
             self.dram.tick()
             self.base.tick()
 
-            if _v(self.bus.cs_n) == 0:
+            # DFI_RATE>1 packs `{phase1, phase0}`; phase 0 is the
+            # MC's primary command slot. cs_n active-low: bit 0 == 0
+            # selects the chip on phase 0.
+            if (_v(self.bus.cs_n) & 1) == 0:
                 cmd = self._decode_command()
                 if cmd != DRAMCommand.NOP:
                     self._handle_command(cmd)

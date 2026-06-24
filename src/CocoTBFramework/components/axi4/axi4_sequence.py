@@ -253,18 +253,22 @@ class AXI4Sequence:
         for _ in range(count):
             burst_bytes = rng.choices(sizes, weights=weights, k=1)[0]
             length = max(1, burst_bytes // self.bytes_per_beat)
-            # Pick an aligned address inside the range. Align the low bound UP
-            # and the high bound DOWN so the result is always aligned AND within
-            # [lo, hi - burst_bytes] (masking a raw pick could underflow lo).
+            # Pick an address that is (a) aligned, (b) within
+            # [lo, hi - burst_bytes], and (c) does NOT cross a 4KB AXI boundary.
+            # Aligning each burst to at least its own (power-of-two) size keeps it
+            # inside one size block; for sizes <= 4096 that is inside one 4KB page.
+            # Align the low bound UP and the high bound DOWN so masking a raw pick
+            # can never underflow lo.
             lo, hi = addr_range
-            aligned_lo = (lo + align_to - 1) & ~(align_to - 1)
-            usable_hi = (hi - burst_bytes) & ~(align_to - 1)
+            eff_align = max(align_to, burst_bytes)
+            aligned_lo = (lo + eff_align - 1) & ~(eff_align - 1)
+            usable_hi = (hi - burst_bytes) & ~(eff_align - 1)
             if usable_hi < aligned_lo:
                 raise ValueError(
                     f"addr_range {addr_range} too narrow for {burst_bytes}B "
-                    f"aligned to {align_to}")
-            n_slots = (usable_hi - aligned_lo) // align_to
-            addr = aligned_lo + align_to * rng.randrange(0, n_slots + 1)
+                    f"aligned to {eff_align}")
+            n_slots = (usable_hi - aligned_lo) // eff_align
+            addr = aligned_lo + eff_align * rng.randrange(0, n_slots + 1)
             is_write = (rng.random() < write_ratio)
             qos = rng.choice(qos_choices)
             axid = rng.choice(id_choices)
@@ -362,6 +366,18 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
              else None)
 
     for idx, burst in enumerate(seq.bursts):
+        # Fail fast on configuration errors (no master wired for this direction)
+        # — these are programmer errors, not per-burst DUT failures, so they must
+        # propagate rather than be swallowed into result["error"].
+        if burst.is_write and master_wr is None:
+            raise RuntimeError(
+                f"sequence {seq.name!r} has write at idx {idx} but "
+                f"no master_wr provided")
+        if not burst.is_write and master_rd is None:
+            raise RuntimeError(
+                f"sequence {seq.name!r} has read at idx {idx} but "
+                f"no master_rd provided")
+
         if burst.delay_cycles and clock is not None:
             for _ in range(burst.delay_cycles):
                 await RisingEdge(clock)
@@ -378,10 +394,6 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
         }
         try:
             if burst.is_write:
-                if master_wr is None:
-                    raise RuntimeError(
-                        f"sequence {seq.name!r} has write at idx {idx} but "
-                        f"no master_wr provided")
                 wr = await master_wr.write_transaction(
                     burst.addr, burst.data, burst_len=burst.length,
                     id=burst.axid, qos=burst.qos, size=burst.size,
@@ -395,10 +407,6 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
                         f"write_transaction failed: {wr.get('error', 'unknown')}")
                 result["data"] = list(burst.data)
             else:
-                if master_rd is None:
-                    raise RuntimeError(
-                        f"sequence {seq.name!r} has read at idx {idx} but "
-                        f"no master_rd provided")
                 data = await master_rd.read_transaction(
                     burst.addr, burst_len=burst.length,
                     id=burst.axid, qos=burst.qos, size=burst.size,

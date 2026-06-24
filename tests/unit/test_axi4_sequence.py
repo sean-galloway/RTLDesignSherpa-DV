@@ -219,3 +219,52 @@ def test_runner_missing_master_raises():
     seq.add_write(0x0, [1])
     with pytest.raises(RuntimeError):
         asyncio.run(run_axi4_sequence(seq, master_wr=None))
+
+
+# ---------------------------------------------------------------------------
+# Cleanups: strb-per-bus, filter stats, shuffle chaining, row_miss data, async cb
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("dw,strb", [(32, 0xF), (64, 0xFF), (128, 0xFFFF)])
+def test_add_write_strb_tracks_bus_width(dw, strb):
+    seq = AXI4Sequence(data_width=dw)
+    seq.add_write(0x0, [1, 2])
+    assert seq.bursts[0].strb == strb
+
+
+def test_filter_recomputes_stats():
+    seq = AXI4Sequence(data_width=64, seed=1)
+    seq.add_random_workload(30, tag="random")
+    seq.add_row_miss_pair(0x4_0000)                 # 2 writes, tag row_miss
+    clean = seq.filter(lambda b: b.tag != "row_miss")
+    assert clean.stats["writes"] + clean.stats["reads"] == len(clean)
+    assert clean.stats["row_miss_pairs"] == 0
+    assert clean.stats["random_bursts"] == 30
+
+
+def test_shuffle_returns_self_for_chaining():
+    seq = AXI4Sequence(data_width=64, seed=2)
+    seq.add_random_workload(10)
+    assert seq.shuffle() is seq
+
+
+def test_row_miss_pair_uses_gen_data_and_data_fn():
+    seq = AXI4Sequence(data_width=64)
+    i0, _ = seq.add_row_miss_pair(0x1000, burst_bytes=64)
+    # default write data is address-derived (_gen_data), not a literal fill
+    assert seq.bursts[i0].data == seq._gen_data(seq.bursts[i0].length, 0x1000, 0, None)
+    seq2 = AXI4Sequence(data_width=64)
+    j0, _ = seq2.add_row_miss_pair(0x1000, burst_bytes=64, data_fn=lambda a, i: 0xC0DE)
+    assert all(v == 0xC0DE for v in seq2.bursts[j0].data)
+
+
+def test_async_on_burst_is_awaited():
+    seen = []
+
+    async def cb(idx, burst, result):
+        seen.append(idx)
+
+    seq = AXI4Sequence(data_width=64)
+    seq.add_write(0x0, [1])
+    seq.add_write(0x40, [2])
+    asyncio.run(run_axi4_sequence(seq, master_wr=_MockWr(), on_burst=cb))
+    assert seen == [0, 1]

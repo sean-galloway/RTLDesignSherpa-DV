@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-23
+
 This release lands the DDR PHY Interface (DFI) BFM for spec versions
 2.1 through 5.x — the per-version Strategy + Registry behavior
 architecture, all eight semantic-shift areas plumbed end-to-end against
@@ -10,6 +12,103 @@ the slave-side BFM uses to model DRAM behavior. The design pressure-
 test that preceded the implementation lives in
 `docs/internal/dfi-semantic-shifts.md`; the architecture is documented
 in commit messages as it landed.
+
+It also lands the LPDDR2/3 CA-bus encoding for both BFM sides, the
+LiteDRAM ↔ DFI BFM co-sim end-to-end (with sampler + phase adapter
+unit-tested under issue #16), an AXI4 directed-random sequence
+authoring layer (issue #20), and a critical `DFISlavePHY`
+`DFI_RATE>1` fix that pre-0.3.0 silently dropped every multi-phase
+command on the bus (issue #21).
+
+### Fixed — DFISlavePHY DFI_RATE>1 decode (issue #21)
+
+**Critical bug.** Pre-0.3.0 the slave-side BFM gated decode on
+`_v(cs_n) == 0`, which is only true when *all* phases are selected.
+For typical single-cmd-per-cycle traffic at `DFI_RATE=2` the bus has
+`cs_n = 2'b10 = 2` and the decode never ran. The downstream
+`_decode_command` further looked up `ras_n / cas_n / we_n` as full
+integers (e.g. `2'b11 = 3`) against single-bit decode keys, so even
+when decode *did* run every real command silently mapped to NOP. On
+top of that, `_serve_writes` read the whole multi-phase wrdata bus as
+one beat and overflowed `bytes_per_beat` on commit.
+
+Net effect: any MC driving the bus at `DFI_RATE>1` saw the BFM
+appear idle. Writes "succeeded" upstream because the MC's internal
+`b_complete` fires independent of any PHY ack, but the BFM memory
+model never saw the data. Fresh reads hung indefinitely.
+
+Commits **f8045d7** + **199835f**:
+
+- `cs_n` gate is now `(cs_n & 1) == 0` (phase-0 select).
+- `_decode_command` masks each control signal to its LSB before the
+  lookup.
+- `_serve_writes` walks `wrdata_en` LSB→MSB, popping one pending
+  write per active phase, slicing the per-phase data/mask out of the
+  packed bus.
+- Refactored the two masking concerns into pure helpers
+  `decode_phase0_cmd(ras_n, cas_n, we_n)` and
+  `slice_phase_wrdata(full_wrdata, full_mask, wrdata_en_bits,
+  beat_bytes)` so they can be unit-tested independently.
+- Added `tests/unit/test_dfi_slave_phase_masking.py` — 17 unit tests
+  covering `DFI_RATE=1` (sanity) and `DFI_RATE=2/4` (regression). Any
+  future revert of the masking is caught at unit level, not at the
+  consumer.
+
+`tests/unit/` went from 469 → 486 passing.
+
+### Added — AXI4Sequence + run_axi4_sequence (issue #20)
+
+`src/CocoTBFramework/components/axi4/axi4_sequence.py` — a deferred-
+execution authoring layer above `AXI4MasterWrite` / `AXI4MasterRead`.
+Author canned sequences once (e.g. "random base, then row-hit
+follow-ons" or "spray across all banks") in an include module; tests
+then pick among them with `FlexRandomizer` and exclude broken ones
+until bugs are fixed.
+
+Design philosophy mirrors `GAXISequence`:
+
+- The sequence is **data**, not coroutines. Each entry is an
+  `AXI4Burst` describing one bus transaction.
+- Execution is a single async function `run_axi4_sequence(seq, ...)`
+  that walks the list. Sequences can be regenerated, shuffled, or
+  composed without re-authoring the runner.
+
+DDR/SDRAM-aware helpers built in:
+
+- `add_row_hit_burst` — random base then N follow-on column
+  increments inside the same row.
+- `add_bank_spray` — N bursts across N banks at the same row.
+- `add_row_miss_pair` — back-to-back bursts to the same bank but
+  different rows (forces PRE→ACT).
+- `add_random_workload` — RNG-driven mix using configurable
+  W:R / size distributions (the standard "60/40 with
+  128B/256B/512B/1024B at 20/20/40/20" pattern).
+
+Cleanup commits along the way:
+- **ed3234d** surface write failures; workload alignment + gen_data
+  stride fix.
+- **efb52a5** 4KB-safe random bursts; fail-fast on missing master.
+- **54803a8** MEDIUM/LOW review-item cleanups.
+- **3b89324** `docs/AXI4_SEQUENCES.md`.
+- **444ac55** + **0491b69** unit tests for builders + runner +
+  MEDIUM/LOW coverage.
+
+### Added — LPDDR2/3 CA-bus encoding (commit 20fb5fc)
+
+Both BFM sides (master + slave) now encode and decode the LPDDR2/3
+command-address bus per JESD209-2/3 Table 35 + 36. Driven by the
+`memory_type` selector on `DFIBase`; the existing DDR2/3/4 path is
+unchanged.
+
+### Added — LiteDRAM ↔ DFI BFM co-sim (issue #16)
+
+Real LiteDRAM-emitted DFI traffic now flows through the BFM end-to-
+end. Validated across SDR / DDR2 / DDR4 at every supported gear ratio
+(commit **db8e20a**), with a dual-clock co-sim harness (commit
+**7ace9f3**) where `phy_clk = 4 * mc_clk` for the 1:4 gear. Slave
+wrdata FIFO matching fix in **1edb8b5**. Medium-stress soak (full
+command coverage on all 4 phases) in **b191cc4**. Cross-validation
+of DFI version envelopes v3.1 through v5.2 in **fdef730**.
 
 ### Added — DFI BFM (issue #16)
 

@@ -316,14 +316,19 @@ class DFISlavePHY(BusMonitor):
             base_col = addr & self._col_mask
             open_row = self.dram.banks[bank].row or 0
             # Queue N consecutive beats at (col, col+1, …, col+N-1).
-            # Each beat lands one DFI cycle after the previous.
+            # With DFI_RATE > 1 the MC packs DFI_RATE DRAM beats per DFI
+            # cycle, so beats in the same group share a due_cycle. Use
+            # the rddata bus width to derive DFI_RATE without a new ctor
+            # parameter.
+            dfi_rate = self._infer_dfi_rate()
             for k in range(beats):
                 col_k = base_col + k
                 if col_k >= self.mapping.num_cols:
                     break  # don't wrap past the row end for now
                 flat = self.mapping.tuple_to_flat(0, bank, open_row, col_k)
                 self._pending_reads.append(
-                    _PendingOp(due_cycle=cycle + cl + k, flat_addr=flat)
+                    _PendingOp(due_cycle=cycle + cl + (k // dfi_rate),
+                               flat_addr=flat)
                 )
             if addr & (1 << 10):
                 self._pending_auto_pre(bank)
@@ -331,13 +336,15 @@ class DFISlavePHY(BusMonitor):
             self.dram.on_write(bank_idx=bank)
             base_col = addr & self._col_mask
             open_row = self.dram.banks[bank].row or 0
+            dfi_rate = self._infer_dfi_rate()
             for k in range(beats):
                 col_k = base_col + k
                 if col_k >= self.mapping.num_cols:
                     break
                 flat = self.mapping.tuple_to_flat(0, bank, open_row, col_k)
                 self._pending_writes.append(
-                    _PendingOp(due_cycle=cycle + cwl + k, flat_addr=flat)
+                    _PendingOp(due_cycle=cycle + cwl + (k // dfi_rate),
+                               flat_addr=flat)
                 )
             if addr & (1 << 10):
                 self._pending_auto_pre(bank)
@@ -398,12 +405,25 @@ class DFISlavePHY(BusMonitor):
                               strobe=strobe)
             self.writes_committed += 1
 
+    def _infer_dfi_rate(self) -> int:
+        """Derive DFI_RATE from the rddata bus width. With one DRAM beat
+        = bytes_per_beat bytes, the bus carries DFI_RATE such beats."""
+        beat_bits = self.bytes_per_beat * 8
+        try:
+            rddata_total_bits = len(self.bus.rddata)
+        except TypeError:
+            rddata_total_bits = beat_bits
+        return max(1, rddata_total_bits // beat_bits)
+
     def _serve_reads(self) -> None:
         """Drive rddata + rddata_valid for one cycle when a read is due.
 
-        Reads serialize behind any pending writes — if a write at the
-        same cycle hasn't committed yet, the read holds until the next
-        servicing pass.
+        Packs up to DFI_RATE pending reads into one DFI cycle, mirroring
+        how the MC packs wrdata: phase 0 in the low DRAM beat slot,
+        phase 1 in the next, ..., with rddata_valid bit `k` set for
+        each populated phase. Reads serialize behind any pending writes —
+        if a write at the same cycle hasn't committed yet, the read
+        holds until the next servicing pass.
         """
         cycle = self.dram.cycle
         # Hold back if a write at <= this cycle is still pending — that
@@ -412,12 +432,33 @@ class DFISlavePHY(BusMonitor):
             self.bus.rddata_valid.value = 0
             return
 
-        if self._pending_reads and self._pending_reads[0].due_cycle <= cycle:
+        # Derive DFI_RATE from the actual rddata bus width vs one DRAM
+        # beat. The MC expects packed reads when DFI_RATE > 1, so we pop
+        # that many pending reads (provided they're all due) per cycle.
+        beat_bits = self.bytes_per_beat * 8
+        try:
+            rddata_total_bits = len(self.bus.rddata)
+        except TypeError:
+            rddata_total_bits = beat_bits
+        dfi_rate = max(1, rddata_total_bits // beat_bits)
+
+        packed_data = 0
+        packed_valid = 0
+        for phase in range(dfi_rate):
+            if not (self._pending_reads
+                    and self._pending_reads[0].due_cycle <= cycle):
+                break
             op = self._pending_reads.popleft()
-            ba = self.memory.read(self._byte_addr(op.flat_addr), self.bytes_per_beat)
-            self.bus.rddata.value = self.memory.bytearray_to_integer(ba)
-            self.bus.rddata_valid.value = 1
+            ba = self.memory.read(self._byte_addr(op.flat_addr),
+                                  self.bytes_per_beat)
+            beat_data = self.memory.bytearray_to_integer(ba)
+            packed_data |= (beat_data & ((1 << beat_bits) - 1)) << (phase * beat_bits)
+            packed_valid |= (1 << phase)
             self.reads_served += 1
+
+        if packed_valid:
+            self.bus.rddata.value = packed_data
+            self.bus.rddata_valid.value = packed_valid
         else:
             self.bus.rddata_valid.value = 0
 

@@ -448,3 +448,211 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
                  seq.name, len(results), n_err)
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Engine-style runner — bypasses write_transaction / read_transaction's
+# per-burst lock + response-wait. Queues every AW back-to-back at the
+# aw_channel level, every W beat at the w_channel level, and collects B
+# / R responses asynchronously. Mirrors the bus behavior of
+# axi4_master_wr_pattern_gen / axi4_master_rd_crc_check RTL engines:
+# one AW per cycle, W beats streaming on a parallel channel,
+# responses collected from the per-id callback queues.
+# ---------------------------------------------------------------------------
+
+
+async def run_axi4_sequence_engine(
+    seq: AXI4Sequence, *, master_wr=None, master_rd=None, log=None,
+    timeout_cycles: int = 1_000_000,
+) -> List[Dict]:
+    """Engine-style runner. Same return contract as ``run_axi4_sequence``.
+
+    Use this when the test must reproduce engine RTL traffic exactly
+    (e.g. NexysA7 kb4 / kb32 patterns). The default
+    ``run_axi4_sequence`` walks bursts sequentially via
+    ``write_transaction`` / ``read_transaction``, which acquires a
+    per-instance AW+W lock and awaits the B response before the next
+    burst — so consecutive AWs are separated by ~5-15 cycles. The
+    engine RTL drives one AW per cycle regardless of W/B state. This
+    runner drops the lock + response-wait and queues directly via
+    ``aw_channel._driver_send`` (queue-and-go primitive that the
+    GAXIMaster transmit pipeline drains back-to-back).
+
+    Writes: all AW packets queued in order, all W beats queued, B
+    responses awaited at the end.
+
+    Reads: all AR packets queued in order, R beats per-id collected
+    at the end.
+
+    Reads and writes can coexist in one sequence (engine-style is
+    write-first-then-read by default).
+    """
+    from cocotb.triggers import RisingEdge
+
+    clock = (master_wr.clock if master_wr is not None
+             else master_rd.clock if master_rd is not None
+             else None)
+
+    # Pre-build result skeleton in burst order so callers can index back.
+    results: List[Dict] = []
+    for burst in seq.bursts:
+        results.append({
+            "is_write": burst.is_write, "addr": burst.addr,
+            "length": burst.length, "axid": burst.axid, "qos": burst.qos,
+            "tag": burst.tag, "data": None, "error": None,
+        })
+
+    writes = [(i, b) for i, b in enumerate(seq.bursts) if b.is_write]
+    reads  = [(i, b) for i, b in enumerate(seq.bursts) if not b.is_write]
+
+    if writes and master_wr is None:
+        raise RuntimeError(
+            f"sequence {seq.name!r} has writes but master_wr is None")
+    if reads and master_rd is None:
+        raise RuntimeError(
+            f"sequence {seq.name!r} has reads but master_rd is None")
+
+    # --- WRITE PHASE ---
+    if writes:
+        # Build all AW + W packets up front.
+        aw_to_send = []
+        ws_to_send = []
+        for idx, burst in writes:
+            aw_pkt = master_wr.aw_channel.create_packet(
+                addr=burst.addr,
+                len=burst.length - 1,
+                id=burst.axid,
+                size=burst.size,
+                burst=burst.burst_type,
+                qos=burst.qos,
+            )
+            aw_to_send.append((idx, burst, aw_pkt))
+            for k, d in enumerate(burst.data or []):
+                w_pkt = master_wr.w_channel.create_packet(
+                    data=d,
+                    last=1 if k == burst.length - 1 else 0,
+                    strb=burst.strb,
+                )
+                ws_to_send.append(w_pkt)
+
+        # Queue every AW back-to-back. _driver_send is the underlying
+        # queue-and-go (appends to transmit_queue, starts the pipeline if
+        # not running, returns immediately). The pipeline drains as the
+        # downstream's awready allows — one AW per cycle when ready.
+        for _, _, aw in aw_to_send:
+            await master_wr.aw_channel._driver_send(aw)
+        # Same for W beats.
+        for w in ws_to_send:
+            await master_wr.w_channel._driver_send(w)
+
+        # Wait for AW + W queues to fully drain.
+        cycles_waited = 0
+        while (master_wr.aw_channel.transmit_coroutine is not None or
+               master_wr.w_channel.transmit_coroutine is not None):
+            await RisingEdge(clock)
+            cycles_waited += 1
+            if cycles_waited > timeout_cycles:
+                raise TimeoutError(
+                    f"engine-style WR drain: AW/W queues not empty "
+                    f"after {timeout_cycles} cycles")
+
+        # Wait for all B responses (one per write burst, keyed by id).
+        from collections import Counter
+        expected_b_per_id = Counter(b.axid for _, b in writes)
+        cycles_waited = 0
+        while True:
+            done = all(
+                len(master_wr._response_by_id.get(axid, ())) >= expected
+                for axid, expected in expected_b_per_id.items()
+            )
+            if done:
+                break
+            await RisingEdge(clock)
+            cycles_waited += 1
+            if cycles_waited > timeout_cycles:
+                missing = {
+                    axid: expected - len(master_wr._response_by_id.get(axid, ()))
+                    for axid, expected in expected_b_per_id.items()
+                    if len(master_wr._response_by_id.get(axid, ())) < expected
+                }
+                raise TimeoutError(
+                    f"engine-style WR B-wait: {missing} short after "
+                    f"{timeout_cycles} cycles")
+
+        # Drain B responses + populate results
+        for idx, burst in writes:
+            b_pkt = master_wr._response_by_id[burst.axid].popleft()
+            results[idx]["data"] = list(burst.data or [])
+            if hasattr(b_pkt, "resp") and b_pkt.resp != 0:
+                results[idx]["error"] = f"BRESP={b_pkt.resp}"
+
+    # --- READ PHASE ---
+    if reads:
+        ar_to_send = []
+        for idx, burst in reads:
+            ar_pkt = master_rd.ar_channel.create_packet(
+                addr=burst.addr,
+                len=burst.length - 1,
+                id=burst.axid,
+                size=burst.size,
+                burst=burst.burst_type,
+                qos=burst.qos,
+            )
+            ar_to_send.append((idx, burst, ar_pkt))
+
+        for _, _, ar in ar_to_send:
+            await master_rd.ar_channel._driver_send(ar)
+
+        cycles_waited = 0
+        while master_rd.ar_channel.transmit_coroutine is not None:
+            await RisingEdge(clock)
+            cycles_waited += 1
+            if cycles_waited > timeout_cycles:
+                raise TimeoutError(
+                    f"engine-style RD drain: AR queue not empty after "
+                    f"{timeout_cycles} cycles")
+
+        # Wait for all R beats (per AR's length, keyed by id).
+        # AXI4 guarantees same-id R beats arrive in AR-issue order.
+        from collections import defaultdict
+        expected_r_per_id: Dict[int, int] = defaultdict(int)
+        for _, burst in reads:
+            expected_r_per_id[burst.axid] += burst.length
+
+        cycles_waited = 0
+        while True:
+            done = all(
+                len(master_rd._response_by_id.get(axid, ())) >= expected
+                for axid, expected in expected_r_per_id.items()
+            )
+            if done:
+                break
+            await RisingEdge(clock)
+            cycles_waited += 1
+            if cycles_waited > timeout_cycles:
+                missing = {
+                    axid: expected - len(master_rd._response_by_id.get(axid, ()))
+                    for axid, expected in expected_r_per_id.items()
+                    if len(master_rd._response_by_id.get(axid, ())) < expected
+                }
+                raise TimeoutError(
+                    f"engine-style RD R-wait: {missing} beats short "
+                    f"after {timeout_cycles} cycles")
+
+        # Pop beats per AR (same-id in-order), populate results.
+        for idx, burst, _ in ar_to_send:
+            id_queue = master_rd._response_by_id[burst.axid]
+            beats = []
+            for _ in range(burst.length):
+                r_pkt = id_queue.popleft()
+                beats.append(getattr(r_pkt, "data", 0))
+                if hasattr(r_pkt, "resp") and r_pkt.resp != 0:
+                    results[idx]["error"] = f"RRESP={r_pkt.resp}"
+            results[idx]["data"] = beats
+
+    if log is not None:
+        n_err = sum(1 for r in results if r["error"])
+        log.info("AXI4Sequence (engine) %r: %d bursts (%d errors)",
+                 seq.name, len(results), n_err)
+
+    return results

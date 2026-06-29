@@ -1116,6 +1116,27 @@ class AXI4SlaveWrite:
                             transaction_id = tid
                         break  # Only check first incomplete txn per ID
 
+        # Bug fix: pending_transactions is non-empty but contains only
+        # complete-pending-cleanup entries (their completion tasks haven't
+        # yet removed them from the list, and the next AW hasn't arrived
+        # under stalled awready). Without this branch, the FIFO matching
+        # below silently drops the W beat. Treat it as orphaned so
+        # _match_orphaned_w_packets picks it up when the next AW lands.
+        if transaction_id is None and self.pending_transactions:
+            if self.log:
+                self.log.debug(
+                    "AXI4SlaveWrite: pending list has only complete-"
+                    "pending-cleanup txns (keys=%s); routing W to orphan "
+                    "path for next AW",
+                    list(self.pending_transactions.keys()),
+                )
+            self.orphaned_w_packets.append(w_packet)
+            if is_last:
+                self.w_transaction_queue.append(
+                    self.orphaned_w_packets.copy())
+                self.orphaned_w_packets.clear()
+            return
+
         # Debug: Log when W packet arrives but no transaction available
         if transaction_id is None and self.log:
             self.log.warning(f"AXI4SlaveWrite: W packet arrived but no pending transactions! "

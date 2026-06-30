@@ -497,6 +497,24 @@ class FlexRandomizer:
             self._apply_constraints()
             return {delay_name: getattr(self, delay_name) for delay_name in self.constraints}
 
+    def get_delay(self, delay_name: str) -> Any:
+        """Generate and return the next value for a single named delay field.
+
+        Convenience wrapper around next() for consumers (e.g. AXIS master/slave
+        BFMs) that request one delay field per beat rather than the whole dict.
+        Intended for single-field randomizers (e.g. {'valid_delay': ...} or
+        {'ready_delay': ...}); for multi-field randomizers, prefer next() so all
+        fields advance together exactly once per cycle.
+
+        Args:
+            delay_name: Name of the delay field to retrieve.
+
+        Returns:
+            The freshly generated value for that field, or 0 if it is not
+            defined in this randomizer's constraints.
+        """
+        return self.next().get(delay_name, 0)
+
     def set_sequence(self, delay_name: str, sequence: List[Any]) -> None:
         """Set a looping sequence for a specific delay field.
 

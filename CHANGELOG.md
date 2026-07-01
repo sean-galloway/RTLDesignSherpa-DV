@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-30
+
+Bug-fix + small-feature release building on 0.3.0. Adds an
+engine-faithful pipelined AXI4 sequence runner, fixes a W-beat drop
+in `AXI4SlaveWrite` under stall, corrects DFI `DFI_RATE>1` beat
+packing on both read and write paths, and adds a single-field
+`get_delay()` convenience wrapper to `FlexRandomizer`.
+
+### Added
+
+- **`run_axi4_sequence_engine`** — engine-faithful pipelined runner for
+  `AXI4Sequence` (issue #24). Where the existing `run_axi4_sequence`
+  drives bursts serially, the new runner mirrors the engine's
+  behavior: multiple outstanding transactions in flight, AR/AW
+  pipelined ahead of R/B completions, per-burst tracking so ordering
+  and burst boundaries stay observable to the scoreboard. Same
+  authoring surface (`AXI4Burst` / `AXI4Sequence`) — swap the runner
+  to switch modes.
+- **`FlexRandomizer.get_delay(field)`** — single-field convenience
+  wrapper that returns just the resolved delay for one named field
+  without materializing the full randomization dict. Cuts boilerplate
+  in call-sites that only need one value.
+
+### Fixed
+
+- **`AXI4SlaveWrite` drops W beats under stall (issue #23).** When the
+  pending-write list only contained entries in the
+  complete-pending-cleanup state, the W-channel callback took a fast
+  return path that discarded incoming W beats instead of buffering
+  them against the next AW. Under bursty writer traffic with slow
+  scoreboard drain, this manifested as truncated bursts and CRC
+  mismatches downstream. Callback now defers cleanup until after any
+  in-flight W beats are queued against their AW.
+- **DFI `DFI_RATE>1` beat packing on both directions (issue #22).**
+  Follow-on to the G-01a decode fix in 0.3.0: reads and writes on
+  `DFI_RATE>1` buses now pack the correct number of DRAM beats per
+  DFI cycle instead of committing a single beat per cycle. Multi-beat
+  AXI bursts through the LPDDR2/3 controller no longer return
+  trailing `0x0`. Regression test pins the per-phase pack/slice
+  contract for both directions.
+
 ## [0.3.0] - 2026-06-23
 
 This release lands the DDR PHY Interface (DFI) BFM for spec versions

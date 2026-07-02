@@ -67,6 +67,13 @@ class MemoryModel:
             self.mem = np.zeros(self.size, dtype=np.uint8)
             self.preset_values = np.zeros(self.size, dtype=np.uint8)
 
+        # Cached: is preset_values entirely zero? Used by read() to decide whether
+        # to warn on uninitialized reads. This is loop-invariant, so it is computed
+        # once here (previously np.all(preset_values == 0) was recomputed for every
+        # byte of every read -- O(length * size) per read, which dominated wall-time
+        # on wide (e.g. 512-bit) buses). Recomputed in expand().
+        self._preset_all_zero = not bool(self.preset_values.any())
+
         # Access tracking for diagnostics
         self.read_access_map = np.zeros(self.size, dtype=np.uint32)  # Count reads per address
         self.write_access_map = np.zeros(self.size, dtype=np.uint32)  # Count writes per address
@@ -167,15 +174,19 @@ class MemoryModel:
             self.stats['boundary_violations'] += 1
             raise ValueError(f"Read at address 0x{address:X} with size {length} exceeds memory bounds (size: {self.size})")
 
-        # Update read access map
-        for i in range(length):
-            self.read_access_map[address + i] += 1
+        # Update read access map (vectorized)
+        self.read_access_map[address:address + length] += 1
 
-            # Check for uninitialized memory (if all preset values were zero)
-            if np.all(self.preset_values == 0) and self.write_access_map[address + i] == 0:
+        # Warn on reads of never-written memory, but only when the preset image was
+        # all zero (cached flag). The all-zero test is loop-invariant; evaluating it
+        # per byte previously made read() O(length * size).
+        if self._preset_all_zero:
+            unwritten = np.flatnonzero(self.write_access_map[address:address + length] == 0)
+            if unwritten.size:
+                self.stats['uninitialized_reads'] += int(unwritten.size)
                 if self.log:
-                    self.log.warning(f"Reading uninitialized memory at address 0x{address + i:X}")
-                self.stats['uninitialized_reads'] += 1
+                    for off in unwritten:
+                        self.log.warning(f"Reading uninitialized memory at address 0x{address + int(off):X}")
 
         # Update statistics
         self.stats['reads'] += 1
@@ -218,6 +229,9 @@ class MemoryModel:
         # Expand memory
         self.mem = np.append(self.mem, np.zeros(additional_size, dtype=np.uint8))
         self.preset_values = np.append(self.preset_values, np.zeros(additional_size, dtype=np.uint8))
+
+        # Appending zeros cannot change all-zero-ness, but recompute to stay correct.
+        self._preset_all_zero = not bool(self.preset_values.any())
 
         # Expand access maps
         self.read_access_map = np.append(self.read_access_map, np.zeros(additional_size, dtype=np.uint32))

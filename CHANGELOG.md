@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-02
+
+Performance fix release.
+
+### Fixed
+
+- **`MemoryModel.read` O(length × size) → O(length)** (issue #26). `read()`
+  evaluated a loop-invariant `np.all(preset_values == 0)` inside its per-byte
+  loop, re-scanning the entire memory-sized `preset_values` array on every byte
+  of every read. Since BFM slaves call `read()` per beat and `length =
+  data_width/8`, wall-time blew up super-linearly with bus width. The all-zero
+  test is now cached once (`_preset_all_zero`, recomputed in `expand()`) and the
+  per-byte loop is vectorized; stats/warning behavior is unchanged. Impact:
+  `stream_core` dw512 config 2h28m→9.28s; DDR2 core-macro `depth_n128`
+  >400s (timeout)→9.82s. Speeds up every test using `MemoryModel`, most on wide
+  buses.
+
 ## [0.4.0] - 2026-06-30
 
 Bug-fix + small-feature release building on 0.3.0. Adds an

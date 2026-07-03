@@ -483,6 +483,7 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
 async def run_axi4_sequence_engine(
     seq: AXI4Sequence, *, master_wr=None, master_rd=None, log=None,
     timeout_cycles: int = 1_000_000,
+    raise_on_error: bool = False,
 ) -> List[Dict]:
     """Engine-style runner. Same return contract as ``run_axi4_sequence``.
 
@@ -673,5 +674,14 @@ async def run_axi4_sequence_engine(
         n_err = sum(1 for r in results if r["error"])
         log.info("AXI4Sequence (engine) %r: %d bursts (%d errors)",
                  seq.name, len(results), n_err)
+
+    if raise_on_error:
+        errs = [(i, r["error"]) for i, r in enumerate(results)
+                if r["error"] is not None]
+        if errs:
+            raise RuntimeError(
+                f"AXI4Sequence (engine) {seq.name!r}: "
+                f"{len(errs)}/{len(results)} burst(s) errored: {errs}"
+            )
 
     return results

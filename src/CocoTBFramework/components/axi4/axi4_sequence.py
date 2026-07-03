@@ -361,7 +361,8 @@ class AXI4Sequence:
 
 async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
                             master_rd=None, log=None,
-                            on_burst=None) -> List[Dict]:
+                            on_burst=None,
+                            raise_on_error: bool = False) -> List[Dict]:
     """Execute every burst in `seq` against the provided masters.
 
     Returns one result dict per burst: `{is_write, addr, length, axid,
@@ -373,6 +374,15 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
 
     Raises if a write burst arrives while `master_wr` is None, or
     a read burst arrives while `master_rd` is None.
+
+    If `raise_on_error=True`, any burst that raised (e.g. read
+    TimeoutError, write BFM failure) will be re-raised as a
+    RuntimeError with the sequence's per-burst error strings after
+    the sequence completes. Recommended for tests that would
+    otherwise silently discard `result["error"]` by reading only
+    `result["data"]` — that pattern buries real BFM errors behind
+    downstream NoneType-shaped exceptions (see the #31
+    patho_bl256_n1 diagnosis for a worked example).
     """
     from cocotb.triggers import RisingEdge
 
@@ -446,6 +456,15 @@ async def run_axi4_sequence(seq: AXI4Sequence, *, master_wr=None,
         n_err = sum(1 for r in results if r["error"])
         log.info("AXI4Sequence %r: %d bursts (%d errors)",
                  seq.name, len(results), n_err)
+
+    if raise_on_error:
+        errs = [(i, r["error"]) for i, r in enumerate(results)
+                if r["error"] is not None]
+        if errs:
+            raise RuntimeError(
+                f"AXI4Sequence {seq.name!r}: {len(errs)}/{len(results)} "
+                f"burst(s) errored: {errs}"
+            )
 
     return results
 

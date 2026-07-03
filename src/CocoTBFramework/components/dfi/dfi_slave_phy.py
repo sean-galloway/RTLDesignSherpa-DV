@@ -356,10 +356,29 @@ class DFISlavePHY(BusMonitor):
         # MRS / NOP: ignored for MVP (just kept in cmd_counts)
 
     def _pending_auto_pre(self, bank: int) -> None:
-        # MVP: defer the auto-precharge accounting until the BFM grows a
-        # proper post-data scheduler. For now log it so it's not silently
-        # dropped — full handling lands when multi-beat bursts arrive.
-        self.log.debug(f"{self.title}: auto-precharge requested for bank {bank}")
+        """Auto-precharge: close the bank so a subsequent ACT to the same
+        bank (different row) succeeds.
+
+        Correct JEDEC semantics would defer the precharge until BL/2 cycles
+        after the last data beat (WRITE) or CL cycles after the read data
+        (READ). Since `_handle_command` captures `flat_addr` at CMD-time
+        from the current `.row`, and `_pending_writes` / `_pending_reads`
+        carry those flats forward independently of subsequent bank state,
+        firing the precharge here (immediately after the command) is
+        functionally equivalent: pending ops resolve against the row
+        that was open at CMD-time, and the bank is now free to accept a
+        fresh ACT — which is exactly what the controller expects from
+        WRA / RDA.
+
+        Prior behavior: this was a debug-log-only stub. Every same-bank
+        different-row sequence stayed pinned on the first ACT'd row —
+        the whole D-2 pathological pattern matrix tripped on this
+        (RTLDesignSherpa#33).
+        """
+        self.dram.on_precharge(bank_idx=bank)
+        self.log.debug(
+            f"{self.title}: auto-precharge applied for bank {bank}"
+        )
 
     # ----- Pending operation servicing -----
 

@@ -153,6 +153,8 @@ class DFISlavePHY(BusMonitor):
         memory: MemoryModel,
         side: str = "phy",
         title: Optional[str] = None,
+        strict_write_timing: bool = False,
+        write_latency: int = 0,
         **kwargs,
     ):
         if side != "phy":
@@ -186,6 +188,20 @@ class DFISlavePHY(BusMonitor):
         # write is still draining.
         self._pending_reads: Deque[_PendingOp] = deque()
         self._pending_writes: Deque[_PendingOp] = deque()
+
+        # Strict write-timing mode (opt-in). The default BFM is lenient: it
+        # FIFO-commits each write beat on ANY wrdata_en cycle, so a controller
+        # that presents wrdata late still "writes" — hiding real DFI write-
+        # timing bugs (the a7ddrphy requires wrdata CONCURRENT with the WR
+        # command per write_latency; late data is dropped by real DRAM). In
+        # strict mode we instead SAMPLE dfi_wrdata off the wire at exactly
+        # command_cycle + write_latency (+ beat offset) — like real DRAM
+        # latching its DQ window — regardless of wrdata_en. A controller whose
+        # wrdata is late samples zeros/garbage there -> read-back mismatch,
+        # faithfully reproducing on-silicon behavior.
+        self._strict_write_timing = bool(strict_write_timing)
+        self._write_latency = int(write_latency)
+        self._write_captures: Deque[_PendingOp] = deque()
 
         # Error-interface event queue. Populated by the per-version
         # behavior class when bus.error indicates a PHY-driven error.
@@ -342,10 +358,19 @@ class DFISlavePHY(BusMonitor):
                 if col_k >= self.mapping.num_cols:
                     break
                 flat = self.mapping.tuple_to_flat(0, bank, open_row, col_k)
-                self._pending_writes.append(
-                    _PendingOp(due_cycle=cycle + cwl + (k // dfi_rate),
-                               flat_addr=flat)
-                )
+                if self._strict_write_timing:
+                    # Real DRAM samples its DQ window at a fixed offset from the
+                    # WR command (DFI write_latency), NOT whenever wrdata_en
+                    # happens to fire. Schedule the capture cycle-exactly.
+                    self._write_captures.append(
+                        _PendingOp(due_cycle=cycle + self._write_latency
+                                   + (k // dfi_rate), flat_addr=flat)
+                    )
+                else:
+                    self._pending_writes.append(
+                        _PendingOp(due_cycle=cycle + cwl + (k // dfi_rate),
+                                   flat_addr=flat)
+                    )
             if addr & (1 << 10):
                 self._pending_auto_pre(bank)
         elif cmd == DRAMCommand.PRE:
@@ -424,6 +449,37 @@ class DFISlavePHY(BusMonitor):
                               strobe=strobe)
             self.writes_committed += 1
 
+    def _serve_writes_strict(self) -> None:
+        """Faithful write capture: sample dfi_wrdata off the wire at the
+        cycle the DFI contract says it must be valid (command_cycle +
+        write_latency + beat), regardless of wrdata_en. Beats due the same
+        cycle occupy consecutive DFI phases (FIFO order). A controller that
+        presents wrdata late samples zeros/masked here -> the target column
+        keeps its prior value -> read-back mismatch, exactly as on silicon."""
+        if not self._write_captures:
+            return
+        cycle = self.dram.cycle
+        # Drop any stale (missed) captures — the DQ window already passed.
+        while (self._write_captures
+               and self._write_captures[0].due_cycle < cycle):
+            self._write_captures.popleft()
+        beat_bytes = self.bytes_per_beat
+        beat_bits = beat_bytes * 8
+        full_wrdata = _v(self.bus.wrdata)
+        full_mask = _v(self.bus.wrdata_mask)
+        phase = 0
+        while (self._write_captures
+               and self._write_captures[0].due_cycle == cycle):
+            op = self._write_captures.popleft()
+            data = (full_wrdata >> (phase * beat_bits)) & ((1 << beat_bits) - 1)
+            mask = (full_mask >> (phase * beat_bytes)) & ((1 << beat_bytes) - 1)
+            # DFI mask convention: 1 means *don't* write that byte.
+            strobe = (~mask) & ((1 << beat_bytes) - 1)
+            ba = self.memory.integer_to_bytearray(data, beat_bytes)
+            self.memory.write(self._byte_addr(op.flat_addr), ba, strobe=strobe)
+            self.writes_committed += 1
+            phase += 1
+
     def _infer_dfi_rate(self) -> int:
         """Derive DFI_RATE from the rddata bus width. With one DRAM beat
         = bytes_per_beat bytes, the bus carries DFI_RATE such beats."""
@@ -501,7 +557,10 @@ class DFISlavePHY(BusMonitor):
             # Order matters: commit writes first, then serve reads. The
             # serve_reads helper double-checks so we never produce stale
             # data while a same-cycle write is still in flight.
-            self._serve_writes()
+            if self._strict_write_timing:
+                self._serve_writes_strict()
+            else:
+                self._serve_writes()
             self._serve_reads()
 
             # Per-version behavior dispatch. The behavior class returns

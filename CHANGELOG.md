@@ -2,6 +2,53 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-07
+
+DFI slave BFM: rdphase/wrphase-aware command decode + physical device-word DRAM
+column modeling. These let `DFISlavePHY` faithfully model narrow-device (x16)
+DRAM and catch a class of controller column/burst bugs a single-granularity
+model was blind to — the bugs behind the on-silicon pumice DDR2 read failure on
+the Nexys A7 (fixed controller-side; see RTLDesignSherpa). Backward-compatible:
+defaults reduce to the prior behavior.
+
+### Added
+
+- **`DFISlavePHY` physical device-word column model** (issue #31). New
+  `dfi_phase_bytes` constructor arg decouples the **DFI phase width** (bus
+  slicing, `DFI_RATE`, `rddata_valid` width) from the **device word** (memory +
+  column granularity = `memory.bytes_per_line`). `words_per_beat` K =
+  `bytes_per_beat / device_bytes` device words pack into each DFI phase.
+  `_serve_reads` packs `rddata_bits/dev_bits` device words with `rddata_valid`
+  set per DFI phase (`w // K`) so its width stays `DFI_RATE`;
+  `_serve_writes_strict` slices per device word; `_handle_command` groups beats
+  by `k // (DFI_RATE*K)`; the strict `rddata_en` path returns `DFI_RATE*K` device
+  words per asserted cycle. A per-command DRAM-BL device-word column footprint
+  then collides when the controller's column stride < BL, so the model
+  reproduces the on-silicon x16 write-column overlap. Default
+  `dfi_phase_bytes = memory.bytes_per_line` (K=1) is bit-identical to before.
+- **`DFISlavePHY` strict write-timing mode** (`strict_write_timing`,
+  `write_latency`). Samples `dfi_wrdata` off the wire at exactly
+  `command_cycle + write_latency` (faithful DQ-window capture) instead of
+  FIFO-committing on any `wrdata_en` — so a controller that presents wrdata late
+  fails the read-back, as real DRAM would. Off by default (lenient).
+- **`DFISlavePHY` strict read-timing mode** (`strict_read_timing`,
+  `read_latency`). Returns `rddata`/`rddata_valid` exactly `read_latency` cycles
+  after the controller asserts `dfi_rddata_en` (rddata_en-gated, FIFO-ordered),
+  rather than self-timed off CL. Off by default.
+- **`raise_on_error` on the AXI4 sequence runners** (`run_axi4_sequence` and the
+  engine runner) — turn a sequence mismatch into a hard failure instead of a
+  logged warning.
+
+### Fixed
+
+- **`DFISlavePHY` phase-0-only command decode** (issue #30). The decode gate
+  tested only phase-0 `cs_n` (`& 1`), silently dropping commands a controller
+  places on an upper DFI phase to match a PHY's rdphase/wrphase. Now gates on
+  the chip being selected on any phase and decodes ras/cas/we + bank/addr from
+  the selected phase (`_active_phase()`); phase-0 traffic unchanged.
+- **`dfi_slave_phy` auto-precharge** now actually applied instead of only
+  debug-logged.
+
 ## [0.4.1] - 2026-07-02
 
 Performance fix release.

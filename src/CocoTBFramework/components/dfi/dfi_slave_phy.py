@@ -157,6 +157,7 @@ class DFISlavePHY(BusMonitor):
         write_latency: int = 0,
         strict_read_timing: bool = False,
         read_latency: int = 0,
+        dfi_phase_bytes: Optional[int] = None,
         **kwargs,
     ):
         if side != "phy":
@@ -168,9 +169,21 @@ class DFISlavePHY(BusMonitor):
         self.base = base
         self.memory = memory
         self.mapping = base.mapping
-        # MemoryModel is byte-addressed; one DFI beat is data_width / 8 bytes.
-        # The MVP envelope assumes a single beat per command (BL=1 conceptually).
-        self.bytes_per_beat = max(1, memory.bytes_per_line)
+        # Two DISTINCT granularities (decoupled so the model can catch narrow-
+        # device column bugs):
+        #   device_bytes  = one PHYSICAL DRAM word (x16 => 2). MemoryModel lines
+        #                   and DRAM columns are device-word granular.
+        #   bytes_per_beat= one DFI PHASE's data slice (== the pumice DRAM beat,
+        #                   e.g. 32b => 4). Drives DFI_RATE / rddata_valid width
+        #                   and bus packing — MUST match the RTL DFI, so it is the
+        #                   phase width, NOT the memory word width.
+        # words_per_beat (K) = device words packed into one DFI phase (2 for a
+        # x16 device on a 32b beat). Default: dfi_phase_bytes = memory line =>
+        # K=1 => bit-identical to the legacy single-granularity behavior.
+        self.device_bytes = max(1, memory.bytes_per_line)
+        self.bytes_per_beat = max(1, dfi_phase_bytes) if dfi_phase_bytes \
+            else self.device_bytes
+        self.words_per_beat = max(1, self.bytes_per_beat // self.device_bytes)
 
         # Independent state model — caller's base might be shared with a
         # master and we want the slave's view to be fully self-contained.
@@ -378,7 +391,7 @@ class DFISlavePHY(BusMonitor):
             # cycle, so beats in the same group share a due_cycle. Use
             # the rddata bus width to derive DFI_RATE without a new ctor
             # parameter.
-            dfi_rate = self._infer_dfi_rate()
+            words_per_cycle = self._infer_dfi_rate() * self.words_per_beat
             for k in range(beats):
                 col_k = base_col + k
                 if col_k >= self.mapping.num_cols:
@@ -391,7 +404,7 @@ class DFISlavePHY(BusMonitor):
                     self._strict_rd_addr.append(flat)
                 else:
                     self._pending_reads.append(
-                        _PendingOp(due_cycle=cycle + cl + (k // dfi_rate),
+                        _PendingOp(due_cycle=cycle + cl + (k // words_per_cycle),
                                    flat_addr=flat)
                     )
             if addr & (1 << 10):
@@ -400,7 +413,7 @@ class DFISlavePHY(BusMonitor):
             self.dram.on_write(bank_idx=bank)
             base_col = addr & self._col_mask
             open_row = self.dram.banks[bank].row or 0
-            dfi_rate = self._infer_dfi_rate()
+            words_per_cycle = self._infer_dfi_rate() * self.words_per_beat
             for k in range(beats):
                 col_k = base_col + k
                 if col_k >= self.mapping.num_cols:
@@ -412,11 +425,11 @@ class DFISlavePHY(BusMonitor):
                     # happens to fire. Schedule the capture cycle-exactly.
                     self._write_captures.append(
                         _PendingOp(due_cycle=cycle + self._write_latency
-                                   + (k // dfi_rate), flat_addr=flat)
+                                   + (k // words_per_cycle), flat_addr=flat)
                     )
                 else:
                     self._pending_writes.append(
-                        _PendingOp(due_cycle=cycle + cwl + (k // dfi_rate),
+                        _PendingOp(due_cycle=cycle + cwl + (k // words_per_cycle),
                                    flat_addr=flat)
                     )
             if addr & (1 << 10):
@@ -511,22 +524,26 @@ class DFISlavePHY(BusMonitor):
         while (self._write_captures
                and self._write_captures[0].due_cycle < cycle):
             self._write_captures.popleft()
-        beat_bytes = self.bytes_per_beat
-        beat_bits = beat_bytes * 8
+        # Commit at DEVICE-WORD granularity: each queued capture is one device
+        # word; slice it from its position in the packed DFI cycle (device word w
+        # -> bits [w*dev_bits +: dev_bits]). K=1 => device word == DFI phase =>
+        # legacy behavior.
+        dev_bytes = self.device_bytes
+        dev_bits = dev_bytes * 8
         full_wrdata = _v(self.bus.wrdata)
         full_mask = _v(self.bus.wrdata_mask)
-        phase = 0
+        w = 0
         while (self._write_captures
                and self._write_captures[0].due_cycle == cycle):
             op = self._write_captures.popleft()
-            data = (full_wrdata >> (phase * beat_bits)) & ((1 << beat_bits) - 1)
-            mask = (full_mask >> (phase * beat_bytes)) & ((1 << beat_bytes) - 1)
+            data = (full_wrdata >> (w * dev_bits)) & ((1 << dev_bits) - 1)
+            mask = (full_mask >> (w * dev_bytes)) & ((1 << dev_bytes) - 1)
             # DFI mask convention: 1 means *don't* write that byte.
-            strobe = (~mask) & ((1 << beat_bytes) - 1)
-            ba = self.memory.integer_to_bytearray(data, beat_bytes)
+            strobe = (~mask) & ((1 << dev_bytes) - 1)
+            ba = self.memory.integer_to_bytearray(data, dev_bytes)
             self.memory.write(self._byte_addr(op.flat_addr), ba, strobe=strobe)
             self.writes_committed += 1
-            phase += 1
+            w += 1
 
     def _infer_dfi_rate(self) -> int:
         """Derive DFI_RATE from the rddata bus width. With one DRAM beat
@@ -555,28 +572,31 @@ class DFISlavePHY(BusMonitor):
             self.bus.rddata_valid.value = 0
             return
 
-        # Derive DFI_RATE from the actual rddata bus width vs one DRAM
-        # beat. The MC expects packed reads when DFI_RATE > 1, so we pop
-        # that many pending reads (provided they're all due) per cycle.
-        beat_bits = self.bytes_per_beat * 8
+        # Pack pending reads into one DFI cycle at DEVICE-WORD granularity. The
+        # rddata bus holds words_per_cycle = rddata_bits / device_bits device
+        # words; K=words_per_beat of them make up one DFI phase. rddata_valid is
+        # per PHASE (one bit per bytes_per_beat slice), NOT per device word — so
+        # its width stays DFI_RATE. (K=1 => device word == phase => legacy.)
+        dev_bits = self.device_bytes * 8
+        K = self.words_per_beat
         try:
             rddata_total_bits = len(self.bus.rddata)
         except TypeError:
-            rddata_total_bits = beat_bits
-        dfi_rate = max(1, rddata_total_bits // beat_bits)
+            rddata_total_bits = self.bytes_per_beat * 8
+        words_per_cycle = max(1, rddata_total_bits // dev_bits)
 
         packed_data = 0
         packed_valid = 0
-        for phase in range(dfi_rate):
+        for w in range(words_per_cycle):
             if not (self._pending_reads
                     and self._pending_reads[0].due_cycle <= cycle):
                 break
             op = self._pending_reads.popleft()
             ba = self.memory.read(self._byte_addr(op.flat_addr),
-                                  self.bytes_per_beat)
-            beat_data = self.memory.bytearray_to_integer(ba)
-            packed_data |= (beat_data & ((1 << beat_bits) - 1)) << (phase * beat_bits)
-            packed_valid |= (1 << phase)
+                                  self.device_bytes)
+            word_data = self.memory.bytearray_to_integer(ba)
+            packed_data |= (word_data & ((1 << dev_bits) - 1)) << (w * dev_bits)
+            packed_valid |= (1 << (w // K))   # valid is per DFI phase
             self.reads_served += 1
 
         if packed_valid:
@@ -615,8 +635,10 @@ class DFISlavePHY(BusMonitor):
             # for the RD command issued earlier — FIFO order here).
             if self._strict_read_timing and (_v(self.bus.rddata_en) != 0):
                 cycle = self.dram.cycle
-                dfi_rate = self._infer_dfi_rate()
-                for _ in range(dfi_rate):
+                # One asserted rddata_en cycle returns one DFI cycle = DFI_RATE
+                # phases x K device words = words_per_cycle device words.
+                words_per_cycle = self._infer_dfi_rate() * self.words_per_beat
+                for _ in range(words_per_cycle):
                     if not self._strict_rd_addr:
                         break
                     flat = self._strict_rd_addr.popleft()

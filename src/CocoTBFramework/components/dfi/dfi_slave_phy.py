@@ -155,6 +155,8 @@ class DFISlavePHY(BusMonitor):
         title: Optional[str] = None,
         strict_write_timing: bool = False,
         write_latency: int = 0,
+        strict_read_timing: bool = False,
+        read_latency: int = 0,
         **kwargs,
     ):
         if side != "phy":
@@ -202,6 +204,18 @@ class DFISlavePHY(BusMonitor):
         self._strict_write_timing = bool(strict_write_timing)
         self._write_latency = int(write_latency)
         self._write_captures: Deque[_PendingOp] = deque()
+
+        # Strict read-timing mode (opt-in). Default BFM self-times reads off CL
+        # and IGNORES dfi_rddata_en. Real DRAM/PHY returns rddata + rddata_valid
+        # exactly read_latency sys-cycles after the controller asserts
+        # dfi_rddata_en. In strict mode we queue each RD command's address and,
+        # on each rddata_en cycle, schedule the corresponding DFI_RATE beats to
+        # return read_latency cycles later. A controller that mis-cadences or
+        # mis-times rddata_en gets misaligned/absent read data -> mismatch,
+        # faithfully exercising the read gate the lenient BFM cannot see.
+        self._strict_read_timing = bool(strict_read_timing)
+        self._read_latency = int(read_latency)
+        self._strict_rd_addr: Deque[int] = deque()   # addrs awaiting rddata_en
 
         # Error-interface event queue. Populated by the per-version
         # behavior class when bus.error indicates a PHY-driven error.
@@ -342,10 +356,16 @@ class DFISlavePHY(BusMonitor):
                 if col_k >= self.mapping.num_cols:
                     break  # don't wrap past the row end for now
                 flat = self.mapping.tuple_to_flat(0, bank, open_row, col_k)
-                self._pending_reads.append(
-                    _PendingOp(due_cycle=cycle + cl + (k // dfi_rate),
-                               flat_addr=flat)
-                )
+                if self._strict_read_timing:
+                    # Defer scheduling until the controller asserts rddata_en;
+                    # the return is timed off THAT (command_cycle + cl is the
+                    # lenient self-timed model that ignores the read gate).
+                    self._strict_rd_addr.append(flat)
+                else:
+                    self._pending_reads.append(
+                        _PendingOp(due_cycle=cycle + cl + (k // dfi_rate),
+                                   flat_addr=flat)
+                    )
             if addr & (1 << 10):
                 self._pending_auto_pre(bank)
         elif cmd == DRAMCommand.WR:
@@ -553,6 +573,23 @@ class DFISlavePHY(BusMonitor):
                 cmd = self._decode_command()
                 if cmd != DRAMCommand.NOP:
                     self._handle_command(cmd)
+
+            # Strict read gate: the controller enables the read capture window
+            # via dfi_rddata_en. On each cycle it is asserted, schedule one DFI
+            # cycle's worth (DFI_RATE beats) of the queued read to return
+            # exactly read_latency cycles later. Mirrors the real PHY, which
+            # ignores the address on rddata_en (data is whatever the DRAM drives
+            # for the RD command issued earlier — FIFO order here).
+            if self._strict_read_timing and (_v(self.bus.rddata_en) != 0):
+                cycle = self.dram.cycle
+                dfi_rate = self._infer_dfi_rate()
+                for _ in range(dfi_rate):
+                    if not self._strict_rd_addr:
+                        break
+                    flat = self._strict_rd_addr.popleft()
+                    self._pending_reads.append(
+                        _PendingOp(due_cycle=cycle + self._read_latency,
+                                   flat_addr=flat))
 
             # Order matters: commit writes first, then serve reads. The
             # serve_reads helper double-checks so we never produce stale

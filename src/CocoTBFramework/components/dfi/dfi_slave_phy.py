@@ -300,6 +300,22 @@ class DFISlavePHY(BusMonitor):
             MemoryType.LPDDR2, MemoryType.LPDDR3,
         )
 
+    def _active_phase(self) -> int:
+        """DFI sub-phase carrying the issued command — the phase whose cs_n bit
+        is asserted (active-low). Models a PHY that accepts the R/W command on
+        whichever phase the MC placed it (its rdphase/wrphase), rather than a
+        fixed phase-0. Falls back to phase 0 when nothing/ambiguous is selected,
+        so legacy phase-0 traffic and DFI_RATE=1 buses are unaffected. This is
+        what lets the oracle follow pumice's DFI_PHASE.rd_phase=1 placement."""
+        dfi_rate = self._infer_dfi_rate()
+        if dfi_rate <= 1:
+            return 0
+        cs = _v(self.bus.cs_n)   # 1 cs_n bit per phase for NUM_RANKS=1
+        for p in range(dfi_rate):
+            if ((cs >> p) & 1) == 0:
+                return p
+        return 0
+
     def _decode_command(self) -> DRAMCommand:
         if self._is_lpddr2_family():
             # LPDDR2/3 carry the command on the dfi_address CA bus;
@@ -311,8 +327,13 @@ class DFISlavePHY(BusMonitor):
             # without re-decoding the address.
             self._lpddr_args = _args
             return cmd
+        # Decode ras/cas/we from the phase that actually carries the command
+        # (rdphase/wrphase-aware). One control bit per phase (DFI_CTRL_WIDTH=1).
+        p = self._active_phase()
         return decode_phase0_cmd(
-            _v(self.bus.ras_n), _v(self.bus.cas_n), _v(self.bus.we_n))
+            (_v(self.bus.ras_n) >> p) & 1,
+            (_v(self.bus.cas_n) >> p) & 1,
+            (_v(self.bus.we_n)  >> p) & 1)
 
     def _handle_command(self, cmd: DRAMCommand) -> None:
         if self._is_lpddr2_family():
@@ -329,8 +350,15 @@ class DFISlavePHY(BusMonitor):
                 if args.get("all_banks"):
                     addr |= (1 << 10)
         else:
-            bank = _v(self.bus.bank)
-            addr = _v(self.bus.address)
+            # Pull bank/addr from the phase that carries the command, matching
+            # _decode_command's rdphase/wrphase-aware phase select. For phase 0
+            # this is identical to the old full-bus read (upper phases NOP=0).
+            p = self._active_phase()
+            dfi_rate = self._infer_dfi_rate()
+            aw = max(1, len(self.bus.address) // dfi_rate)
+            bw = max(1, len(self.bus.bank) // dfi_rate)
+            bank = (_v(self.bus.bank)    >> (p * bw)) & ((1 << bw) - 1)
+            addr = (_v(self.bus.address) >> (p * aw)) & ((1 << aw) - 1)
         cycle = self.dram.cycle  # cycle as the dram model sees it
         cwl = self.dram.timings.CWL
         cl  = self.dram.timings.CL
@@ -566,10 +594,15 @@ class DFISlavePHY(BusMonitor):
             self.dram.tick()
             self.base.tick()
 
-            # DFI_RATE>1 packs `{phase1, phase0}`; phase 0 is the
-            # MC's primary command slot. cs_n active-low: bit 0 == 0
-            # selects the chip on phase 0.
-            if (_v(self.bus.cs_n) & 1) == 0:
+            # A command is present if the chip is selected on ANY DFI sub-phase
+            # (cs_n active-low). The legacy gate only tested phase 0 (& 1), which
+            # silently dropped commands the MC places on an upper phase to match
+            # the PHY's rdphase/wrphase (e.g. a7ddrphy rdphase=1). Test the full
+            # cs_n bus: any 0 bit within the DFI_RATE phases means "selected".
+            dfi_rate = self._infer_dfi_rate()
+            cs_all = _v(self.bus.cs_n)
+            cs_sel_mask = (1 << dfi_rate) - 1   # 1 cs_n bit per phase (1 rank)
+            if (cs_all & cs_sel_mask) != cs_sel_mask:
                 cmd = self._decode_command()
                 if cmd != DRAMCommand.NOP:
                     self._handle_command(cmd)

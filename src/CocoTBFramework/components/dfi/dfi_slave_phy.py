@@ -158,6 +158,7 @@ class DFISlavePHY(BusMonitor):
         strict_read_timing: bool = False,
         read_latency: int = 0,
         dfi_phase_bytes: Optional[int] = None,
+        timing: "Optional[DFITimingProfile]" = None,
         **kwargs,
     ):
         if side != "phy":
@@ -229,6 +230,45 @@ class DFISlavePHY(BusMonitor):
         self._strict_read_timing = bool(strict_read_timing)
         self._read_latency = int(read_latency)
         self._strict_rd_addr: Deque[int] = deque()   # addrs awaiting rddata_en
+
+        # ---- Resolve the PHY-agnostic timing profile (the hook surface) -------
+        # Precedence: an explicit `timing` profile wins; otherwise synthesize one
+        # from the legacy strict_*/latency kwargs so existing callers are
+        # unchanged. All downstream scheduling reads ONLY the resolved fields
+        # below, so adding a new hook is local to the profile + the one place it
+        # is honored.
+        from .dfi_timing import (DFITimingProfile, READ_REF_COMMAND,
+                                  READ_REF_RDDATA_EN, WRITE_REF_COMMAND,
+                                  WRITE_REF_WRDATA_EN)
+        if timing is None:
+            timing = DFITimingProfile(
+                name="legacy",
+                read_ref=(READ_REF_RDDATA_EN if strict_read_timing
+                          else READ_REF_COMMAND),
+                read_latency=(int(read_latency) if strict_read_timing else None),
+                read_en_gated=False,
+                write_ref=(WRITE_REF_COMMAND if strict_write_timing
+                           else WRITE_REF_WRDATA_EN),
+                write_latency=(int(write_latency) if strict_write_timing else None),
+            )
+        self._timing = timing
+        # Re-derive the internal switches from the profile so both paths agree.
+        self._read_ref        = timing.read_ref
+        self._read_en_gated   = bool(timing.read_en_gated)
+        # command-anchored read latency: explicit hook, else JEDEC CL (applied
+        # where `cl` is read in the RD-command scheduler).
+        self._read_cmd_latency = timing.read_latency   # None => use CL
+        self._strict_read_timing = (timing.read_ref == READ_REF_RDDATA_EN)
+        if self._strict_read_timing and timing.read_latency is not None:
+            self._read_latency = int(timing.read_latency)
+        self._write_ref          = timing.write_ref
+        self._strict_write_timing = (timing.write_ref == WRITE_REF_COMMAND)
+        if self._strict_write_timing and timing.write_latency is not None:
+            self._write_latency = int(timing.write_latency)
+        self.log.info("DFISlavePHY timing profile '%s': read_ref=%s lat=%s "
+                      "en_gated=%s write_ref=%s wlat=%s",
+                      timing.name, self._read_ref, self._read_cmd_latency,
+                      self._read_en_gated, self._write_ref, self._write_latency)
 
         # Error-interface event queue. Populated by the per-version
         # behavior class when bus.error indicates a PHY-driven error.
@@ -398,13 +438,18 @@ class DFISlavePHY(BusMonitor):
                     break  # don't wrap past the row end for now
                 flat = self.mapping.tuple_to_flat(0, bank, open_row, col_k)
                 if self._strict_read_timing:
-                    # Defer scheduling until the controller asserts rddata_en;
-                    # the return is timed off THAT (command_cycle + cl is the
-                    # lenient self-timed model that ignores the read gate).
+                    # read_ref = rddata_en: defer until the controller asserts
+                    # dfi_rddata_en; the return is timed off THAT (+read_latency).
                     self._strict_rd_addr.append(flat)
                 else:
+                    # read_ref = command: schedule at command + the profile's
+                    # read_latency hook (None => JEDEC CL). read_en_gated (if set)
+                    # additionally holds rddata_valid until dfi_rddata_en — see
+                    # _serve_reads.
+                    _rl = self._read_cmd_latency if self._read_cmd_latency \
+                        is not None else cl
                     self._pending_reads.append(
-                        _PendingOp(due_cycle=cycle + cl + (k // words_per_cycle),
+                        _PendingOp(due_cycle=cycle + _rl + (k // words_per_cycle),
                                    flat_addr=flat)
                     )
             if addr & (1 << 10):
@@ -569,6 +614,14 @@ class DFISlavePHY(BusMonitor):
         # Hold back if a write at <= this cycle is still pending — that
         # write commits first per the user's queue-don't-collide rule.
         if self._pending_writes and self._pending_writes[0].due_cycle <= cycle:
+            self.bus.rddata_valid.value = 0
+            return
+        # read_en_gated hook: a PHY that only presents read data while the
+        # controller holds dfi_rddata_en (a7ddrphy capture window). Data is
+        # scheduled DUE at command+read_latency but held here until the enable
+        # is asserted — so a controller that mis-cadences rddata_en gets no /
+        # shifted read data, which the ungated self-timed model cannot expose.
+        if self._read_en_gated and (_v(self.bus.rddata_en) == 0):
             self.bus.rddata_valid.value = 0
             return
 

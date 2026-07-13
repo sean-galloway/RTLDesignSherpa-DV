@@ -205,6 +205,11 @@ class DFISlavePHY(BusMonitor):
         self._pending_reads: Deque[_PendingOp] = deque()
         self._pending_writes: Deque[_PendingOp] = deque()
 
+        # Decoded mode-register writes: {mr_index: mr_data}. Populated on each
+        # MRW (MRS) command so tests can verify the controller's init sequence
+        # programmed the expected registers (esp. LPDDR2 MR63/10/1/2/3).
+        self.mode_regs: dict = {}
+
         # Strict write-timing mode (opt-in). The default BFM is lenient: it
         # FIFO-commits each write beat on ANY wrdata_en cycle, so a controller
         # that presents wrdata late still "writes" — hiding real DFI write-
@@ -492,7 +497,14 @@ class DFISlavePHY(BusMonitor):
             self.dram.on_precharge(bank_idx=bank, all_banks=all_banks)
         elif cmd == DRAMCommand.REF:
             self.dram.on_refresh()
-        # MRS / NOP: ignored for MVP (just kept in cmd_counts)
+        elif cmd == DRAMCommand.MRS:
+            # Record MRW {index: data} for init verification. LPDDR2 carries
+            # mr_addr/mr_data in the decoded CA args; skip MRR (read).
+            if self._is_lpddr2_family():
+                _a = getattr(self, "_lpddr_args", {}) or {}
+                if not _a.get("is_mrr"):
+                    self.mode_regs[_a.get("mr_addr", 0)] = _a.get("mr_data", 0)
+        # NOP: ignored (just kept in cmd_counts)
 
     def _pending_auto_pre(self, bank: int) -> None:
         """Auto-precharge: close the bank so a subsequent ACT to the same

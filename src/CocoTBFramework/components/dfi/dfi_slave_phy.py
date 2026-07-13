@@ -552,28 +552,40 @@ class DFISlavePHY(BusMonitor):
             wrdata_en_bits=_v(self.bus.wrdata_en),
             beat_bytes=beat_bytes,
         )
+        # Each DFI phase carries K = words_per_beat DEVICE words (K=2 for an x16
+        # device on a 32b beat). Pending writes are queued per device-word column
+        # (one _PendingOp per column), so commit K of them per phase — otherwise
+        # K-1 columns per phase stay queued forever and later stall reads (which
+        # serialize behind pending writes). K=1 => device word == phase == legacy.
+        dev_bytes = self.device_bytes
+        dev_bits  = dev_bytes * 8
+        K = self.words_per_beat
         for phase, data, mask in slices:
-            if not self._pending_writes:
-                self.log.warning(
-                    f"{self.title}: wrdata_en asserted on phase {phase} "
-                    "but no pending write — stray data beat?"
-                )
-                return
-            cycle = self.dram.cycle
-            op = self._pending_writes[0]
-            if op.due_cycle > cycle:
-                self.log.debug(
-                    f"{self.title}: early wrdata at cycle {cycle} for op "
-                    f"due {op.due_cycle} — committing immediately "
-                    "(debug-injector path)"
-                )
-            self._pending_writes.popleft()
-            ba = self.memory.integer_to_bytearray(data, beat_bytes)
-            # DFI mask convention: 1 means *don't* write that byte.
-            strobe = (~mask) & ((1 << beat_bytes) - 1)
-            self.memory.write(self._byte_addr(op.flat_addr), ba,
-                              strobe=strobe)
-            self.writes_committed += 1
+            for w in range(K):
+                if not self._pending_writes:
+                    self.log.warning(
+                        f"{self.title}: wrdata_en asserted on phase {phase} "
+                        "but no pending write — stray data beat?"
+                    )
+                    return
+                cycle = self.dram.cycle
+                op = self._pending_writes[0]
+                if op.due_cycle > cycle:
+                    self.log.debug(
+                        f"{self.title}: early wrdata at cycle {cycle} for op "
+                        f"due {op.due_cycle} — committing immediately "
+                        "(debug-injector path)"
+                    )
+                self._pending_writes.popleft()
+                # slice device word w out of this phase's beat_bytes payload
+                wd = (data >> (w * dev_bits)) & ((1 << dev_bits) - 1)
+                wm = (mask >> (w * dev_bytes)) & ((1 << dev_bytes) - 1)
+                ba = self.memory.integer_to_bytearray(wd, dev_bytes)
+                # DFI mask convention: 1 means *don't* write that byte.
+                strobe = (~wm) & ((1 << dev_bytes) - 1)
+                self.memory.write(self._byte_addr(op.flat_addr), ba,
+                                  strobe=strobe)
+                self.writes_committed += 1
 
     def _serve_writes_strict(self) -> None:
         """Faithful write capture: sample dfi_wrdata off the wire at the

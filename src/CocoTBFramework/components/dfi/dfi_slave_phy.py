@@ -422,7 +422,11 @@ class DFISlavePHY(BusMonitor):
 
         if cmd == DRAMCommand.ACT:
             self.dram.on_activate(bank_idx=bank, row=addr)
-        elif cmd == DRAMCommand.RD:
+        elif cmd in (DRAMCommand.RD, DRAMCommand.RDA):
+            # RDA == RD with auto-precharge. The LPDDR2 CA decoder returns a
+            # distinct RDA command (AP folded into the opcode); DDR2 returns RD
+            # and carries AP in addr bit 10. Handle both: auto-precharge below
+            # keys on addr bit 10, which the LPDDR2 path sets for RDA.
             self.dram.on_read(bank_idx=bank)
             base_col = addr & self._col_mask
             open_row = self.dram.banks[bank].row or 0
@@ -454,7 +458,11 @@ class DFISlavePHY(BusMonitor):
                     )
             if addr & (1 << 10):
                 self._pending_auto_pre(bank)
-        elif cmd == DRAMCommand.WR:
+        elif cmd in (DRAMCommand.WR, DRAMCommand.WRA):
+            # WRA == WR with auto-precharge (see the RD/RDA note above). Without
+            # this, LPDDR2 close-page writes (HAPPY_HYBRID row-miss -> WRA) hit no
+            # branch, queued no pending write, and their wrdata_en became "stray
+            # data beats" -> the write was silently dropped.
             self.dram.on_write(bank_idx=bank)
             base_col = addr & self._col_mask
             open_row = self.dram.banks[bank].row or 0

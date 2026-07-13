@@ -41,10 +41,13 @@ def test_act_roundtrips_high_row():
     assert args["row"] == 0x7FF   # 11 bits fully covered
 
 
+# NOTE: LPDDR2 does not transmit column bit C0 (Table 60 NOTE 12 — it is implied
+# 0), so round-trip test vectors must use EVEN columns; an odd column loses its
+# LSB by design (0x3FF -> 0x3FE). 0x3FE still exercises C1..C9.
 @pytest.mark.parametrize("bank,col,ap", [
     (0, 0,        False),
-    (7, 0x3FF,    False),
-    (4, 0x55,     True),
+    (7, 0x3FE,    False),
+    (4, 0x54,     True),
     (1, 0x100,    False),
 ])
 def test_read_roundtrips(bank, col, ap):
@@ -60,7 +63,7 @@ def test_read_roundtrips(bank, col, ap):
 
 @pytest.mark.parametrize("bank,col,ap", [
     (0, 0,        False),
-    (7, 0x3FF,    True),
+    (7, 0x3FE,    True),    # even col: C0 not transmitted (Table 60 NOTE 12)
     (3, 0x40,     False),
 ])
 def test_write_roundtrips(bank, col, ap):
@@ -89,10 +92,18 @@ def test_precharge_all_roundtrips():
 
 
 def test_refresh_roundtrips():
-    word = encode_lpddr2_ca(DRAMCommand.REF)
+    # all-bank refresh is CA3r=H (per-bank = CA3r=L, the encoder default).
+    word = encode_lpddr2_ca(DRAMCommand.REF, all_banks=True)
     cmd, args = decode_lpddr2_ca(word)
     assert cmd == DRAMCommand.REF
     assert args["all_banks"] is True
+
+
+def test_refresh_per_bank_roundtrips():
+    word = encode_lpddr2_ca(DRAMCommand.REF, all_banks=False)
+    cmd, args = decode_lpddr2_ca(word)
+    assert cmd == DRAMCommand.REF
+    assert args["all_banks"] is False
 
 
 def test_mrs_roundtrips():
@@ -109,9 +120,10 @@ def test_mrs_roundtrips():
 
 
 def test_act_cmd_code_in_ca1():
-    """ACTIVATE command class is CA1[2:0]=0b011 per JESD209-2."""
+    """ACTIVATE is {CA0r,CA1r,CA2r} = L,H,- per JESD209-2F Table 60. With CA0r
+    in bit 0, that packs to (word & 0x7) == 0b010."""
     word = encode_lpddr2_ca(DRAMCommand.ACT, bank=0, row=0)
-    assert (word & 0x7) == 0b011
+    assert (word & 0x7) == 0b010
 
 
 def test_read_cmd_code_in_ca1():
@@ -120,19 +132,25 @@ def test_read_cmd_code_in_ca1():
 
 
 def test_write_cmd_code_in_ca1():
+    """WRITE is {CA0r,CA1r,CA2r} = H,L,L per Table 60 -> (word & 0x7) == 0b001
+    (READ is H,L,H == 0b101; CA2r discriminates)."""
     word = encode_lpddr2_ca(DRAMCommand.WR, bank=0, col=0)
-    assert (word & 0x7) == 0b100
+    assert (word & 0x7) == 0b001
 
 
-def test_pre_ref_share_cmd_code():
-    """PRE and REF share CA1[2:0]=0b110; CA1[6] discriminates."""
+def test_pre_and_ref_cmd_codes():
+    """PRE and REF have DISTINCT opcodes per Table 60 (they do not share a
+    class): PRE = {CA0r,CA1r,CA2r}=H,H,L == 0b011; REF = L,L,H == 0b100. The
+    all-bank flag is CA3r for REF and CA4r (AB) for PRE."""
     pre_word = encode_lpddr2_ca(DRAMCommand.PRE, bank=0)
-    ref_word = encode_lpddr2_ca(DRAMCommand.REF)
-    assert (pre_word & 0x7) == 0b110
-    assert (ref_word & 0x7) == 0b110
-    # CA1[6] = REF flag bit
-    assert ((pre_word >> 6) & 1) == 0   # PRE: REF flag clear
-    assert ((ref_word >> 6) & 1) == 1   # REF: REF flag set
+    ref_all  = encode_lpddr2_ca(DRAMCommand.REF, all_banks=True)
+    ref_per  = encode_lpddr2_ca(DRAMCommand.REF, all_banks=False)
+    assert (pre_word & 0x7) == 0b011
+    assert (ref_all  & 0x7) == 0b100
+    assert (ref_per  & 0x7) == 0b100
+    # REF all-bank vs per-bank is CA3r.
+    assert ((ref_all >> 3) & 1) == 1
+    assert ((ref_per >> 3) & 1) == 0
 
 
 def test_mrw_cmd_code_in_ca1():
@@ -140,11 +158,13 @@ def test_mrw_cmd_code_in_ca1():
     assert (word & 0x7) == 0b000
 
 
-def test_ca2_continuation_marker():
-    """Multi-cycle commands use CA2[2:0]=0b010 (continuation)."""
-    word = encode_lpddr2_ca(DRAMCommand.ACT, bank=0, row=1)
-    ca2 = (word >> 10) & 0x3FF
-    assert (ca2 & 0x7) == 0b010
+def test_act_second_cycle_carries_row_lsbs():
+    """LPDDR2 has no 'continuation marker' — the 2nd (falling-edge) CA cycle
+    carries address payload, not an opcode. For ACTIVATE it holds row bits
+    R0..R7 in CA0f..CA7f (Table 60)."""
+    word = encode_lpddr2_ca(DRAMCommand.ACT, bank=0, row=0b10101101)
+    falling = (word >> 10) & 0x3FF
+    assert (falling & 0xFF) == 0b10101101   # R0..R7
 
 
 # ---------------------------------------------------------------------

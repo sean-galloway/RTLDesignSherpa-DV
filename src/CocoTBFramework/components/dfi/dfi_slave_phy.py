@@ -159,6 +159,7 @@ class DFISlavePHY(BusMonitor):
         read_latency: int = 0,
         dfi_phase_bytes: Optional[int] = None,
         timing: "Optional[DFITimingProfile]" = None,
+        read_device_word_offset: int = 0,
         **kwargs,
     ):
         if side != "phy":
@@ -234,6 +235,11 @@ class DFISlavePHY(BusMonitor):
         # faithfully exercising the read gate the lenient BFM cannot see.
         self._strict_read_timing = bool(strict_read_timing)
         self._read_latency = int(read_latency)
+        # Model the a7ddrphy 4-phase read-window offset (issue #32): shift the
+        # assembled read device-words by this many device-word slots, zero-filling
+        # vacated slots. 0 = ideal/bit-exact (default, no behavior change). Non-zero
+        # reproduces the nphases=4-PHY / DFI_RATE=2-controller device-word corruption.
+        self._read_dw_offset = int(read_device_word_offset)
         self._strict_rd_addr: Deque[int] = deque()   # addrs awaiting rddata_en
 
         # ---- Resolve the PHY-agnostic timing profile (the hook surface) -------
@@ -683,6 +689,17 @@ class DFISlavePHY(BusMonitor):
             packed_data |= (word_data & ((1 << dev_bits) - 1)) << (w * dev_bits)
             packed_valid |= (1 << (w // K))   # valid is per DFI phase
             self.reads_served += 1
+
+        # a7ddrphy 4-phase read-window offset (issue #32): the controller reads
+        # {p1,p0}=slots[0:4] but a read-latency misalignment puts the real data at
+        # slots[offset:offset+4], so it grabs shifted device-words + zeros. Model
+        # it by shifting the assembled device-words by `offset` slots, zero-filling.
+        if packed_valid and self._read_dw_offset:
+            span = words_per_cycle * dev_bits
+            m = (1 << span) - 1
+            off = self._read_dw_offset
+            packed_data = ((packed_data << (off * dev_bits)) & m) if off > 0 \
+                else (packed_data >> ((-off) * dev_bits))
 
         if packed_valid:
             self.bus.rddata.value = packed_data

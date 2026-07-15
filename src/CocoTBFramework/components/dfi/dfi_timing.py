@@ -61,6 +61,18 @@ class DFITimingProfile:
     read_ref: str = READ_REF_COMMAND
     read_latency: Optional[int] = None
     read_en_gated: bool = False
+    # Free-running ISERDES model (a7ddrphy-faithful). When True, the read DATA
+    # pipeline is anchored to the READ COMMAND at read_latency and advances
+    # INDEPENDENTLY of dfi_rddata_en (like a real ISERDES continuously shifting
+    # out captured DQ). rddata_valid is the controller's rddata_en delayed by
+    # `read_valid_latency` sys-cycles. The DQ bus HOLDS its last presented word
+    # until the command pipeline overwrites it. If the controller fires
+    # rddata_en at a cadence that slips relative to the command-anchored data,
+    # the valid strobe samples a STALE (previous read's) or ZERO word -> the
+    # one-read shift the on-silicon ILA showed. read_en_gated resynchronizes
+    # data to enable and thus HIDES this; free-running does not.
+    read_free_running: bool = False
+    read_valid_latency: Optional[int] = None  # rddata_en -> rddata_valid delay
 
     # ---- write data capture ----
     write_ref: str = WRITE_REF_WRDATA_EN
@@ -100,6 +112,27 @@ class DFITimingProfile:
             read_ref=READ_REF_COMMAND,
             read_latency=int(read_latency),
             read_en_gated=bool(read_en_gated),
+            write_ref=WRITE_REF_WRDATA_EN,
+            write_latency=int(write_latency),
+        )
+
+    @staticmethod
+    def a7ddrphy_free_running(read_latency: int, read_valid_latency: int,
+                              write_latency: int = 0) -> "DFITimingProfile":
+        """Faithful a7ddrphy read pipeline. The DQ/ISERDES DATA free-runs off
+        the READ COMMAND at `read_latency` sys-cycles (holding its last word on
+        the bus), while dfi_rddata_valid is the controller's dfi_rddata_en
+        delayed by `read_valid_latency`. Data and valid are DECOUPLED, so a
+        controller whose rddata_en cadence slips vs the command-anchored data
+        samples a stale/zero word -> reproduces the on-silicon consecutive-read
+        one-slot shift. `write_latency` from t_phy_wrlat."""
+        return DFITimingProfile(
+            name="a7ddrphy_free_running",
+            read_ref=READ_REF_COMMAND,
+            read_latency=int(read_latency),
+            read_en_gated=False,
+            read_free_running=True,
+            read_valid_latency=int(read_valid_latency),
             write_ref=WRITE_REF_WRDATA_EN,
             write_latency=int(write_latency),
         )

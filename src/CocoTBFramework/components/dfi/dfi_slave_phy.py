@@ -266,6 +266,21 @@ class DFISlavePHY(BusMonitor):
         # Re-derive the internal switches from the profile so both paths agree.
         self._read_ref        = timing.read_ref
         self._read_en_gated   = bool(timing.read_en_gated)
+        # Free-running ISERDES model (a7ddrphy-faithful, opt-in). DATA anchored
+        # to the command; VALID = rddata_en delayed by read_valid_latency;
+        # DQ bus HOLDS its last word. See DFITimingProfile.a7ddrphy_free_running.
+        self._read_free_running = bool(getattr(timing, "read_free_running", False))
+        self._read_valid_latency = (
+            int(timing.read_valid_latency)
+            if getattr(timing, "read_valid_latency", None) is not None else 0)
+        # Command-anchored data pipeline: list of (due_cycle, flat_addr) that
+        # will land on the (held) DQ bus at due_cycle. Separate rddata_en->valid
+        # strobe pipeline holds the cycles a valid must be driven.
+        self._rd_data_pipe: Deque[_PendingOp] = deque()
+        self._rd_valid_pipe: Deque[int] = deque()   # cycles to drive valid
+        # The current held DQ bus contents (device-word list) — free-running:
+        # holds its last value until a newer command-anchored word overwrites it.
+        self._dq_hold_words: list = []
         # command-anchored read latency: explicit hook, else JEDEC CL (applied
         # where `cl` is read in the RD-command scheduler).
         self._read_cmd_latency = timing.read_latency   # None => use CL
@@ -452,7 +467,18 @@ class DFISlavePHY(BusMonitor):
                 if col_k >= self.mapping.num_cols:
                     break  # don't wrap past the row end for now
                 flat = self.mapping.tuple_to_flat(0, bank, open_row, col_k)
-                if self._strict_read_timing:
+                if self._read_free_running:
+                    # a7ddrphy ISERDES: the read DATA for this command lands on
+                    # the (held) DQ bus at command + read_latency, INDEPENDENT of
+                    # rddata_en. The valid strobe is scheduled separately off
+                    # rddata_en (see _monitor_recv). Data/valid decoupled => a
+                    # slipped enable samples stale/zero data.
+                    _rl = self._read_cmd_latency if self._read_cmd_latency \
+                        is not None else cl
+                    self._rd_data_pipe.append(
+                        _PendingOp(due_cycle=cycle + _rl + (k // words_per_cycle),
+                                   flat_addr=flat))
+                elif self._strict_read_timing:
                     # read_ref = rddata_en: defer until the controller asserts
                     # dfi_rddata_en; the return is timed off THAT (+read_latency).
                     self._strict_rd_addr.append(flat)
@@ -707,6 +733,72 @@ class DFISlavePHY(BusMonitor):
         else:
             self.bus.rddata_valid.value = 0
 
+    def _serve_reads_free_running(self) -> None:
+        """a7ddrphy-faithful read: DATA free-runs off the command; VALID is
+        rddata_en delayed. Data and valid are DECOUPLED.
+
+        Each cycle we (1) advance the free-running DQ bus from the command-
+        anchored data pipeline (words that have become available OVERWRITE the
+        held bus; the bus HOLDS its last value across gaps, like a real ISERDES
+        continuously shifting out the last captured word), then (2) if a valid
+        strobe (rddata_en delayed by read_valid_latency) is due this cycle,
+        present whatever the DQ bus currently holds.
+
+        The one-read shift falls out mechanically: if the controller fires
+        rddata_en a cycle EARLY relative to its command-anchored data, the
+        strobe samples the PREVIOUS read's held words (or ZERO before any data
+        has landed) — exactly the on-silicon beats_mismatched == 2*txn."""
+        cycle = self.dram.cycle
+        dev_bits = self.device_bytes * 8
+        try:
+            rddata_total_bits = len(self.bus.rddata)
+        except TypeError:
+            rddata_total_bits = self.bytes_per_beat * 8
+        words_per_cycle = max(1, rddata_total_bits // dev_bits)
+
+        # (1) Advance the free-running DQ bus. Every command-anchored word whose
+        # data-cycle has arrived overwrites the held bus, one DFI cycle's worth
+        # (words_per_cycle device words) at a time — the newest wins and HOLDS.
+        while (self._rd_data_pipe
+               and self._rd_data_pipe[0].due_cycle <= cycle):
+            new_words = []
+            for _ in range(words_per_cycle):
+                if not (self._rd_data_pipe
+                        and self._rd_data_pipe[0].due_cycle <= cycle):
+                    break
+                op = self._rd_data_pipe.popleft()
+                ba = self.memory.read(self._byte_addr(op.flat_addr),
+                                      self.device_bytes)
+                new_words.append(self.memory.bytearray_to_integer(ba)
+                                 & ((1 << dev_bits) - 1))
+            if new_words:
+                self._dq_hold_words = new_words   # newest word set HELD on bus
+
+        # (2) Drive a valid strobe if one is due this cycle. rddata_valid is a
+        # pure function of the (delayed) rddata_en — NOT of data availability.
+        valid_due = bool(self._rd_valid_pipe
+                         and self._rd_valid_pipe[0] <= cycle)
+        if not valid_due:
+            self.bus.rddata_valid.value = 0
+            return
+        # Consume all strobes due this cycle (one DFI cycle each).
+        while (self._rd_valid_pipe and self._rd_valid_pipe[0] <= cycle):
+            self._rd_valid_pipe.popleft()
+
+        # Sample the CURRENTLY held DQ bus. If no command data has landed yet,
+        # the bus reads ZERO (first-read leading-zero signature).
+        held = list(self._dq_hold_words)
+        packed_data = 0
+        packed_valid = 0
+        K = self.words_per_beat
+        for w in range(words_per_cycle):
+            word = held[w] if w < len(held) else 0
+            packed_data |= (word & ((1 << dev_bits) - 1)) << (w * dev_bits)
+            packed_valid |= (1 << (w // K))
+            self.reads_served += 1
+        self.bus.rddata.value = packed_data
+        self.bus.rddata_valid.value = packed_valid
+
     # ----- Sampling loop -----
 
     async def _monitor_recv(self):
@@ -748,6 +840,16 @@ class DFISlavePHY(BusMonitor):
                         _PendingOp(due_cycle=cycle + self._read_latency,
                                    flat_addr=flat))
 
+            # Free-running ISERDES: sample rddata_en into the valid-strobe
+            # pipeline (valid = enable delayed read_valid_latency), INDEPENDENT
+            # of the command-anchored data pipeline. This is where the real
+            # a7ddrphy decouples the two: dfi_rddata_valid is purely the
+            # controller's rddata_en delayed a fixed count; the data is whatever
+            # the free-running DQ bus happens to hold at that instant.
+            if self._read_free_running and (_v(self.bus.rddata_en) != 0):
+                cycle = self.dram.cycle
+                self._rd_valid_pipe.append(cycle + self._read_valid_latency)
+
             # Order matters: commit writes first, then serve reads. The
             # serve_reads helper double-checks so we never produce stale
             # data while a same-cycle write is still in flight.
@@ -755,7 +857,10 @@ class DFISlavePHY(BusMonitor):
                 self._serve_writes_strict()
             else:
                 self._serve_writes()
-            self._serve_reads()
+            if self._read_free_running:
+                self._serve_reads_free_running()
+            else:
+                self._serve_reads()
 
             # Per-version behavior dispatch. The behavior class returns
             # an Event when it sees something noteworthy on its sub-area;

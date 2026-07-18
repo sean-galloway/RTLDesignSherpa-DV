@@ -307,7 +307,7 @@ def create_coverage_hook_from_env(log: Optional[logging.Logger] = None) -> Optio
 
     # Try to import the stream coverage helper
     try:
-        from projects.components.stream.dv.stream_coverage import CoverageHelper
+        from projects.components.dmas.stream.dv.stream_coverage import CoverageHelper
         test_name = os.environ.get('COVERAGE_TEST_NAME', 'unknown_test')
         coverage_helper = CoverageHelper(test_name, log=log)
         return GaxiCoverageHook(coverage_helper, log=log)

@@ -26,6 +26,9 @@ Phase 2.
 
 from __future__ import annotations
 
+import os as _os_dbg
+_WR_TRACE = _os_dbg.environ.get("DFI_WR_TRACE", "0") == "1"
+
 from collections import deque
 from dataclasses import dataclass
 from typing import Deque, Optional
@@ -83,6 +86,103 @@ def decode_phase0_cmd(ras_n_bus: int, cas_n_bus: int,
                            DRAMCommand.NOP)
 
 
+def decode_all_phases(cs_n_bus: int, ras_n_bus: int, cas_n_bus: int,
+                      we_n_bus: int, dfi_rate: int) -> list:
+    """Decode a command at EVERY DFI phase whose cs_n is asserted.
+
+    The real a7ddrphy accepts one DRAM command per phase per DFI cycle — up to
+    ``dfi_rate`` commands are launched in a single cycle. This generalizes
+    :func:`decode_phase0_cmd` (which only ever looked at phase 0) so the BFM can
+    model the multi-command-per-cycle packing the sub-DFI-word BL4 fix issues
+    (two BL4 RDs at phases {P, P+2} in ONE cycle -> one fully-packed DFI word).
+
+    Args
+    ----
+    cs_n_bus/ras_n_bus/cas_n_bus/we_n_bus : the packed DFI control buses,
+        ``{phase_{N-1}, …, phase_0}`` bit-packed (one control bit per phase for
+        DFI_CTRL_WIDTH=1 / one cs_n bit per phase for NUM_RANKS=1).
+    dfi_rate : number of DFI phases (>=1).
+
+    Returns
+    -------
+    list of ``(phase, DRAMCommand)`` for each phase whose cs_n is asserted
+    (active-low) AND decodes to a non-NOP command, in ascending phase order.
+
+    DFI_RATE==1 / phase-0-only traffic collapses to at most a single
+    ``[(0, cmd)]`` entry, bit-identical to the legacy ``decode_phase0_cmd``
+    path (regression guard for the single-command decode).
+    """
+    out = []
+    rate = max(1, dfi_rate)
+    for p in range(rate):
+        if ((cs_n_bus >> p) & 1) != 0:
+            continue  # phase not selected (cs_n high)
+        cmd = decode_phase0_cmd((ras_n_bus >> p) & 1,
+                                (cas_n_bus >> p) & 1,
+                                (we_n_bus >> p) & 1)
+        if cmd != DRAMCommand.NOP:
+            out.append((p, cmd))
+    return out
+
+
+def deinterleave_read_window(prev_window: list, bursts: list,
+                             words_per_cycle: int, nphases: int,
+                             words_per_beat: int) -> list:
+    """Build ONE a7ddrphy de-interleave window from the reads issued in a cycle.
+
+    This is the faithful phase-anchored de-interleaver, factored out as a pure
+    function so :class:`DFISlavePHY` and its unit test share the SAME logic (no
+    duplicated model). It reproduces BOTH the on-board BUG and the FIX purely
+    from how many RD commands are in ``bursts``:
+
+      * ONE burst (1 RD/cycle, the BUG): only its rd_phase-anchored slot run is
+        written; every other slot HOLDS its previous (stale) value.
+      * TWO bursts at phases {P, P+2} (the FIX): both anchored runs are written
+        into the same window -> fully packed, zero stale.
+
+    Args
+    ----
+    prev_window     : the previous cycle's window (device-word list); slots no
+                      burst writes this cycle keep their value from here (STALE).
+                      Shorter/None is zero-extended.
+    bursts          : list of ``(anchor_phase, [device_words])`` — one entry per
+                      RD command decoded this DFI cycle, in issue order.
+    words_per_cycle : device-word slots one DFI cycle exposes
+                      (== nphases * words_per_beat).
+    nphases         : PHY phase count / DFI gear.
+    words_per_beat  : device words per DFI phase (K).
+
+    Returns
+    -------
+    The new window (device-word list of length ``words_per_cycle``). Each burst's
+    anchored slot run is placed via the shared contract
+    :func:`dfi_timing.bl_anchored_slot_mask`, so the RTL assertion mirrors the
+    identical geometry.
+    """
+    from .dfi_timing import bl_anchored_slot_mask
+    window = list(prev_window) if prev_window else []
+    if len(window) < words_per_cycle:
+        window += [0] * (words_per_cycle - len(window))
+    else:
+        window = window[:words_per_cycle]
+    for anchor_phase, burst_words in bursts:
+        bl_beats = len(burst_words)
+        if bl_beats <= 0:
+            continue
+        if bl_beats >= words_per_cycle:
+            first_slot, burst_slots = 0, words_per_cycle
+        else:
+            _wpc, first_slot, burst_slots = bl_anchored_slot_mask(
+                bl=bl_beats, nphases=nphases,
+                words_per_beat=words_per_beat, rd_phase=anchor_phase)
+            assert _wpc == words_per_cycle, (
+                f"contract words_per_cycle {_wpc} != {words_per_cycle}")
+        for i in range(burst_slots):
+            window[(first_slot + i) % words_per_cycle] = (
+                burst_words[i] if i < len(burst_words) else 0)
+    return window
+
+
 def slice_phase_wrdata(full_wrdata: int, full_mask: int,
                        wrdata_en_bits: int,
                        beat_bytes: int) -> list:
@@ -112,9 +212,22 @@ def slice_phase_wrdata(full_wrdata: int, full_mask: int,
 
 @dataclass
 class _PendingOp:
-    """One pending memory operation, due at ``due_cycle``."""
+    """One pending memory operation, due at ``due_cycle``.
+
+    ``burst_id`` / ``anchor_phase`` are only used by the a7ddrphy BL-anchored
+    read model (read_bl_anchored): they group device-words back into their
+    originating RD command and record the rd_phase the PHY anchors that burst
+    to. ``decode_cycle`` is the DFI cycle the RD command was decoded on — the
+    faithful de-interleaver groups ALL reads decoded in the SAME DFI cycle into
+    ONE de-interleave window (that is what lets two same-cycle BL4 RDs at phases
+    {P, P+2} fully pack one 128b DFI word, zero stale). All default to 0 so
+    every other path is unaffected.
+    """
     due_cycle: int
     flat_addr: int
+    burst_id: int = 0
+    anchor_phase: int = 0
+    decode_cycle: int = 0
 
 
 class DFISlavePHY(BusMonitor):
@@ -270,6 +383,27 @@ class DFISlavePHY(BusMonitor):
         # to the command; VALID = rddata_en delayed by read_valid_latency;
         # DQ bus HOLDS its last word. See DFITimingProfile.a7ddrphy_free_running.
         self._read_free_running = bool(getattr(timing, "read_free_running", False))
+        # a7ddrphy fixed 8-slot de-interleave for a BL < 2*nphases read: the
+        # burst fills only its rd_phase-anchored phases; the other phases hold
+        # the PREVIOUS read's beats (stale). See DFITimingProfile.a7ddrphy_bl4.
+        self._read_bl_anchored = bool(getattr(timing, "read_bl_anchored", False))
+        # Faithful per-64b-beat READ SKEW (a7ddrphy: the two 64b beats of a 128b
+        # DFI word return at DIFFERENT capture latencies). read_hi_skew/lo_skew =
+        # extra DFI cycles the HIGH/LOW beat lags. Default 0 = OFF (bit-identical,
+        # all existing tests unaffected). The controller's PHY_TIMING.deskew_hi/lo
+        # must be trained to cancel it. Modelled as a 1-deep hold per beat.
+        self._read_hi_skew = int(getattr(timing, "read_hi_skew", 0))
+        self._read_lo_skew = int(getattr(timing, "read_lo_skew", 0))
+        self._skew_hi_prev = 0
+        self._skew_lo_prev = 0
+        self._skew_cur = None   # ideal read word produced this cycle (None = idle)
+        # Held device-words of the last-served read (the "stale" content the
+        # a7ddrphy leaves on the phases a short burst did not drive). Indexed by
+        # device-word slot within a full DFI cycle.
+        self._rd_stale_words: list = []
+        # Monotonic RD-command counter — tags each read burst so the anchored
+        # model can group device-words back into their originating burst.
+        self._rd_burst_seq = 0
         self._read_valid_latency = (
             int(timing.read_valid_latency)
             if getattr(timing, "read_valid_latency", None) is not None else 0)
@@ -414,7 +548,12 @@ class DFISlavePHY(BusMonitor):
             (_v(self.bus.cas_n) >> p) & 1,
             (_v(self.bus.we_n)  >> p) & 1)
 
-    def _handle_command(self, cmd: DRAMCommand) -> None:
+    def _handle_command(self, cmd: DRAMCommand,
+                        phase_override: Optional[int] = None) -> None:
+        # phase_override: when the faithful multi-command decoder handles several
+        # commands issued in ONE DFI cycle, each carries its own DFI phase (its
+        # rd/wr-phase anchor). None => fall back to _active_phase() (the single-
+        # command legacy path), so existing callers are unchanged.
         if self._is_lpddr2_family():
             # Pull bank/row/col/etc. from the decoded CA args, not the
             # raw bus fields (which are held idle for LPDDR2/3).
@@ -432,7 +571,7 @@ class DFISlavePHY(BusMonitor):
             # Pull bank/addr from the phase that carries the command, matching
             # _decode_command's rdphase/wrphase-aware phase select. For phase 0
             # this is identical to the old full-bus read (upper phases NOP=0).
-            p = self._active_phase()
+            p = self._active_phase() if phase_override is None else phase_override
             dfi_rate = self._infer_dfi_rate()
             aw = max(1, len(self.bus.address) // dfi_rate)
             bw = max(1, len(self.bus.bank) // dfi_rate)
@@ -462,6 +601,14 @@ class DFISlavePHY(BusMonitor):
             # the rddata bus width to derive DFI_RATE without a new ctor
             # parameter.
             words_per_cycle = self._infer_dfi_rate() * self.words_per_beat
+            # Tag this RD command: burst id (for anchored grouping) + the
+            # rd_phase the PHY anchors the returned burst to (a7ddrphy BL-anchored
+            # model only). _active_phase() follows the phase carrying the RD cmd.
+            self._rd_burst_seq += 1
+            _burst_id = self._rd_burst_seq
+            _anchor_phase = (self._active_phase() if phase_override is None
+                             else phase_override)
+            _decode_cycle = cycle
             for k in range(beats):
                 col_k = base_col + k
                 if col_k >= self.mapping.num_cols:
@@ -481,17 +628,24 @@ class DFISlavePHY(BusMonitor):
                 elif self._strict_read_timing:
                     # read_ref = rddata_en: defer until the controller asserts
                     # dfi_rddata_en; the return is timed off THAT (+read_latency).
-                    self._strict_rd_addr.append(flat)
+                    # Carry burst id + anchor phase for the BL-anchored model.
+                    self._strict_rd_addr.append(
+                        (flat, _burst_id, _anchor_phase))
                 else:
                     # read_ref = command: schedule at command + the profile's
                     # read_latency hook (None => JEDEC CL). read_en_gated (if set)
                     # additionally holds rddata_valid until dfi_rddata_en — see
-                    # _serve_reads.
+                    # _serve_reads. burst_id/anchor_phase are carried so the
+                    # BL-anchored server (read_bl_anchored) can group a burst's
+                    # device words and place them in the rd_phase-anchored slots;
+                    # the plain _serve_reads path ignores them (K=1 => no-op).
                     _rl = self._read_cmd_latency if self._read_cmd_latency \
                         is not None else cl
                     self._pending_reads.append(
                         _PendingOp(due_cycle=cycle + _rl + (k // words_per_cycle),
-                                   flat_addr=flat)
+                                   flat_addr=flat, burst_id=_burst_id,
+                                   anchor_phase=_anchor_phase,
+                                   decode_cycle=_decode_cycle)
                     )
             if addr & (1 << 10):
                 self._pending_auto_pre(bank)
@@ -615,8 +769,14 @@ class DFISlavePHY(BusMonitor):
                 ba = self.memory.integer_to_bytearray(wd, dev_bytes)
                 # DFI mask convention: 1 means *don't* write that byte.
                 strobe = (~wm) & ((1 << dev_bytes) - 1)
-                self.memory.write(self._byte_addr(op.flat_addr), ba,
-                                  strobe=strobe)
+                _ba_addr = self._byte_addr(op.flat_addr)
+                if _WR_TRACE:
+                    self.log.info(
+                        f"[WRTRACE] cyc={cycle} phase={phase} w={w} "
+                        f"byte_addr=0x{_ba_addr:X} data=0x{wd:0{dev_bytes*2}X} "
+                        f"strobe=0x{strobe:X} en={_v(self.bus.wrdata_en):b} "
+                        f"pend_left={len(self._pending_writes)}")
+                self.memory.write(_ba_addr, ba, strobe=strobe)
                 self.writes_committed += 1
 
     def _serve_writes_strict(self) -> None:
@@ -799,6 +959,133 @@ class DFISlavePHY(BusMonitor):
         self.bus.rddata.value = packed_data
         self.bus.rddata_valid.value = packed_valid
 
+    def _serve_reads_bl_anchored(self) -> None:
+        """Faithful a7ddrphy phase-anchored read DE-INTERLEAVER.
+
+        The Artix-7 a7ddrphy exposes ONE fixed words_per_cycle-slot DFI word per
+        DFI cycle (8 slots for nphases=4 x16). This ONE model reproduces BOTH the
+        board BUG and the FIX, keyed only on how many RD commands the controller
+        issues per DFI cycle:
+
+          * ONE RD/cycle (the on-board BUG): a BL4 read drives ONLY its
+            rd_phase-ANCHORED contiguous slot run (4 slots); the slots it does NOT
+            drive HOLD THE PREVIOUS READ'S device words (STALE) — the fixed 8-slot
+            deserializer keeps the last word on the phases this short burst did not
+            drive. A controller that captures the whole DFI word takes the anchored
+            run correct and the rest STALE -> 4 real + 4 stale.
+
+          * TWO RDs/cycle at phases {P, P+2} (the FIX): both anchored runs are
+            written in the SAME de-interleave window -> {slots[0:4], slots[4:8]}
+            fully populated -> 8 real, 0 stale.
+
+        Reads decoded in the SAME DFI cycle (op.decode_cycle) belong to ONE
+        window: each contributes its BL device words at its own anchor phase's
+        slots. Slots no RD in the group drove hold the previous window's value.
+        The anchored slot run is derived by the shared contract helper
+        (dfi_timing.bl_anchored_slot_mask) so the RTL assertion mirrors the
+        IDENTICAL rule. Stale-previous (not zero) is the faithful, bug-exposing
+        fill — zeros would accidentally pass some data patterns.
+        """
+        cycle = self.dram.cycle
+        # Queue-don't-collide: a same-or-earlier pending WRITE commits first.
+        if self._pending_writes and self._pending_writes[0].due_cycle <= cycle:
+            self.bus.rddata_valid.value = 0
+            return
+        # read_en_gated hook (a7ddrphy capture window): hold rddata_valid until
+        # the controller asserts dfi_rddata_en.
+        if self._read_en_gated and (_v(self.bus.rddata_en) == 0):
+            self.bus.rddata_valid.value = 0
+            return
+
+        dev_bits = self.device_bytes * 8
+        K = self.words_per_beat
+        try:
+            rddata_total_bits = len(self.bus.rddata)
+        except TypeError:
+            rddata_total_bits = self.bytes_per_beat * 8
+        words_per_cycle = max(1, rddata_total_bits // dev_bits)
+        nphases = self._infer_dfi_rate()
+
+        # Nothing due this cycle -> keep valid low; the DQ hold state persists.
+        if not (self._pending_reads
+                and self._pending_reads[0].due_cycle <= cycle):
+            self.bus.rddata_valid.value = 0
+            return
+
+        # Gather EVERY burst decoded in the same DFI cycle as the head (they pack
+        # into ONE de-interleave window). Group each burst's device words by its
+        # burst_id, recording its anchor_phase. This is the ONLY place the BUG vs
+        # FIX diverge: one RD in the group -> half the window stays stale; two RDs
+        # at {P,P+2} -> the whole window is real.
+        group_decode = self._pending_reads[0].decode_cycle
+        # Preserve first-seen order of bursts so a deterministic anchor layout.
+        group_order: list = []
+        group_words: dict = {}      # burst_id -> list[int]
+        group_anchor: dict = {}     # burst_id -> anchor_phase
+        while (self._pending_reads
+               and self._pending_reads[0].due_cycle <= cycle
+               and self._pending_reads[0].decode_cycle == group_decode):
+            op = self._pending_reads.popleft()
+            if op.burst_id not in group_words:
+                group_order.append(op.burst_id)
+                group_words[op.burst_id] = []
+                group_anchor[op.burst_id] = op.anchor_phase
+            ba = self.memory.read(self._byte_addr(op.flat_addr),
+                                  self.device_bytes)
+            group_words[op.burst_id].append(
+                self.memory.bytearray_to_integer(ba) & ((1 << dev_bits) - 1))
+
+        if not group_order:
+            self.bus.rddata_valid.value = 0
+            return
+
+        # Build the FULL de-interleave window via the SHARED pure helper (same
+        # logic the unit test drives): start from the previous window (STALE
+        # hold), write each burst's device words into its anchored slots. Slots no
+        # burst wrote keep the stale value.
+        bursts = [(group_anchor[bid], group_words[bid]) for bid in group_order]
+        total_words = sum(len(group_words[bid]) for bid in group_order)
+        window = deinterleave_read_window(
+            prev_window=self._rd_stale_words, bursts=bursts,
+            words_per_cycle=words_per_cycle, nphases=nphases,
+            words_per_beat=K)
+        # This window becomes the NEXT window's stale fill.
+        self._rd_stale_words = list(window)
+
+        slots = window
+        packed_data = 0
+        packed_valid = 0
+        for w in range(words_per_cycle):
+            packed_data |= (slots[w] & ((1 << dev_bits) - 1)) << (w * dev_bits)
+            packed_valid |= (1 << (w // K))   # valid is per DFI phase
+        self.reads_served += total_words
+        self.bus.rddata.value = packed_data
+        self.bus.rddata_valid.value = packed_valid
+        self._skew_cur = packed_data   # this cycle's ideal word for the skew step
+
+    def _skew_post(self) -> None:
+        """Faithful per-64b-beat read skew, run EVERY dfi cycle. Delays the HIGH
+        (and/or LOW) 64b beat by one cycle relative to the other, so read N's high
+        half lands on cycle N+1 (a trailing-cycle drive) — the a7ddrphy defect the
+        controller's deskew_lo/hi cancel. Runs on idle cycles too, so the trailing
+        high beat is driven even when no new read is due. `_skew_cur` is the ideal
+        word the serve step produced this cycle (None = idle)."""
+        try:
+            total = len(self.bus.rddata)
+        except TypeError:
+            total = self.bytes_per_beat * 8
+        hw   = total // 2
+        mask = (1 << hw) - 1
+        cur  = self._skew_cur
+        cur_lo = (cur & mask) if cur is not None else 0
+        cur_hi = ((cur >> hw) & mask) if cur is not None else 0
+        out_lo = self._skew_lo_prev if self._read_lo_skew else cur_lo
+        out_hi = self._skew_hi_prev if self._read_hi_skew else cur_hi
+        self._skew_lo_prev = cur_lo
+        self._skew_hi_prev = cur_hi
+        self.bus.rddata.value = (out_hi << hw) | out_lo
+        self._skew_cur = None
+
     # ----- Sampling loop -----
 
     async def _monitor_recv(self):
@@ -817,9 +1104,22 @@ class DFISlavePHY(BusMonitor):
             cs_all = _v(self.bus.cs_n)
             cs_sel_mask = (1 << dfi_rate) - 1   # 1 cs_n bit per phase (1 rank)
             if (cs_all & cs_sel_mask) != cs_sel_mask:
-                cmd = self._decode_command()
-                if cmd != DRAMCommand.NOP:
-                    self._handle_command(cmd)
+                # Faithful a7ddrphy: decode a command at EVERY selected phase, so
+                # multiple commands issued in ONE DFI cycle (the sub-DFI-word BL4
+                # fix: two RDs at phases {P, P+2}) are all handled and pack into
+                # one de-interleave window. Each command carries its own DFI phase
+                # as its anchor. LPDDR2 rides the CA bus (one cmd/cycle) so it
+                # keeps the single-decode path. The plain models also keep single
+                # decode (bit-identical to before).
+                if self._read_bl_anchored and not self._is_lpddr2_family():
+                    for _p, _cmd in decode_all_phases(
+                            cs_all, _v(self.bus.ras_n), _v(self.bus.cas_n),
+                            _v(self.bus.we_n), dfi_rate):
+                        self._handle_command(_cmd, phase_override=_p)
+                else:
+                    cmd = self._decode_command()
+                    if cmd != DRAMCommand.NOP:
+                        self._handle_command(cmd)
 
             # Strict read gate: the controller enables the read capture window
             # via dfi_rddata_en. On each cycle it is asserted, schedule one DFI
@@ -835,10 +1135,18 @@ class DFISlavePHY(BusMonitor):
                 for _ in range(words_per_cycle):
                     if not self._strict_rd_addr:
                         break
-                    flat = self._strict_rd_addr.popleft()
+                    # _strict_rd_addr entries carry (flat, burst_id, anchor_phase)
+                    # for the BL-anchored model. Unpack robustly so the legacy
+                    # (bare-int flat) form still works if ever queued that way.
+                    _entry = self._strict_rd_addr.popleft()
+                    if isinstance(_entry, tuple):
+                        flat, _bid, _aphase = _entry
+                    else:
+                        flat, _bid, _aphase = _entry, 0, 0
                     self._pending_reads.append(
                         _PendingOp(due_cycle=cycle + self._read_latency,
-                                   flat_addr=flat))
+                                   flat_addr=flat, burst_id=_bid,
+                                   anchor_phase=_aphase))
 
             # Free-running ISERDES: sample rddata_en into the valid-strobe
             # pipeline (valid = enable delayed read_valid_latency), INDEPENDENT
@@ -857,10 +1165,17 @@ class DFISlavePHY(BusMonitor):
                 self._serve_writes_strict()
             else:
                 self._serve_writes()
+            self._skew_cur = None   # serve sets it when it drives an ideal word
             if self._read_free_running:
                 self._serve_reads_free_running()
+            elif self._read_bl_anchored:
+                self._serve_reads_bl_anchored()
             else:
                 self._serve_reads()
+            # Per-beat read skew: a 1-deep pipeline on the DQ bus, applied EVERY
+            # cycle (idle included) so read N's high beat lands on cycle N+1.
+            if self._read_hi_skew or self._read_lo_skew:
+                self._skew_post()
 
             # Per-version behavior dispatch. The behavior class returns
             # an Event when it sees something noteworthy on its sub-area;

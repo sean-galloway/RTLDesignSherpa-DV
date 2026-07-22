@@ -219,6 +219,13 @@ Overall: FAIL
 
 Transformer for converting APB transactions to GAXI packets.
 
+> **Compatibility subclass.** This class now derives from the canonical
+> `scoreboards.apb_gaxi_transformer.APBtoGAXITransformer`, keeping the
+> constructor and list-returning `transform()` documented below while
+> inheriting `apb_to_gaxi()` / `gaxi_to_apb()`. Both import paths work; prefer
+> `apb_gaxi_transformer` in new code. See
+> [APB-GAXI Transformer](scoreboards_apb_gaxi_transformer.md).
+
 ```python
 class APBtoGAXITransformer(ProtocolTransformer):
     def __init__(self, gaxi_field_config, packet_class, log=None)

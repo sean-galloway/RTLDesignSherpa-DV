@@ -40,6 +40,13 @@ The APB-GAXI transformer system provides:
 
 Core transformer providing bidirectional APB-GAXI protocol conversion.
 
+> **This module is the canonical implementation.** A same-named class in
+> `scoreboards.apb_scoreboard` is a thin subclass kept for backward
+> compatibility: it keeps the older `(gaxi_field_config, packet_class, log)`
+> constructor and its `transform()` method returning a list, while inheriting
+> `apb_to_gaxi()` / `gaxi_to_apb()` from this class. Prefer importing from
+> `apb_gaxi_transformer` in new code.
+
 ```python
 class APBtoGAXITransformer:
     def __init__(self, gaxi_field_config, gaxi_packet_class=GAXIPacket, log=None)

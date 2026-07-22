@@ -256,8 +256,9 @@ class UARTSlave(BusDriver):
 
     Args:
         entity: CocoTB DUT entity
-        rx_signal_name: Name of UART RX input signal (DUT receives on this)
-        tx_signal_name: Name of UART TX output signal (DUT transmits on this)
+        title: Slave name for logging
+        rx_signal_name: Signal the slave listens on (typically the DUT's TX output)
+        tx_signal_name: Signal the slave drives (typically the DUT's RX input)
         clock: Reference clock
         clks_per_bit: Number of clock cycles per UART bit time
         log: Logger instance (optional)

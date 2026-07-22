@@ -74,7 +74,6 @@ class MyTestbench(TBBase):
             signal_name="i_uart_rx",  # DUT input signal name
             clock=dut.aclk,
             clks_per_bit=868,  # 100 MHz / 115200 baud
-            direction='TX',
             log=self.log
         )
 
@@ -84,7 +83,7 @@ class MyTestbench(TBBase):
 
     async def send_byte(self, byte_val):
         """Send single byte"""
-        await self.uart_tx.send_byte(byte_val)
+        await self.uart_tx.send(byte_val)
 ```
 
 ### API
@@ -96,25 +95,28 @@ UARTMaster(
     title,            # String for logging (e.g., "UART_TX")
     signal_name,      # DUT signal name (e.g., "i_uart_rx")
     clock,            # Clock signal handle
-    clks_per_bit,     # Clocks per UART bit
-    direction='TX',   # Direction string (for logging)
+    clks_per_bit=868, # Clocks per UART bit
     log=None          # Logger instance (optional)
 )
 ```
 
 #### Methods
 
-**`async send_byte(data: int)`**
+**`async send(data)`**
 - Transmits single byte over UART
-- `data`: 8-bit value (0-255)
+- `data`: 8-bit value (0-255) or single character
 - Automatically adds start/stop bits
-- Non-blocking (awaitable)
+- Returns a `UARTPacket` describing the transmitted byte
 
-**`async send_string(text: str)`**
+**`async send_bytes(data_list)`**
+- Transmits a list of bytes (or characters) sequentially
+- Returns a list of `UARTPacket` objects
+
+**`async send_string(string)`**
 - Transmits ASCII string over UART
-- `text`: String to transmit
+- `string`: String to transmit
 - Sends each character sequentially
-- Non-blocking (awaitable)
+- Returns a list of `UARTPacket` objects
 
 ### Timing
 
@@ -208,8 +210,8 @@ UARTMonitor(
     title,            # String for logging (e.g., "UART_RX_MON")
     signal_name,      # DUT signal name (e.g., "o_uart_tx")
     clock,            # Clock signal handle
-    clks_per_bit,     # Clocks per UART bit
-    direction='RX',   # Direction string (for logging)
+    clks_per_bit=868, # Clocks per UART bit
+    direction='RX',   # Direction label ('TX' or 'RX', for packet tagging)
     log=None          # Logger instance (optional)
 )
 ```
@@ -221,11 +223,17 @@ UARTMonitor(
 - Access with `.popleft()` to retrieve oldest packet
 - Each packet is a `UARTPacket` object
 
-**`UARTPacket` Structure:**
+**`UARTPacket` Structure (key fields):**
 ```python
+@dataclass
 class UARTPacket:
-    data: int      # 8-bit received data
-    timestamp: int # Simulation time (ns)
+    start_time: float     # Simulation time when transmission started (ns)
+    count: int            # Transaction counter
+    data: int             # 8-bit data value
+    parity: Optional[int] # Parity bit (None for 8N1)
+    parity_error: bool    # Parity error flag
+    framing_error: bool   # Framing error flag (stop bit not high)
+    direction: str        # 'TX' or 'RX'
 ```
 
 #### Methods
@@ -238,7 +246,7 @@ Monitor runs automatically in background. Access received data via `_recvQ`.
 if len(self.uart_rx_monitor._recvQ) > 0:
     pkt = self.uart_rx_monitor._recvQ.popleft()
     byte_val = pkt.data
-    timestamp = pkt.timestamp
+    timestamp = pkt.start_time
 
 # Clear queue
 self.uart_rx_monitor._recvQ.clear()
@@ -288,11 +296,10 @@ Simulates UART slave device that can respond to received commands. Useful for te
 
 ### Features
 
-- Receives commands via UART
-- Generates responses
-- Configurable response patterns
-- Automatic echo mode
-- Custom response callbacks
+- Receives bytes via UART into `rx_queue`
+- Byte-triggered auto-responses (`add_response`)
+- Non-blocking receive checking (`get_received`)
+- Byte matching with timeout (`wait_for_byte`)
 
 ### Usage
 
@@ -311,20 +318,13 @@ class MyTestbench(TBBase):
             tx_signal_name="i_uart_rx",  # Transmit to DUT RX
             clock=dut.aclk,
             clks_per_bit=868,
-            log=self.log,
-            echo_mode=True  # Echo received bytes
+            log=self.log
         )
 
-    async def setup_custom_response(self):
-        """Configure custom response callback"""
-        async def custom_handler(byte_val):
-            if byte_val == ord('?'):
-                return "READY\n"
-            elif byte_val == ord('V'):
-                return "VERSION 1.0\n"
-            return None  # No response
-
-        self.uart_slave.set_response_handler(custom_handler)
+    def setup_responses(self):
+        """Configure byte-triggered auto-responses"""
+        self.uart_slave.add_response(ord('?'), "READY\n")
+        self.uart_slave.add_response(ord('V'), "VERSION 1.0\n")
 ```
 
 ### API
@@ -334,28 +334,34 @@ class MyTestbench(TBBase):
 UARTSlave(
     entity,           # CocoTB DUT entity
     title,            # String for logging
-    rx_signal_name,   # DUT TX signal name (slave receives from)
-    tx_signal_name,   # DUT RX signal name (slave transmits to)
+    rx_signal_name,   # Signal the slave listens on (typically DUT TX output)
+    tx_signal_name,   # Signal the slave drives (typically DUT RX input)
     clock,            # Clock signal handle
-    clks_per_bit,     # Clocks per UART bit
-    log=None,         # Logger instance
-    echo_mode=False   # Echo received bytes back
+    clks_per_bit=868, # Clocks per UART bit
+    log=None          # Logger instance
 )
 ```
 
+#### Attributes
+
+**`rx_queue`** - `collections.deque` of received byte values (integers 0-255)
+
+**`response_map`** - Dictionary mapping trigger bytes to response sequences
+
 #### Methods
 
-**`set_response_handler(callback)`**
-- Set custom response callback
-- `callback`: async function(byte) -> str or None
-- Called for each received byte
-- Return string to transmit response, None for no response
+**`add_response(trigger, response)`**
+- Register an auto-response for a received byte
+- `trigger`: byte value (0-255) or single character
+- `response`: byte, list of bytes, or string to transmit when triggered
 
-**`enable_echo_mode()`**
-- Enable automatic echo of received bytes
+**`get_received()`**
+- Non-blocking; returns the next received byte (0-255) or `None` if the queue is empty
 
-**`disable_echo_mode()`**
-- Disable automatic echo
+**`async wait_for_byte(expected, timeout_cycles=1000)`**
+- Wait for a specific byte with a clock-cycle timeout
+- Returns `True` if received, `False` on timeout
+- Raises `AssertionError` if a different byte is received
 
 ### Example
 
@@ -365,18 +371,12 @@ async def test_uart_slave(dut):
     tb = UARTTestbench(dut)
     await tb.setup_clocks_and_reset()
 
-    # Configure slave responses
-    async def command_handler(byte_val):
-        if byte_val == ord('R'):
-            return "READ_OK\n"
-        elif byte_val == ord('W'):
-            return "WRITE_OK\n"
-        return None
+    # Configure slave auto-responses
+    tb.uart_slave.add_response(ord('R'), "READ_OK\n")
+    tb.uart_slave.add_response(ord('W'), "WRITE_OK\n")
 
-    tb.uart_slave.set_response_handler(command_handler)
-
-    # Master sends command
-    # Slave automatically responds based on handler
+    # When the DUT transmits 'R' or 'W', the slave automatically
+    # sends the corresponding response string back
 ```
 
 ---
@@ -453,7 +453,6 @@ class UARTBridgeTB(TBBase):
             signal_name="i_uart_rx",
             clock=dut.aclk,
             clks_per_bit=868,
-            direction='TX',
             log=self.log
         )
 
@@ -585,8 +584,9 @@ None currently documented.
 1. **Parity Support** - 8E1, 8O1 modes
 2. **Flow Control** - RTS/CTS hardware handshaking
 3. **Break Detection** - Extended low period detection
-4. **Framing Error Detection** - Invalid stop bit detection
-5. **Configurable Stop Bits** - 1, 1.5, 2 stop bits
+4. **Configurable Stop Bits** - 1, 1.5, 2 stop bits
+
+(Framing error detection — invalid stop bit — is already implemented in `UARTMonitor`.)
 
 ---
 

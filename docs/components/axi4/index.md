@@ -77,7 +77,7 @@ The AXI4 component ecosystem includes specialized interfaces and utilities for c
 ## Getting Started
 
 ```python
-from cocotb_framework.components.axi4 import AXI4MasterRead, AXI4MasterWrite
+from CocoTBFramework.components.axi4.axi4_interfaces import AXI4MasterRead, AXI4MasterWrite
 
 # Create AXI4 master read interface
 master_read = AXI4MasterRead(
@@ -154,19 +154,17 @@ graph TB
 
 ## Advanced Use Cases
 
-### Outstanding Transaction Management
+### Pipelined Traffic with AXI4Sequence
 ```python
-# Configure for multiple outstanding transactions
-master_read.configure_outstanding(max_outstanding=8)
+from CocoTBFramework.components.axi4 import AXI4Sequence, run_axi4_sequence
 
-# Launch concurrent read transactions
-tasks = []
+# Author the traffic once as data
+seq = AXI4Sequence("pipelined", data_width=32)
 for addr in [0x1000, 0x2000, 0x3000, 0x4000]:
-    task = asyncio.create_task(master_read.read_transaction(addr, burst_len=4))
-    tasks.append(task)
+    seq.add_read(addr, length=4)
 
-# Wait for all to complete
-results = await asyncio.gather(*tasks)
+# Run all bursts against the master
+results = await run_axi4_sequence(seq, master_rd=master_read, raise_on_error=True)
 ```
 
 ### Protocol Compliance Verification
@@ -182,12 +180,15 @@ master_read = AXI4MasterRead(dut, clk, "m_axi_")
 
 ### Memory Model Integration
 ```python
-# Connect memory model for automatic verification
-memory = create_memory_model(size=4096, data_width=32)
-master_write.connect_memory(memory)
-slave_read.connect_memory(memory)
+from CocoTBFramework.components.shared.memory_model import MemoryModel
+from CocoTBFramework.components.axi4.axi4_interfaces import AXI4SlaveRead, AXI4SlaveWrite
 
-# Data automatically verified between master writes and slave reads
+# Pass a shared memory model to the slave interfaces
+memory = MemoryModel(num_lines=1024, bytes_per_line=4)
+slave_write = AXI4SlaveWrite(dut, clk, "s_axi_", memory_model=memory)
+slave_read = AXI4SlaveRead(dut, clk, "s_axi_", memory_model=memory)
+
+# Writes land in the memory model; reads are served from it
 ```
 
 The AXI4 components provide a complete solution for AXI4-Full protocol verification, combining the power and flexibility of the GAXI infrastructure with AXI4-specific optimizations and advanced features for comprehensive memory-mapped interface testing.

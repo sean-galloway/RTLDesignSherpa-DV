@@ -1175,7 +1175,6 @@ class AXI5SlaveWrite:
             bytes_per_beat = 1 << size_encoding
             aw_trace = getattr(aw_packet, 'trace', 0)
             aw_tagop = getattr(aw_packet, 'tagop', 0)
-            getattr(aw_packet, 'atop', 0)
 
             # Write data to memory if available
             if self.memory_model:

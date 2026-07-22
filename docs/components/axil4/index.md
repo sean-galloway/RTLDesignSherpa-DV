@@ -73,7 +73,7 @@ The AXIL4 component ecosystem includes specialized interfaces for simplified AXI
 ## Getting Started
 
 ```python
-from cocotb_framework.components.axil4 import AXIL4MasterRead, AXIL4MasterWrite
+from CocoTBFramework.components.axil4.axil4_interfaces import AXIL4MasterRead, AXIL4MasterWrite
 
 # Create AXIL4 master interfaces
 master_read = AXIL4MasterRead(
@@ -141,7 +141,7 @@ await master_write.write_register(0x100, 0x12345678)  # Control register
 config_value = await master_read.read_register(0x104)  # Status register
 
 # Byte-level register access with strobes
-await master_write.write_register(0x108, 0xFF, strobe=0x1)  # Write byte 0 only
+await master_write.write_register(0x108, 0xFF, strb=0x1)  # Write byte 0 only
 ```
 
 ## Documentation Structure
@@ -179,31 +179,20 @@ for addr, name in register_map.items():
 
 ### Memory-Mapped Peripheral Testing
 ```python
-# Configure AXIL4 slave for peripheral emulation
-slave_read = AXIL4SlaveRead(dut, clk, "s_axil_")
-slave_write = AXIL4SlaveWrite(dut, clk, "s_axil_")
+from CocoTBFramework.components.axil4.axil4_interfaces import AXIL4SlaveRead, AXIL4SlaveWrite
+from CocoTBFramework.components.shared.memory_model import MemoryModel
 
-# Connect to register model
-register_model = create_register_model({
-    0x00: RegisterDef("CTRL", 32, reset=0x00000000),
-    0x04: RegisterDef("STAT", 32, reset=0x00000001, readonly=True),
-    0x08: RegisterDef("DATA", 32, reset=0x00000000)
-})
+# Configure AXIL4 slaves for peripheral emulation, backed by a shared memory model
+memory = MemoryModel(num_lines=1024, bytes_per_line=4)
+slave_read = AXIL4SlaveRead(dut, clk, "s_axil_", memory_model=memory)
+slave_write = AXIL4SlaveWrite(dut, clk, "s_axil_", memory_model=memory)
 
-slave_read.connect_registers(register_model)
-slave_write.connect_registers(register_model)
+# Writes update the memory model; reads are served from it
 ```
 
 ### Configuration Space Access
 ```python
-# PCIe-style configuration space
-config_space = AXIL4ConfigSpace(
-    base_address=0x1000,
-    size=4096,
-    endianness='little'
-)
-
-# Standard configuration registers
+# PCIe-style configuration space accesses through the master interfaces
 await master_write.write_register(0x1004, 0x00000006)  # Command register
 device_id = await master_read.read_register(0x1000)     # Device ID
 ```

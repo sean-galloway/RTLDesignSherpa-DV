@@ -153,6 +153,8 @@ Perform a high-level write transaction with AXI5 features.
 | `trace` | int | Enable transaction tracing | `0` |
 | `tagop` | int | Tag operation type | `0` |
 | `tag` | int | Memory tag (AW channel) | `0` |
+| `wtag` | int | Memory tag (W channel) | `0` |
+| `wuser` | int | User signal (W channel) | `0` |
 | `poison` | int | Poison indicator (W channel) | `0` |
 | `tagupdate` | int | Tag update indicators (W channel) | `0` |
 

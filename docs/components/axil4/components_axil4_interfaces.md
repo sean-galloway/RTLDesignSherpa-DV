@@ -204,6 +204,7 @@ Responds to read requests by receiving AR channel addresses and generating R cha
 | `addr_width` | `int` | Width of address bus in bits | `32` |
 | `multi_sig` | `bool` | Whether to use individual signal mode | `False` |
 | `memory_model` | `MemoryModel` or `None` | Memory model for data generation | `None` |
+| `base_addr` | `int` | Base address subtracted from incoming ARADDR before indexing the memory model | `0` |
 | `response_delay` | `int` | Delay cycles before sending R response | `1` |
 
 **Attributes:**
@@ -251,6 +252,7 @@ Responds to write requests by receiving AW address and W data, then generating B
 | `addr_width` | `int` | Width of address bus in bits | `32` |
 | `multi_sig` | `bool` | Whether to use individual signal mode | `False` |
 | `memory_model` | `MemoryModel` or `None` | Memory model for write storage | `None` |
+| `base_addr` | `int` | Base address subtracted from incoming AWADDR before indexing the memory model | `0` |
 | `response_delay` | `int` | Delay cycles before sending B response | `1` |
 
 **Attributes:**
@@ -351,11 +353,14 @@ async def test_axil4_slave(dut):
     # Drive stimulus from master side and verify results...
 ```
 
-### Protocol-Agnostic Test Code
+### Convenience-Method Access via Factory Dictionaries
 
 ```python
 async def test_register_map(master_factory, dut, clock):
-    """This test works identically for both AXI4 and AXIL4."""
+    """Works with AXIL4 factories (create_axil4_master / create_axil4_master_rd/wr),
+    whose returned dictionaries expose the transaction methods as keys.
+    Note: the AXI4 factories return only channel components and 'interface',
+    so this dictionary-style method access is AXIL4-specific."""
     master = master_factory(dut, clock)
 
     # These method names are identical across both protocols

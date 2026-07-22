@@ -23,6 +23,7 @@ required to existing testbench code.
 All existing factory function signatures remain identical for backward compatibility.
 """
 
+import io
 from contextlib import redirect_stdout
 from typing import Any, Dict
 

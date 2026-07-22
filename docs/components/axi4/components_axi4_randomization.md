@@ -139,6 +139,12 @@ The method applies:
 2. Cross-field protocol constraints (address/size alignment, burst boundary checks)
 3. Industry-specific optimizations
 
+> **Warning:** the current implementation validates requested field names against
+> `field_configs.keys()`, which holds channel names (`'AW'`, `'W'`, `'B'`, `'AR'`, `'R'`)
+> rather than signal field names. Requests keyed by signal names such as `'awaddr'`
+> are logged as "Unsupported field" and omitted from the result, so this API is
+> effectively non-functional until that mismatch is fixed.
+
 ##### `set_profile(profile)`
 
 Change the active randomization profile and update constraints accordingly.
@@ -203,6 +209,12 @@ class AXI4RandomizationManager:
 ```
 
 Unified manager combining protocol and timing randomization for AXI4 components.
+
+> **Warning:** `axi4_randomization_manager` currently fails to import: it expects
+> `AXI4TimingConfig` and `create_axi4_timing_config` from `axi4_timing_config`, which
+> only provides `create_axi4_timing_from_profile` / `create_axi4_randomizer_configs`.
+> The AXI5 equivalent (`axi5_randomization_manager`) defines its own `AXI5TimingConfig`
+> wrapper and works; the AXI4 module needs the same treatment before this API is usable.
 
 **Parameters:**
 

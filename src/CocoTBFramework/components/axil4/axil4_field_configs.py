@@ -256,14 +256,14 @@ if __name__ == "__main__":
 
     # Test individual channel configs
     aw_config = AXIL4FieldConfigHelper.create_aw_field_config()
-    print(f"AW Config: {len(aw_config.field_definitions)} fields")
-    for field in aw_config.field_definitions:
+    print(f"AW Config: {len(aw_config)} fields")
+    for field in aw_config.fields():
         print(f"  - {field.name}: {field.bits} bits, default=0x{field.default:X}")
 
     # Test W config
     w_config = AXIL4FieldConfigHelper.create_w_field_config(data_width=32)
-    print(f"\nW Config: {len(w_config.field_definitions)} fields")
-    for field in w_config.field_definitions:
+    print(f"\nW Config: {len(w_config)} fields")
+    for field in w_config.fields():
         print(f"  - {field.name}: {field.bits} bits")
 
     # Test all configs

@@ -363,7 +363,8 @@ class AXI4MemoryScoreboard(AXI4Scoreboard):
                 self.memory_model.write(addr, data_bytes, strb)
 
                 if self.log:
-                    self.log.debug(f"Memory write: addr=0x{addr:X}, data=0x{data:X}, strb=0x{strb:X if strb else 'FF'}")
+                    strb_str = f"0x{strb:X}" if strb is not None else "ALL"
+                    self.log.debug(f"Memory write: addr=0x{addr:X}, data=0x{data:X}, strb={strb_str}")
             except Exception as e:
                 if self.log:
                     self.log.error(f"Error writing to memory: {e}")

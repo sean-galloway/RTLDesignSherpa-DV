@@ -157,7 +157,7 @@ Execute a complete write transaction: send AW address, W data beats, and wait fo
 - `id` (`int` or `None`) -- Response ID from B channel
 - `error` (`str`, only on failure) -- Error message
 
-**Raises:** `TimeoutError` if B response does not arrive. `RuntimeError` if an error response is received.
+Note: `write_transaction` does not raise. Internal `TimeoutError` (no B response) and `RuntimeError` (SLVERR/DECERR) are caught and reported via the returned dict (`success=False`, `error=<message>`). Always check `result['success']`.
 
 ##### `async single_write(address, data, **kwargs) -> Dict[str, Any]`
 

@@ -11,6 +11,12 @@ The `AXI5ComplianceChecker` provides non-intrusive AXI5 protocol compliance chec
 - **Poison propagation tracking**: POISON indicator monitoring and statistics
 - **Trace consistency**: TRACE signal matching between request and response channels
 
+> **Implementation status:** the transaction-level checks (ATOP, MTE, chunking, response
+> codes, RLAST matching) are gated on a `monitor.get_completed_packets()` API that
+> `GAXIMonitor` does not currently provide, and the handshake-rule coroutine is a stub.
+> In practice the checker currently tracks cycle counts and statistics scaffolding only;
+> violations from those categories will not yet be reported.
+
 ## Class Signature
 
 ```python

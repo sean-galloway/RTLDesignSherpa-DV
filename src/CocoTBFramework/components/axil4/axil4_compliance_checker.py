@@ -200,7 +200,7 @@ class AXIL4ComplianceChecker:
                     prefix=self.prefix,
                     clock=self.clock,
                     field_config=AXIL4FieldConfigHelper.create_ar_field_config(
-                        self.addr_width, self.user_width
+                        self.addr_width
                     ),
                     pkt_prefix="ar",
                     multi_sig=self.multi_sig,
@@ -215,7 +215,7 @@ class AXIL4ComplianceChecker:
                     prefix=self.prefix,
                     clock=self.clock,
                     field_config=AXIL4FieldConfigHelper.create_aw_field_config(
-                        self.addr_width, self.user_width
+                        self.addr_width
                     ),
                     pkt_prefix="aw",
                     multi_sig=self.multi_sig,
@@ -230,7 +230,7 @@ class AXIL4ComplianceChecker:
                     prefix=self.prefix,
                     clock=self.clock,
                     field_config=AXIL4FieldConfigHelper.create_w_field_config(
-                        self.data_width, self.user_width
+                        self.data_width
                     ),
                     pkt_prefix="w",
                     multi_sig=self.multi_sig,
@@ -245,7 +245,7 @@ class AXIL4ComplianceChecker:
                     prefix=self.prefix,
                     clock=self.clock,
                     field_config=AXIL4FieldConfigHelper.create_r_field_config(
-                        self.data_width, self.user_width
+                        self.data_width
                     ),
                     pkt_prefix="r",
                     multi_sig=self.multi_sig,
@@ -259,9 +259,7 @@ class AXIL4ComplianceChecker:
                     title="B_Monitor",
                     prefix=self.prefix,
                     clock=self.clock,
-                    field_config=AXIL4FieldConfigHelper.create_b_field_config(
-                        self.user_width
-                    ),
+                    field_config=AXIL4FieldConfigHelper.create_b_field_config(),
                     pkt_prefix="b",
                     multi_sig=self.multi_sig,
                     log=self.log

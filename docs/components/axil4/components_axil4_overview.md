@@ -136,7 +136,7 @@ The `AXIL4MasterWrite` component drives AXI4-Lite write transactions as a master
 ```python
 # Register write methods
 await master_write.write_register(address=0x100, data=0x12345678)
-await master_write.write_register(address=0x100, data=0xFF, strobe=0x1)  # Byte write
+await master_write.write_register(address=0x100, data=0xFF, strb=0x1)  # Byte write
 await master_write.single_write(address=0x200, data=0xDEADBEEF)  # API consistency
 ```
 
@@ -156,15 +156,13 @@ The `AXIL4SlaveRead` component responds to AXI4-Lite read transactions as a slav
 - **Error Response**: Configurable SLVERR, DECERR response generation
 - **Response Timing**: Configurable RVALID timing and latency modeling
 
-**Register Model Features**:
+**Memory Model Integration**:
 ```python
-# Connect register model
-register_model = {
-    0x000: RegisterDef("CTRL", 32, reset=0x00000000),
-    0x004: RegisterDef("STATUS", 32, reset=0x00000001, readonly=True),
-    0x008: RegisterDef("DATA", 32, reset=0x00000000)
-}
-slave_read.connect_registers(register_model)
+from CocoTBFramework.components.shared.memory_model import MemoryModel
+
+# Back the slave with a memory model; reads are served from it
+memory = MemoryModel(num_lines=1024, bytes_per_line=4)
+slave_read = AXIL4SlaveRead(dut, clk, "s_axil_", memory_model=memory)
 ```
 
 ### AXIL4SlaveWrite - Register Write Response
@@ -184,12 +182,11 @@ The `AXIL4SlaveWrite` component responds to AXI4-Lite write transactions as a sl
 
 **Advanced Features**:
 ```python
-# Write callback registration
-def register_write_callback(address, data, strobe):
-    print(f"Register 0x{address:03X} = 0x{data:08X} (strobe=0x{strobe:X})")
-    # Custom write logic here
+# Observe write traffic via the underlying channel callbacks
+def on_w_packet(w_packet):
+    print(f"W data=0x{w_packet.data:08X} strb=0x{w_packet.strb:X}")
 
-slave_write.register_write_callback(register_write_callback)
+slave_write.w_channel.add_callback(on_w_packet)
 ```
 
 ## Field Configuration System
@@ -295,8 +292,8 @@ await master_write.write_register(0x100, 0x12345678)  # Write control register
 status = await master_read.read_register(0x104)       # Read status register
 
 # Byte-level operations
-await master_write.write_register(0x108, 0xFF, strobe=0x1)  # Write byte 0 only
-await master_write.write_register(0x108, 0xFF00, strobe=0x2)  # Write byte 1 only
+await master_write.write_register(0x108, 0xFF, strb=0x1)  # Write byte 0 only
+await master_write.write_register(0x108, 0xFF00, strb=0x2)  # Write byte 1 only
 ```
 
 ### Configuration Space Testing
@@ -393,12 +390,11 @@ async def test_memory_mapped_fifo():
 
 **Minimal Protocol Overhead**:
 ```python
-# Configure for fastest response
-axil_master.configure_timing(
-    ar_setup_cycles=0,    # Minimum setup time
-    r_response_cycles=1,  # Single cycle response
-    aw_setup_cycles=0,    # Minimum setup time
-    b_response_cycles=1   # Single cycle write response
+# Slave response latency is configured at construction time
+slave_read = AXIL4SlaveRead(
+    dut, clk, "s_axil_",
+    memory_model=memory,
+    response_delay=1,   # Cycles before the R response is sent
 )
 ```
 
@@ -408,35 +404,19 @@ axil_master.configure_timing(
 
 **Transaction-Level Tracing**:
 ```python
-# Enable comprehensive register access logging
-master_read.enable_debug_logging(level='TRACE')
-master_write.enable_debug_logging(level='TRACE')
-
-# All register accesses automatically logged with:
-# - Address and data values
-# - Timing information
-# - Strobe patterns for writes
-# - Response codes
+# Pass a logger at construction; all register accesses are logged at
+# DEBUG level with address, data, strobe patterns, and response codes.
+master_read = AXIL4MasterRead(dut, clk, "m_axil_", log=my_logger)
+master_write = AXIL4MasterWrite(dut, clk, "m_axil_", log=my_logger)
 ```
 
-**Register Map Visualization**:
+**Observing Channel Traffic**:
 ```python
-def generate_register_access_report():
-    """Generate register access pattern report."""
+# Attach callbacks to the underlying channels to build custom access reports
+accesses = []
 
-    access_log = master_read.get_access_log()
-
-    print("Register Access Summary:")
-    print("=" * 50)
-
-    for address in sorted(access_log.keys()):
-        accesses = access_log[address]
-        reg_name = register_map.get(address, {}).get('name', 'UNKNOWN')
-
-        reads = sum(1 for a in accesses if a.is_read)
-        writes = sum(1 for a in accesses if not a.is_read)
-
-        print(f"0x{address:03X}: {reg_name:15} - {reads:3} reads, {writes:3} writes")
+master_read.r_channel.add_callback(lambda pkt: accesses.append(('R', pkt)))
+master_write.b_channel.add_callback(lambda pkt: accesses.append(('B', pkt)))
 ```
 
 ### Performance Analysis
@@ -452,13 +432,11 @@ def generate_register_access_report():
 ### Standard 32-bit Configuration
 
 ```python
-# Typical 32-bit AXIL4 configuration
+# Typical 32-bit AXIL4 configuration (strobe width derives from data_width)
 axil_config = {
     'data_width': 32,
     'addr_width': 32,
-    'strobe_width': 4,    # 32/8 = 4 bytes
-    'compliance_check': True,
-    'register_model': standard_register_map
+    'timeout_cycles': 1000,
 }
 
 master_read = AXIL4MasterRead(dut, clk, "m_axil_", **axil_config)
@@ -472,8 +450,6 @@ master_write = AXIL4MasterWrite(dut, clk, "m_axil_", **axil_config)
 axil_64_config = {
     'data_width': 64,
     'addr_width': 64,     # Extended addressing
-    'strobe_width': 8,    # 64/8 = 8 bytes
-    'register_model': extended_register_map
 }
 
 master_read = AXIL4MasterRead(dut, clk, "m_axil_", **axil_64_config)

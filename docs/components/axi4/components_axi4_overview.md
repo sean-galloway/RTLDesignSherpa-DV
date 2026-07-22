@@ -98,10 +98,10 @@ graph TB
 The `AXI4MasterRead` component drives AXI4 read transactions as a master:
 
 **Address Request Management**:
-- **AR Channel Control**: Complete AWADDR, AWLEN, AWSIZE, AWBURST, AWID management
+- **AR Channel Control**: Complete ARADDR, ARLEN, ARSIZE, ARBURST, ARID management
 - **Outstanding Transactions**: Support for multiple concurrent read requests
 - **Address Alignment**: Automatic address alignment and burst boundary checking
-- **QoS and Caching**: Complete AWQOS, AWCACHE, AWPROT, AWREGION support
+- **QoS and Caching**: Complete ARQOS, ARCACHE, ARPROT, ARREGION support
 
 **Read Data Reception**:
 - **R Channel Monitoring**: Automatic RDATA, RRESP, RID, RLAST processing
@@ -120,7 +120,7 @@ The `AXI4MasterWrite` component drives AXI4 write transactions as a master:
 
 **Address and Data Management**:
 - **AW Channel Control**: Complete AWADDR, AWLEN, AWSIZE, AWBURST management
-- **W Channel Control**: WDATA, WSTRB, WLAST, WID coordination
+- **W Channel Control**: WDATA, WSTRB, WLAST coordination
 - **Address/Data Synchronization**: Proper ordering of address and data phases
 - **Write Strobes**: Byte-level write enable control
 
@@ -238,17 +238,19 @@ The randomization system provides comprehensive parameter variation:
 
 **Transaction Randomization**:
 ```python
-# Configure address randomization
-randomizer.configure_address_range(0x1000, 0x8000)
-randomizer.configure_burst_length(1, 16)
-randomizer.configure_burst_types(['INCR', 'WRAP'])
+from CocoTBFramework.components.axi4.axi4_randomization_config import (
+    AXI4RandomizationConfig, AXI4RandomizationProfile
+)
 
-# Configure timing randomization
-randomizer.configure_valid_delays(min=0, max=5)
-randomizer.configure_ready_delays(min=0, max=3)
-
-# Configure ID randomization
-randomizer.configure_id_pool([1, 2, 3, 4, 5])
+# Pick a profile and tune constraints
+config = AXI4RandomizationConfig(profile=AXI4RandomizationProfile.STRESS)
+config.set_burst_constraints(max_len=16, preferred_sizes=[1, 2, 4, 8])
+config.set_error_injection_rate(0.02)
+config.constraints.addr_min = 0x1000
+config.constraints.addr_max = 0x8000
+config.constraints.burst_types = [1, 2]   # INCR, WRAP
+config.constraints.id_min = 1
+config.constraints.id_max = 5
 ```
 
 **Data Pattern Generation**:
@@ -309,11 +311,11 @@ await master_write.write_transaction(
     id=1
 )
 
-# Perform burst write with strobes
+# Perform burst write with a partial strobe (applied to every beat)
 await master_write.write_transaction(
     address=0x2000,
     data=[0xDEADBEEF, 0xCAFEBABE, 0xFEEDFACE],
-    strb=[0xF, 0xC, 0x3],  # Different byte enables
+    strb=0xC,      # Byte enables for all beats
     id=2,
     burst_type=1  # INCR
 )
@@ -322,42 +324,31 @@ await master_write.write_transaction(
 ### Memory Model Integration
 
 ```python
-# Create memory model
-memory = create_memory_model(size=4096, data_width=32)
+from CocoTBFramework.components.shared.memory_model import MemoryModel
+from CocoTBFramework.components.axi4.axi4_interfaces import AXI4SlaveRead, AXI4SlaveWrite
 
-# Connect to components
-master_write.connect_memory(memory)
-slave_read.connect_memory(memory)
+# Create memory model and pass it to the slave interfaces
+memory = MemoryModel(num_lines=1024, bytes_per_line=4)
+slave_write = AXI4SlaveWrite(dut, clk, "s_axi_", memory_model=memory)
+slave_read = AXI4SlaveRead(dut, clk, "s_axi_", memory_model=memory)
 
-# Automatic verification
-await master_write.write_transaction(0x1000, [0x12345678])
-read_data = await slave_read.read_response(0x1000, 1)
-assert read_data[0] == 0x12345678  # Automatic verification
+# Writes update the memory model; subsequent reads are served from it
+result = await master_write.write_transaction(0x1000, [0x12345678])
+read_data = await master_read.read_transaction(0x1000, burst_len=1)
+assert read_data[0] == 0x12345678
 ```
 
-### Outstanding Transaction Management
+### Pipelined Transactions with AXI4Sequence
 
 ```python
-# Configure outstanding transaction limits
-master_read.configure_outstanding(max_ar_outstanding=4, max_r_outstanding=8)
+from CocoTBFramework.components.axi4 import AXI4Sequence, run_axi4_sequence
 
-# Launch concurrent transactions
-import asyncio
+# Author bursts as data, then run them back-to-back
+seq = AXI4Sequence("reads", data_width=32, id_width=4)
+for i in range(4):
+    seq.add_read(0x1000 + i * 0x100, length=4, axid=i)
 
-async def concurrent_reads():
-    tasks = []
-    for i in range(4):
-        task = master_read.read_transaction(
-            address=0x1000 + i*0x100,
-            burst_len=4,
-            id=i
-        )
-        tasks.append(asyncio.create_task(task))
-
-    results = await asyncio.gather(*tasks)
-    return results
-
-read_results = await concurrent_reads()
+read_results = await run_axi4_sequence(seq, master_rd=master_read, raise_on_error=True)
 ```
 
 ## Performance Optimization

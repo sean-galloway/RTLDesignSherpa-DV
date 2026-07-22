@@ -164,17 +164,17 @@ Return a **new** sequence (name suffixed `_filtered`) containing only bursts whe
 clean = seq.filter(lambda b: b.tag != "row_miss")
 ```
 
-> The filtered copy's `stats` are not recomputed (they read as zero); use `len()` or inspect `bursts` instead.
+> The filtered copy's `stats` are recomputed from the surviving bursts (category counters are best-effort, based on the default helper tags).
 
-#### `shuffle() -> None`
-Shuffle the bursts **in place** using the sequence RNG (reproducible with `seed`). (Note the asymmetry: `filter()` returns a new sequence, `shuffle()` mutates.)
+#### `shuffle() -> AXI4Sequence`
+Shuffle the bursts **in place** using the sequence RNG (reproducible with `seed`) and return `self` for chaining. (Note the asymmetry: `filter()` returns a new sequence, `shuffle()` mutates.)
 
 #### `__len__` / `__iter__` / `__repr__`
 Standard container interface; `repr` reports name and write/read counts.
 
 ## Running a Sequence
 
-### `run_axi4_sequence(seq, *, master_wr=None, master_rd=None, log=None, on_burst=None) -> List[Dict]`
+### `run_axi4_sequence(seq, *, master_wr=None, master_rd=None, log=None, on_burst=None, raise_on_error=False) -> List[Dict]`
 
 Async runner that walks the sequence **sequentially** (one burst at a time, no pipelining) against the BFM masters.
 
@@ -183,15 +183,23 @@ Async runner that walks the sequence **sequentially** (one burst at a time, no p
 - `master_wr` — an `AXI4MasterWrite` (required if the sequence contains writes).
 - `master_rd` — an `AXI4MasterRead` (required if the sequence contains reads).
 - `log` — optional logger (`.info()` / `.error()`).
-- `on_burst` — optional **synchronous** callback `f(idx, burst, result)` invoked after each burst.
+- `on_burst` — optional callback `f(idx, burst, result)` invoked after each burst; both sync and async callbacks are accepted.
+- `raise_on_error` — when `True`, re-raise any per-burst errors as a single `RuntimeError` after the sequence completes. Recommended for tests that would otherwise read only `result["data"]` and silently discard `result["error"]`.
 
 **Behavior:**
 - Derives the clock from `master_wr` (else `master_rd`) and honors each burst's `delay_cycles` with `RisingEdge`.
-- Writes call `master_wr.write_transaction(...)`; reads call `master_rd.read_transaction(...)` and capture returned data.
+- Writes call `master_wr.write_transaction(...)`; reads call `master_rd.read_transaction(...)` and capture returned data. A write whose result dict reports `success=False` is surfaced as that burst's `error`.
 - Raises `RuntimeError` if a write is encountered with no `master_wr` (or a read with no `master_rd`).
-- `import cocotb` is lazy — call it inside a running cocotb simulation.
+- The `RisingEdge` import is lazy — call it inside a running cocotb simulation.
 
 **Returns:** a list of per-burst result dicts with keys: `is_write`, `addr`, `length`, `axid`, `qos`, `tag`, `data`, `error`.
+
+### `run_axi4_sequence_engine(seq, *, master_wr=None, master_rd=None, log=None, timeout_cycles=1_000_000, raise_on_error=False) -> List[Dict]`
+
+Engine-style runner with the same return contract as `run_axi4_sequence`. Instead of walking bursts sequentially (per-burst lock + response wait), it queues every AW/W/AR packet back-to-back at the channel level and collects B/R responses asynchronously — reproducing the bus behavior of the pattern-gen/CRC-check RTL engines (one AW per cycle when ready). Writes are issued first, then reads.
+
+> Not re-exported by the package `__init__` — import it from the module directly:
+> `from CocoTBFramework.components.axi4.axi4_sequence import run_axi4_sequence_engine`
 
 ```python
 from CocoTBFramework.components.axi4 import AXI4Sequence, run_axi4_sequence

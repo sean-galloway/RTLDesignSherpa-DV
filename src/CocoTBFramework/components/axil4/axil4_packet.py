@@ -59,8 +59,8 @@ class AXIL4Packet(Packet):
 
         Args:
             addr_width: Width of address field
-            user_width: Width of user field (0 to disable)
-            **field_values: AXIL4 AW channel field values (addr, prot, user)
+            user_width: Ignored (AXIL4 spec has no user signals; kept for API compatibility)
+            **field_values: AXIL4 AW channel field values (addr, prot)
 
         Returns:
             AXIL4Packet configured for AW channel
@@ -68,7 +68,7 @@ class AXIL4Packet(Packet):
         Example:
             packet = AXIL4Packet.create_aw_packet(addr=0x1000, prot=0)
         """
-        field_config = AXIL4FieldConfigHelper.create_aw_field_config(addr_width, user_width)
+        field_config = AXIL4FieldConfigHelper.create_aw_field_config(addr_width)
         return cls(field_config, **field_values)
 
     @classmethod
@@ -78,8 +78,8 @@ class AXIL4Packet(Packet):
 
         Args:
             data_width: Width of data field
-            user_width: Width of user field (0 to disable)
-            **field_values: AXIL4 W channel field values (data, strb, user)
+            user_width: Ignored (AXIL4 spec has no user signals; kept for API compatibility)
+            **field_values: AXIL4 W channel field values (data, strb)
 
         Returns:
             AXIL4Packet configured for W channel
@@ -87,7 +87,7 @@ class AXIL4Packet(Packet):
         Example:
             packet = AXIL4Packet.create_w_packet(data=0x12345678, strb=0xF)
         """
-        field_config = AXIL4FieldConfigHelper.create_w_field_config(data_width, user_width)
+        field_config = AXIL4FieldConfigHelper.create_w_field_config(data_width)
         return cls(field_config, **field_values)
 
     @classmethod
@@ -96,8 +96,8 @@ class AXIL4Packet(Packet):
         Create a Write Response (B) channel packet.
 
         Args:
-            user_width: Width of user field (0 to disable)
-            **field_values: AXIL4 B channel field values (resp, user)
+            user_width: Ignored (AXIL4 spec has no user signals; kept for API compatibility)
+            **field_values: AXIL4 B channel field values (resp)
 
         Returns:
             AXIL4Packet configured for B channel
@@ -105,7 +105,7 @@ class AXIL4Packet(Packet):
         Example:
             packet = AXIL4Packet.create_b_packet(resp=0)
         """
-        field_config = AXIL4FieldConfigHelper.create_b_field_config(user_width)
+        field_config = AXIL4FieldConfigHelper.create_b_field_config()
         return cls(field_config, **field_values)
 
     @classmethod
@@ -115,8 +115,8 @@ class AXIL4Packet(Packet):
 
         Args:
             addr_width: Width of address field
-            user_width: Width of user field (0 to disable)
-            **field_values: AXIL4 AR channel field values (addr, prot, user)
+            user_width: Ignored (AXIL4 spec has no user signals; kept for API compatibility)
+            **field_values: AXIL4 AR channel field values (addr, prot)
 
         Returns:
             AXIL4Packet configured for AR channel
@@ -124,7 +124,7 @@ class AXIL4Packet(Packet):
         Example:
             packet = AXIL4Packet.create_ar_packet(addr=0x2000, prot=0)
         """
-        field_config = AXIL4FieldConfigHelper.create_ar_field_config(addr_width, user_width)
+        field_config = AXIL4FieldConfigHelper.create_ar_field_config(addr_width)
         return cls(field_config, **field_values)
 
     @classmethod
@@ -134,8 +134,8 @@ class AXIL4Packet(Packet):
 
         Args:
             data_width: Width of data field
-            user_width: Width of user field (0 to disable)
-            **field_values: AXIL4 R channel field values (data, resp, user)
+            user_width: Ignored (AXIL4 spec has no user signals; kept for API compatibility)
+            **field_values: AXIL4 R channel field values (data, resp)
 
         Returns:
             AXIL4Packet configured for R channel
@@ -143,7 +143,7 @@ class AXIL4Packet(Packet):
         Example:
             packet = AXIL4Packet.create_r_packet(data=0xABCDEF00, resp=0)
         """
-        field_config = AXIL4FieldConfigHelper.create_r_field_config(data_width, user_width)
+        field_config = AXIL4FieldConfigHelper.create_r_field_config(data_width)
         return cls(field_config, **field_values)
 
     def get_channel_type(self) -> str:
@@ -154,7 +154,7 @@ class AXIL4Packet(Packet):
             Channel type string ('AW', 'W', 'B', 'AR', 'R')
         """
         if self._channel_type is None:
-            field_names = set(self.get_field_names())
+            field_names = set(self.field_config.field_names())
 
             # Check for unique field combinations
             if 'addr' in field_names and 'prot' in field_names and 'data' not in field_names:
@@ -248,7 +248,7 @@ class AXIL4Packet(Packet):
         if channel == 'W':
             strb = getattr(self, 'strb', None)
             if strb is not None:
-                data_bytes = self.field_config.get_field_definition('data').bits // 8
+                data_bytes = self.field_config.get_field('data').bits // 8
                 max_strb = (1 << data_bytes) - 1
                 if strb > max_strb:
                     return False, f"Invalid strobe pattern: 0x{strb:X} for {data_bytes}-byte data"

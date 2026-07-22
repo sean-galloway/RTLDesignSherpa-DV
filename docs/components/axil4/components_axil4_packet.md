@@ -51,7 +51,7 @@ Create a Write Address (AW) channel packet.
 | Name | Type | Description | Default |
 |------|------|-------------|---------|
 | `addr_width` | `int` | Width of address field in bits | `32` |
-| `user_width` | `int` | Width of user field in bits (0 to disable) | `0` |
+| `user_width` | `int` | Ignored (AXIL4 has no user signals; kept for API compatibility) | `0` |
 | `**field_values` | `Any` | AW field values: `addr`, `prot` | -- |
 
 **Returns:** `AXIL4Packet` configured for the AW channel.
@@ -69,7 +69,7 @@ Create a Write Data (W) channel packet.
 | Name | Type | Description | Default |
 |------|------|-------------|---------|
 | `data_width` | `int` | Width of data field in bits | `32` |
-| `user_width` | `int` | Width of user field in bits (0 to disable) | `0` |
+| `user_width` | `int` | Ignored (AXIL4 has no user signals; kept for API compatibility) | `0` |
 | `**field_values` | `Any` | W field values: `data`, `strb` | -- |
 
 **Returns:** `AXIL4Packet` configured for the W channel.
@@ -86,7 +86,7 @@ Create a Write Response (B) channel packet.
 
 | Name | Type | Description | Default |
 |------|------|-------------|---------|
-| `user_width` | `int` | Width of user field in bits (0 to disable) | `0` |
+| `user_width` | `int` | Ignored (AXIL4 has no user signals; kept for API compatibility) | `0` |
 | `**field_values` | `Any` | B field values: `resp` | -- |
 
 **Returns:** `AXIL4Packet` configured for the B channel.
@@ -104,7 +104,7 @@ Create a Read Address (AR) channel packet.
 | Name | Type | Description | Default |
 |------|------|-------------|---------|
 | `addr_width` | `int` | Width of address field in bits | `32` |
-| `user_width` | `int` | Width of user field in bits (0 to disable) | `0` |
+| `user_width` | `int` | Ignored (AXIL4 has no user signals; kept for API compatibility) | `0` |
 | `**field_values` | `Any` | AR field values: `addr`, `prot` | -- |
 
 **Returns:** `AXIL4Packet` configured for the AR channel.
@@ -122,7 +122,7 @@ Create a Read Data (R) channel packet.
 | Name | Type | Description | Default |
 |------|------|-------------|---------|
 | `data_width` | `int` | Width of data field in bits | `32` |
-| `user_width` | `int` | Width of user field in bits (0 to disable) | `0` |
+| `user_width` | `int` | Ignored (AXIL4 has no user signals; kept for API compatibility) | `0` |
 | `**field_values` | `Any` | R field values: `data`, `resp` | -- |
 
 **Returns:** `AXIL4Packet` configured for the R channel.

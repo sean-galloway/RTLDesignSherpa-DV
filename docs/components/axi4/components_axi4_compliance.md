@@ -18,6 +18,12 @@ The `AXI4ComplianceChecker` provides:
 
 The checker uses `GAXIMonitor` instances to observe each channel and runs background coroutines for continuous protocol checking.
 
+> **Implementation status:** the transaction-level checks (burst length/size, RLAST matching,
+> response codes) are gated on a `monitor.get_completed_packets()` API that `GAXIMonitor`
+> does not currently provide, and the handshake-rule coroutine is a stub. In practice the
+> checker currently tracks cycle counts and statistics scaffolding only; violations from
+> those categories will not yet be reported.
+
 ---
 
 ## Supporting Types

@@ -24,6 +24,12 @@ Key differences from the AXI4 compliance checker:
 - Register access pattern validation
 - Concurrent transaction detection (not supported in AXIL4)
 
+> **Implementation status:** the signal-level checks (VALID_DROPPED, DATA_UNSTABLE,
+> concurrent-transaction detection) run live against DUT signals. The packet-level checks
+> (address alignment, PROT, strobe, response codes) are gated on a
+> `monitor.get_completed_packets()` API that `GAXIMonitor` does not currently provide, so
+> those violations will not yet be reported.
+
 ---
 
 ## Supporting Types

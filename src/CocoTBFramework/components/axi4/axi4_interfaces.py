@@ -155,9 +155,13 @@ class AXI4MasterRead:
             prot=transaction_kwargs.get('prot', 0),
             qos=transaction_kwargs.get('qos', 0),
             region=transaction_kwargs.get('region', 0),
-            **{k: v for k, v in transaction_kwargs.items()
-            if k in ['user'] and hasattr(ar_packet, k)}
         )
+
+        # Apply optional user field after creation (referencing ar_packet
+        # inside its own create_packet() call was a NameError when 'user'
+        # was passed).
+        if 'user' in transaction_kwargs and hasattr(ar_packet, 'user'):
+            ar_packet.user = transaction_kwargs['user']
 
         # Send read address
         await self.ar_channel.send(ar_packet)
@@ -365,9 +369,13 @@ class AXI4MasterWrite:
                 prot=transaction_kwargs.get('prot', 0),
                 qos=transaction_kwargs.get('qos', 0),
                 region=transaction_kwargs.get('region', 0),
-                **{k: v for k, v in transaction_kwargs.items()
-                if k in ['user'] and hasattr(aw_packet, k)}
             )
+
+            # Apply optional user field after creation (the old inline
+            # hasattr(aw_packet, ...) check ran before aw_packet was bound,
+            # so a caller-supplied 'user' was silently dropped).
+            if 'user' in transaction_kwargs and hasattr(aw_packet, 'user'):
+                aw_packet.user = transaction_kwargs['user']
 
             # Serialize AW+W issuance so concurrent same-ID write_transaction
             # calls don't interleave W beats on the wire (see __init__).
@@ -1312,8 +1320,6 @@ class AXI4SlaveWrite:
             pattern = self.ooo_config.get('pattern', [])
             if pattern and txn_sequence < len(pattern):
                 # Pattern[i] tells us which sequence number should complete at position i
-                pattern[txn_sequence]
-
                 # Find our position in the pattern
                 try:
                     target_position = pattern.index(txn_sequence)

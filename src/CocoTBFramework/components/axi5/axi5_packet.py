@@ -195,8 +195,6 @@ class AXI5Packet(Packet):
         has_len = hasattr(self, 'len')
         has_atop = hasattr(self, 'atop')
         has_chunken = hasattr(self, 'chunken')
-        hasattr(self, 'chunkv')
-        hasattr(self, 'tagupdate')
 
         if has_addr and has_len and not has_data:
             # Address channel with burst info

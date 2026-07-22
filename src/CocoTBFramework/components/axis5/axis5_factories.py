@@ -531,7 +531,11 @@ def get_axis5_stats_summary(components):
                 if 'parity_stats' in stats:
                     summary['parity_errors'] += stats['parity_stats'].get('parity_errors', 0)
                     summary['parity_checks_passed'] += stats['parity_stats'].get('parity_passed', 0)
-                elif 'wakeup_stats' in stats:
+
+                # Monitors report wakeup counts only inside 'wakeup_stats';
+                # only add the nested count when there is no top-level
+                # 'wakeup_events' (already added above) to avoid double-counting
+                if 'wakeup_stats' in stats and 'wakeup_events' not in stats:
                     summary['wakeup_events'] += stats['wakeup_stats'].get('wakeup_events', 0)
 
     return summary

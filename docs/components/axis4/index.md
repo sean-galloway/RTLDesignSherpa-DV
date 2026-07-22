@@ -48,7 +48,7 @@ The AXIS4 component ecosystem includes specialized classes for comprehensive str
 - Single channel (T-channel) focus with TVALID/TREADY handshaking
 - Native packet boundary management with TLAST signaling
 - Advanced flow control and backpressure handling
-- Complete sideband signal support (TID, TDEST, TUSER, TSTRB, TKEEP)
+- Complete sideband signal support (TID, TDEST, TUSER, TSTRB)
 
 ### GAXI Infrastructure Integration
 - Unified field configuration system
@@ -67,18 +67,25 @@ The AXIS4 component ecosystem includes specialized classes for comprehensive str
 ## Getting Started
 
 ```python
-from cocotb_framework.components.axis4 import AXISMaster, AXISSlave, AXISMonitor
-
-# Create AXIS components
-master = AXISMaster(dut, "StreamSource", "m_axis_", clk)
-slave = AXISSlave(dut, "StreamSink", "s_axis_", clk)
-monitor = AXISMonitor(dut, "StreamMon", "s_axis_", clk)
+from CocoTBFramework.components.axis4 import (
+    AXISFieldConfigs, AXISMaster, AXISMonitor, AXISPacket, AXISSlave,
+)
 
 # Configure stream properties
-master.configure_stream(data_width=32, id_width=8, dest_width=4)
+config = AXISFieldConfigs.create_t_field_config(
+    data_width=32, id_width=8, dest_width=4)
+
+# Create AXIS components
+master = AXISMaster(dut, "StreamSource", "m_axis_", clk, field_config=config)
+slave = AXISSlave(dut, "StreamSink", "s_axis_", clk, field_config=config)
+monitor = AXISMonitor(dut, "StreamMon", "s_axis_", clk, field_config=config)
 
 # Generate and send packets
-packet = master.create_packet(data=0x12345678, last=True, id=5, dest=2)
+packet = AXISPacket(field_config=master.field_config)
+packet.data = 0x12345678
+packet.last = 1
+packet.id = 5
+packet.dest = 2
 await master.send_packet(packet)
 ```
 

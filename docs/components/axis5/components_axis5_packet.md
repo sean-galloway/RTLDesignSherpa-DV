@@ -5,7 +5,7 @@ The `AXIS5Packet` class extends the `AXISPacket` class with AXI5-Stream-specific
 ## Key Differences from AXIS4 Packet
 
 - **Added fields**: `wakeup` (1 bit), `parity` (1 bit per data byte), `parity_error` (1 bit)
-- **Parity support**: Automatic per-byte odd parity calculation and verification
+- **Parity support**: Automatic per-byte even parity calculation and verification
 - **Wakeup support**: Wake-up signal state tracking in the packet
 - **Backward compatibility**: All AXIS4 fields (data, strb, last, id, dest, user) remain unchanged
 - **Conversion**: `to_axis4_packet()` method for dropping AXIS5 extensions
@@ -72,7 +72,7 @@ Create a field configuration for AXIS5 packets.
 
 #### `calculate_parity() -> int`
 
-Calculate the expected parity for the current data field value. Uses per-byte odd parity (1 parity bit per data byte).
+Calculate the expected parity for the current data field value. Uses per-byte even parity (1 parity bit per data byte).
 
 **Returns**: Calculated parity value.
 

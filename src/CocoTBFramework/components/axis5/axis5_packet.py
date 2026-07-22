@@ -54,6 +54,7 @@ class AXIS5Packet(AXISPacket):
         # Store AXIS5 configuration
         object.__setattr__(self, 'enable_wakeup', enable_wakeup)
         object.__setattr__(self, 'enable_parity', enable_parity)
+        object.__setattr__(self, 'data_width', data_width)
         object.__setattr__(self, 'parity_width', data_width // 8)
 
         # Create field config if not provided
@@ -68,8 +69,9 @@ class AXIS5Packet(AXISPacket):
         if skip_compare_fields is None:
             skip_compare_fields = ['start_time', 'end_time', 'count', 'parity_error']
 
-        # Initialize parent
-        super().__init__(field_config, skip_compare_fields, data_width=data_width, **kwargs)
+        # Initialize parent. skip_compare_fields must be passed by keyword so it
+        # reaches Packet.__init__ (GAXIPacket's positional args are randomizers).
+        super().__init__(field_config, skip_compare_fields=skip_compare_fields, **kwargs)
 
     @staticmethod
     def create_axis5_field_config(data_width=32, id_width=8, dest_width=4, user_width=1,
@@ -225,7 +227,8 @@ class AXIS5Packet(AXISPacket):
 
         for i in range(parity_width):
             byte_val = (data_value >> (i * 8)) & 0xFF
-            # Odd parity per byte
+            # Parity bit = XOR of the byte's bits (set when the byte has an
+            # odd number of ones, i.e. even-parity convention)
             bit_parity = bin(byte_val).count('1') & 1
             parity |= (bit_parity << i)
 
@@ -258,7 +261,10 @@ class AXIS5Packet(AXISPacket):
         Returns:
             AXISPacket without AXIS5 extensions
         """
-        axis4_pkt = AXISPacket(data_width=getattr(self, 'data_width', 32))
+        from ..axis4.axis_field_configs import AXISFieldConfigs
+        axis4_config = AXISFieldConfigs.create_default_axis_config(
+            data_width=getattr(self, 'data_width', 32))
+        axis4_pkt = AXISPacket(field_config=axis4_config)
         axis4_pkt.data = self.data
         axis4_pkt.strb = self.strb
         axis4_pkt.last = self.last

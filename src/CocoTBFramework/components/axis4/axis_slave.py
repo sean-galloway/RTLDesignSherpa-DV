@@ -169,7 +169,7 @@ class AXISSlave(GAXISlave):
                                      f"Received packet {packet}")
 
                 # Apply ready signal timing if randomizer is available
-                if self.randomizer and hasattr(self, 'ready_signal'):
+                if self.randomizer and hasattr(self, 'ready_sig'):
                     await self._apply_ready_timing()
 
                 # Small delay to avoid oversampling
@@ -186,8 +186,8 @@ class AXISSlave(GAXISlave):
         """Check if valid/ready handshake is occurring."""
         try:
             # Get signals using inherited signal resolution
-            valid_signal = getattr(self, 'valid_signal', None)
-            ready_signal = getattr(self, 'ready_signal', None)
+            valid_signal = getattr(self, 'valid_sig', None)
+            ready_signal = getattr(self, 'ready_sig', None)
 
             if valid_signal is None or ready_signal is None:
                 return False
@@ -208,15 +208,15 @@ class AXISSlave(GAXISlave):
 
             if delay > 0:
                 # Lower ready for delay cycles
-                if hasattr(self, 'ready_signal'):
-                    self.ready_signal.value = 0
+                if hasattr(self, 'ready_sig'):
+                    self.ready_sig.value = 0
 
                     # Wait for delay cycles
                     for _ in range(delay):
                         await RisingEdge(self.clock)
 
                     # Raise ready again
-                    self.ready_signal.value = 1
+                    self.ready_sig.value = 1
 
         except Exception as e:
             if self.log and self.super_debug:
@@ -250,8 +250,8 @@ class AXISSlave(GAXISlave):
         Args:
             ready: True for always ready, False for never ready
         """
-        if hasattr(self, 'ready_signal'):
-            self.ready_signal.value = 1 if ready else 0
+        if hasattr(self, 'ready_sig'):
+            self.ready_sig.value = 1 if ready else 0
             if self.log:
                 self.log.info(f"AXISSlave '{self.title}': "
                              f"Ready signal set to {'always ready' if ready else 'never ready'}")
@@ -317,7 +317,7 @@ class AXISSlave(GAXISlave):
             timeout_cycles: Maximum cycles to wait (uses self.timeout_cycles if None)
 
         Returns:
-            List of packets forming the frame, or None if timeout
+            True if a complete frame was received, False if timeout
         """
         if timeout_cycles is None:
             timeout_cycles = self.timeout_cycles

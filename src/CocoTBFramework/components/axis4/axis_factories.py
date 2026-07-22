@@ -196,7 +196,7 @@ def create_axis_master_interface(dut, clock, prefix="", data_width=32,
         **kwargs: Additional configuration
 
     Returns:
-        AXISMaster instance
+        GAXIMaster instance configured for the AXIS protocol
     """
     result = create_axis_master(
         dut, clock, prefix, data_width, id_width,
@@ -223,7 +223,7 @@ def create_axis_slave_interface(dut, clock, prefix="", data_width=32,
         **kwargs: Additional configuration
 
     Returns:
-        AXISSlave instance
+        GAXISlave instance configured for the AXIS protocol
     """
     result = create_axis_slave(
         dut, clock, prefix, data_width, id_width,
@@ -292,11 +292,11 @@ def create_axis_testbench(dut, clock, master_prefix="m_axis_",
         if log:
             log.debug(f"Slave interface creation: {e}")
 
-    # Add convenience methods
+    # Add convenience methods (skip non-dict entries such as this lambda itself)
     components['get_all_stats'] = lambda: {
-        name: comp.get('interface', comp).get_stats()
+        name: comp['interface'].get_stats()
         for name, comp in components.items()
-        if hasattr(comp.get('interface', comp), 'get_stats')
+        if isinstance(comp, dict) and hasattr(comp.get('interface'), 'get_stats')
     }
 
     return components

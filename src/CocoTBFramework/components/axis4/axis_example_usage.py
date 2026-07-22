@@ -23,12 +23,14 @@ The API is designed to be similar to AXI4 for consistency while
 being optimized for stream protocol characteristics.
 """
 
+import logging
+
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles
 
 # Import AXIS components - similar to AXI4 imports
-from CocoTBFramework.components.axis import (
+from CocoTBFramework.components.axis4 import (
     AXISFieldConfigs,
     AXISPacket,
     create_axis_master,
@@ -58,7 +60,7 @@ async def test_axis_basic_transfer(dut):
         id_width=8,
         dest_width=4,
         user_width=1,
-        log=cocotb.logging.getLogger("axis_master")
+        log=logging.getLogger("axis_master")
     )
 
     slave_components = create_axis_slave(
@@ -69,7 +71,7 @@ async def test_axis_basic_transfer(dut):
         id_width=8,
         dest_width=4,
         user_width=1,
-        log=cocotb.logging.getLogger("axis_slave")
+        log=logging.getLogger("axis_slave")
     )
 
     monitor_components = create_axis_monitor(
@@ -81,7 +83,7 @@ async def test_axis_basic_transfer(dut):
         dest_width=4,
         user_width=1,
         is_slave=False,  # Monitor master side
-        log=cocotb.logging.getLogger("axis_monitor")
+        log=logging.getLogger("axis_monitor")
     )
 
     # Extract the actual component instances
@@ -96,7 +98,7 @@ async def test_axis_basic_transfer(dut):
     #     master_prefix="m_axis_",
     #     slave_prefix="s_axis_",
     #     data_width=32,
-    #     log=cocotb.logging.getLogger("axis_tb")
+    #     log=logging.getLogger("axis_tb")
     # )
 
     # Configure slave to be always ready
@@ -263,7 +265,7 @@ async def test_axis_simple_components(dut):
     await ClockCycles(dut.aclk, 10)
 
     # Import simple component creators
-    from CocoTBFramework.components.axis import create_simple_axis_master, create_simple_axis_slave
+    from CocoTBFramework.components.axis4 import create_simple_axis_master, create_simple_axis_slave
 
     # Create simple components (no ID, DEST, USER signals)
     simple_master = create_simple_axis_master(
@@ -271,7 +273,7 @@ async def test_axis_simple_components(dut):
         clock=dut.aclk,
         prefix="simple_axis_",
         data_width=32,
-        log=cocotb.logging.getLogger("simple_master")
+        log=logging.getLogger("simple_master")
     )
 
     simple_slave = create_simple_axis_slave(
@@ -279,7 +281,7 @@ async def test_axis_simple_components(dut):
         clock=dut.aclk,
         prefix="simple_axis_",
         data_width=32,
-        log=cocotb.logging.getLogger("simple_slave")
+        log=logging.getLogger("simple_slave")
     )
 
     # Configure slave
@@ -313,7 +315,7 @@ async def test_axis_manual_signal_mapping(dut):
     await ClockCycles(dut.aclk, 10)
 
     # Import signal mapping utility
-    from CocoTBFramework.components.axis import get_axis_signal_map
+    from CocoTBFramework.components.axis4 import get_axis_signal_map
 
     # Create manual signal mapping
     master_signal_map = get_axis_signal_map(prefix="custom_m_", direction="master")
@@ -326,7 +328,7 @@ async def test_axis_manual_signal_mapping(dut):
         prefix="",  # Empty prefix since we're using manual mapping
         data_width=32,
         signal_map=master_signal_map,
-        log=cocotb.logging.getLogger("mapped_master")
+        log=logging.getLogger("mapped_master")
     )
 
     # This demonstrates how to override automatic signal discovery

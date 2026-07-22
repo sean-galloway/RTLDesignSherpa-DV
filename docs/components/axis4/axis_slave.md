@@ -28,21 +28,17 @@ The `AXISSlave` class provides comprehensive AXI4-Stream protocol slave (sink) f
 ## Class Overview
 
 ```python
-class AXISSlave(GAXIMonitorBase):
+class AXISSlave(GAXISlave):
     """
     AXIS Slave component for receiving AXI4-Stream protocol.
 
-    Inherits common functionality from GAXIMonitorBase:
-    - Signal resolution and data collection setup
-    - Clean _get_data_dict() with automatic field unpacking
-    - Unified _finish_packet() without conditional mess
-    - Packet creation and statistics
-    - Memory model integration
+    Inherits from GAXISlave to reuse the structured pipeline state
+    machine, ready-signal driving, statistics, and base initialization
+    plumbing.
 
-    AXIS-specific features:
+    AXIS-specific features added by this subclass:
     - Stream data reception with backpressure control
-    - Frame boundary detection with TLAST
-    - Ready signal timing control
+    - Frame boundary detection via TLAST
     - Packet and frame statistics
     """
 ```
@@ -206,9 +202,11 @@ The AXISSlave automatically monitors the bus and:
 ### Memory Model Integration
 
 ```python
-# Connect memory model for automatic data storage
-memory = create_memory_model(size=1024, data_width=32)
-slave.memory_model = memory
+from CocoTBFramework.components.shared.memory_model import MemoryModel
+
+# Attach a memory model at construction time
+memory = MemoryModel(num_lines=256, bytes_per_line=4)
+slave = AXISSlave(dut, "Sink", "s_axis_", clk, memory_model=memory)
 
 # All received data is automatically written to memory
 # Memory addresses are calculated based on packet fields
@@ -227,10 +225,12 @@ The component automatically:
 ### Timing Randomization
 
 ```python
-# Create randomizer for realistic timing
-from cocotb_framework.randomizers import StreamRandomizer
+# Create randomizer for realistic ready timing
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
-randomizer = StreamRandomizer()
+randomizer = FlexRandomizer({
+    'ready_delay': ([(0, 0), (1, 5)], [0.8, 0.2])
+})
 slave = AXISSlave(
     dut=dut,
     title="RealisticSink",
@@ -328,7 +328,8 @@ async def test_multi_stream():
 ```python
 async def test_memory_verification():
     # Create memory model
-    memory = create_memory_model(size=2048, data_width=32)
+    from CocoTBFramework.components.shared.memory_model import MemoryModel
+    memory = MemoryModel(num_lines=512, bytes_per_line=4)
 
     # Create slave with memory integration
     slave = AXISSlave(
@@ -340,7 +341,7 @@ async def test_memory_verification():
     await slave.wait_for_frame()
 
     # Verify memory contents
-    received_data = memory.read_range(0x0, 64)  # Read first 64 bytes
+    received_data = memory.read(0x0, 64)  # Read first 64 bytes
     expected_data = generate_expected_pattern()
 
     assert received_data == expected_data, "Memory verification failed"

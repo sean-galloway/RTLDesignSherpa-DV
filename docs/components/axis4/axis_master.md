@@ -233,9 +233,11 @@ The AXISMaster automatically handles:
 ### Memory Model Integration
 
 ```python
-# Connect memory model for automatic data generation
-memory = create_memory_model(size=1024, data_width=32)
-master.memory_model = memory
+from CocoTBFramework.components.shared.memory_model import MemoryModel
+
+# Attach a memory model at construction time
+memory = MemoryModel(num_lines=256, bytes_per_line=4)
+master = AXISMaster(dut, "Source", "m_axis_", clk, memory_model=memory)
 
 # Memory is automatically updated with sent data
 await master.send_stream_data([0x1000, 0x2000, 0x3000])

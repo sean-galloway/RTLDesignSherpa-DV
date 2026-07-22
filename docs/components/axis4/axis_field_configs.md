@@ -284,16 +284,16 @@ master = AXISMaster(dut, "RoutingMaster", "m_axis_", clk, field_config=test_conf
 def analyze_axis_config(config):
     """Analyze AXIS field configuration."""
     analysis = {
-        'total_fields': len(config.fields),
+        'total_fields': len(config),
         'data_width': config.get_field('data').bits,
         'strb_width': config.get_field('strb').bits,
-        'has_id': 'id' in config.fields,
-        'has_dest': 'dest' in config.fields,
-        'has_user': 'user' in config.fields
+        'has_id': config.has_field('id'),
+        'has_dest': config.has_field('dest'),
+        'has_user': config.has_field('user')
     }
 
     # Calculate total bus width
-    total_bits = sum(field.bits for field in config.fields.values())
+    total_bits = sum(field.bits for field in config.fields)
     analysis['total_signal_bits'] = total_bits
 
     # Add optional field widths
@@ -342,7 +342,7 @@ configs = {
 
 # Verify field presence
 for name, config in configs.items():
-    fields = list(config.fields.keys())
+    fields = config.field_names()
     print(f"{name}: {fields}")
 ```
 

@@ -20,7 +20,7 @@ This module provides AXIS Monitor functionality using GAXI infrastructure.
 Similar API to AXI4Monitor but adapted for stream protocol.
 """
 
-from cocotb.triggers import FallingEdge, Timer
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from ..gaxi.gaxi_monitor_base import GAXIMonitorBase
@@ -169,8 +169,8 @@ class AXISMonitor(GAXIMonitorBase):
         """Check if valid/ready handshake is occurring."""
         try:
             # Get signals using inherited signal resolution
-            valid_signal = getattr(self, 'valid_signal', None)
-            ready_signal = getattr(self, 'ready_signal', None)
+            valid_signal = getattr(self, 'valid_sig', None)
+            ready_signal = getattr(self, 'ready_sig', None)
 
             if valid_signal is None or ready_signal is None:
                 return False

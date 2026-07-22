@@ -269,8 +269,8 @@ class AXISMaster(GAXIMaster):
         """Convert packet to data dictionary for driving."""
         data_dict = {}
 
-        if hasattr(packet, '_fields'):
-            for field_name, field_value in packet._fields.items():
+        if hasattr(packet, 'fields'):
+            for field_name, field_value in packet.fields.items():
                 data_dict[field_name] = field_value
 
         return data_dict

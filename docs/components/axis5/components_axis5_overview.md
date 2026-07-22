@@ -8,7 +8,7 @@ AXI5-Stream extends AXI4-Stream with two significant additions focused on power 
 
 **Added Signals**:
 - `TWAKEUP` -- Wake-up signaling for power management coordination (1 bit). Allows a master to signal a slave to exit a low-power state before data transfer begins.
-- `TPARITY` -- Data parity protection (1 bit per data byte). Provides per-byte odd parity checking for TDATA integrity verification.
+- `TPARITY` -- Data parity protection (1 bit per data byte). Provides per-byte even parity checking for TDATA integrity verification.
 
 **Backward Compatibility**: AXIS5 components extend AXIS4 components directly. All AXIS4 signals (TDATA, TSTRB, TLAST, TID, TDEST, TUSER, TVALID, TREADY) remain unchanged. Existing AXIS4 testbenches can be upgraded to AXIS5 by changing the component class with minimal code changes.
 
@@ -29,7 +29,7 @@ The AXIS5 components inherit from the robust GAXI framework through their AXIS4 
 While inheriting GAXI's power through AXIS4, AXIS5 components add:
 
 **Wake-up Signaling**: Master-driven power management coordination with configurable hold cycles
-**Parity Protection**: Automatic per-byte odd parity generation and checking
+**Parity Protection**: Automatic per-byte even parity generation and checking
 **Extended Protocol Monitoring**: AXIS5-specific violation detection including parity errors and wakeup protocol violations
 **Power State Tracking**: Wakeup event history and timing analysis
 

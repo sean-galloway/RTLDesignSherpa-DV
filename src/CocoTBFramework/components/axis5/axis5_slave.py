@@ -224,7 +224,7 @@ class AXIS5Slave(AXISSlave):
                                      f"Received packet {packet}")
 
                 # Apply ready signal timing if randomizer is available
-                if self.randomizer and hasattr(self, 'ready_signal'):
+                if self.randomizer and hasattr(self, 'ready_sig'):
                     await self._apply_ready_timing()
 
                 # Small delay to avoid oversampling

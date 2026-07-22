@@ -44,7 +44,7 @@ While inheriting GAXI's power, AXIS4 components are specifically optimized for s
 **Single Channel Architecture**: Focused on the T (Transfer) channel with TVALID/TREADY handshaking
 **Packet Boundary Management**: Native support for TLAST signaling and frame/packet boundaries
 **Flow Control**: Advanced backpressure handling and throughput optimization
-**Sideband Signal Support**: Complete support for TID, TDEST, TUSER, TSTRB, and TKEEP signals
+**Sideband Signal Support**: Complete support for TID, TDEST, TUSER, and TSTRB signals
 
 ## Core Components Architecture
 
@@ -92,7 +92,7 @@ The `AXISMaster` component drives AXI4-Stream protocol as a master (source):
 - **Multi-Stream Support**: TID-based stream identification and routing
 - **Destination Routing**: TDEST-based packet routing capabilities
 - **User Data Channels**: TUSER sideband data transmission
-- **Byte-Level Control**: TSTRB and TKEEP byte-level data control
+- **Byte-Level Control**: TSTRB byte-level data control
 
 **Performance Optimization**:
 - **Pipeline Optimization**: Advanced pipeline control for maximum throughput
@@ -113,7 +113,7 @@ The `AXISSlave` component receives AXI4-Stream protocol as a slave (sink):
 - **Stream Demultiplexing**: TID-based stream separation and processing
 - **Address-Based Routing**: TDEST-based packet classification
 - **User Data Processing**: TUSER data extraction and validation
-- **Byte-Level Analysis**: TSTRB/TKEEP pattern analysis and validation
+- **Byte-Level Analysis**: TSTRB pattern analysis and validation
 
 **Memory Integration**:
 - **Automatic Storage**: Direct memory model integration for received data
@@ -164,76 +164,73 @@ The `AXISPacket` class provides comprehensive packet management:
 
 The field configuration system enables flexible protocol adaptation:
 
-**Signal Mapping**:
+**Configuration Factory**:
 ```python
 # Example AXIS field configuration
-axis_config = AXISFieldConfigs()
-axis_config.set_data_width(32)
-axis_config.set_id_width(8)
-axis_config.set_dest_width(4)
-axis_config.set_user_width(16)
+axis_config = AXISFieldConfigs.create_t_field_config(
+    data_width=32,
+    id_width=8,
+    dest_width=4,
+    user_width=16
+)
 ```
 
 **Flexible Width Support**:
 - **Dynamic Width Configuration**: Support for variable data, ID, and user widths
 - **Zero-Width Handling**: Proper handling of optional signals (TID=0, TDEST=0, etc.)
 - **Byte Enable Support**: Automatic TSTRB width calculation based on data width
-- **Keep Signal Support**: TKEEP signal configuration for sparse data transmission
 
 ## Usage Patterns and Integration
 
 ### Basic Stream Testing
 
 ```python
-# Create AXIS components
-master = AXISMaster(dut, "StreamSource", "m_axis_", clk)
-slave = AXISSlave(dut, "StreamSink", "s_axis_", clk)
-monitor = AXISMonitor(dut, "StreamMon", "s_axis_", clk)
-
 # Configure stream properties
-master.configure_stream(data_width=32, id_width=8, dest_width=4)
+config = AXISFieldConfigs.create_t_field_config(
+    data_width=32, id_width=8, dest_width=4)
 
-# Generate stream packets
-packet = master.create_packet(data=0x12345678, last=True, id=5, dest=2)
-await master.send_packet(packet)
+# Create AXIS components
+master = AXISMaster(dut, "StreamSource", "m_axis_", clk, field_config=config)
+slave = AXISSlave(dut, "StreamSink", "s_axis_", clk, field_config=config)
+monitor = AXISMonitor(dut, "StreamMon", "s_axis_", clk, field_config=config)
 
-# Monitor stream activity
-received_packets = await monitor.wait_for_packets(count=1)
+# Generate and send a stream packet
+success = await master.send_single_beat(data=0x12345678, last=1, id=5, dest=2)
+
+# Wait for the monitor to observe it
+observed = await monitor.wait_for_packets(1, timeout_cycles=1000)
 ```
 
 ### Memory Model Integration
 
 ```python
+from CocoTBFramework.components.shared.memory_model import MemoryModel
+
 # Create memory model for data verification
-memory = create_memory_model(size=1024, data_width=32)
+memory = MemoryModel(num_lines=256, bytes_per_line=4)
 
-# Connect memory to AXIS components
-master.connect_memory(memory, base_address=0x1000)
-slave.connect_memory(memory, base_address=0x2000)
+# Attach memory to AXIS components at construction time
+master = AXISMaster(dut, "Source", "m_axis_", clk, memory_model=memory)
+slave = AXISSlave(dut, "Sink", "s_axis_", clk, memory_model=memory)
 
-# Automatic data generation and verification
-await master.generate_random_stream(packet_count=100, max_packet_size=64)
-verification_results = slave.verify_memory_consistency()
+# Sent/received packets are automatically written to the memory model
+await master.send_stream_data([0x1000, 0x2000, 0x3000])
 ```
 
 ### Multi-Stream Scenarios
 
 ```python
-# Configure multi-stream environment
-master.configure_streams(stream_count=4, id_width=8)
-
-# Generate concurrent streams
+# Generate multiple streams distinguished by TID/TDEST
 for stream_id in range(4):
-    stream_config = {
-        'id': stream_id,
-        'dest': stream_id % 2,
-        'packet_size_range': (16, 256),
-        'packet_count': 50
-    }
-    await master.generate_stream(stream_config)
+    stream_data = [0x1000 + (stream_id << 8) + i for i in range(8)]
+    await master.send_stream_data(
+        data_list=stream_data,
+        id=stream_id,
+        dest=stream_id % 2
+    )
 
-# Monitor and analyze per-stream performance
-stream_stats = monitor.get_per_stream_statistics()
+# Analyze aggregate activity on the monitor
+stream_stats = monitor.get_stats()
 ```
 
 ## Advanced Features
@@ -271,27 +268,22 @@ stream_stats = monitor.get_per_stream_statistics()
 ### Field Configuration Examples
 
 ```python
-# Basic AXIS configuration
-config = AXISFieldConfigs()
-config.configure_basic_stream(data_width=64, id_width=0)
+# Simple AXIS configuration (data/strb/last only)
+config = AXISFieldConfigs.create_simple_axis_config(data_width=64)
 
 # Advanced configuration with all sideband signals
-config.configure_advanced_stream(
+config = AXISFieldConfigs.create_t_field_config(
     data_width=128,
     id_width=16,
     dest_width=8,
-    user_width=32,
-    enable_keep=True,
-    enable_strb=True
+    user_width=32
 )
 
-# Custom field mapping for non-standard signal names
-config.map_signals({
-    'tdata': 'stream_data',
-    'tvalid': 'data_valid',
-    'tready': 'data_ready',
-    'tlast': 'end_of_packet'
-})
+# Manual signal mapping for non-standard signal names
+from CocoTBFramework.components.axis4 import get_axis_signal_map
+
+signal_map = get_axis_signal_map(prefix="custom_", direction="master")
+master = AXISMaster(dut, "Custom", "", clk, signal_map=signal_map)
 ```
 
 ### Protocol Customization

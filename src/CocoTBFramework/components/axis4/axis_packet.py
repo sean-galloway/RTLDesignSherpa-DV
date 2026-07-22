@@ -43,6 +43,20 @@ class AXISPacket(GAXIPacket):
         """Initialize AXIS packet."""
         super().__init__(*args, **kwargs)
 
+    # Field access helpers used by the convenience properties below.
+    # The base Packet class stores field values in ``self.fields``; these
+    # helpers add default handling for optional fields (id/dest/user) that
+    # may be absent from a given field configuration.
+    def get_field_value(self, field_name, default=0):
+        """Get a field value, returning ``default`` if the field is absent."""
+        return self.fields.get(field_name, default)
+
+    def set_field_value(self, field_name, value):
+        """Set a field value if the field exists in this packet's configuration."""
+        if field_name in self.fields:
+            # Delegates to Packet.__setattr__, which applies field masking
+            setattr(self, field_name, value)
+
     # Convenience properties for AXIS-specific fields
     @property
     def data(self):
@@ -122,7 +136,7 @@ class AXISPacket(GAXIPacket):
         Returns:
             Number of valid bytes in this transfer
         """
-        if not hasattr(self, '_fields') or 'strb' not in self._fields:
+        if 'strb' not in self.fields:
             return 0
 
         strb_value = self.strb
@@ -180,19 +194,18 @@ class AXISPacket(GAXIPacket):
             field_strs.append(f"last={self.last}")
 
         # Show optional fields if they exist and are non-zero
-        if hasattr(self, '_fields'):
-            if 'id' in self._fields and self.id != 0:
-                field_strs.append(f"id=0x{self.id:x}")
-            if 'dest' in self._fields and self.dest != 0:
-                field_strs.append(f"dest=0x{self.dest:x}")
-            if 'user' in self._fields and self.user != 0:
-                field_strs.append(f"user=0x{self.user:x}")
+        if 'id' in self.fields and self.id != 0:
+            field_strs.append(f"id=0x{self.id:x}")
+        if 'dest' in self.fields and self.dest != 0:
+            field_strs.append(f"dest=0x{self.dest:x}")
+        if 'user' in self.fields and self.user != 0:
+            field_strs.append(f"user=0x{self.user:x}")
 
         return f"AXISPacket({', '.join(field_strs)})"
 
     def __repr__(self):
         """Detailed representation of AXIS packet."""
-        return (f"AXISPacket(time={self.timestamp}, "
+        return (f"AXISPacket(time={self.start_time}, "
                 f"data=0x{self.data:x}, strb=0b{self.strb:b}, "
                 f"last={self.last}, bytes={self.get_byte_count()})")
 

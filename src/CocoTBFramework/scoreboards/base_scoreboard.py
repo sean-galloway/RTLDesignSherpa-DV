@@ -7,7 +7,7 @@
 # Module: BaseScoreboard
 # Purpose: Base Scoreboard for verification components
 #
-# Documentation: bin/CocoTBFramework/README.md
+# Documentation: docs/scoreboards/scoreboards_base_scoreboard.md
 # Subsystem: framework
 #
 # Author: sean galloway
@@ -114,9 +114,10 @@ class BaseScoreboard:
         self.transformer = transformer
 
     def clear(self):
-        """Clear all queues and reset counters"""
+        """Clear all queues, mismatch history, and counters"""
         self.expected_queue.clear()
         self.actual_queue.clear()
+        self.mismatched.clear()
         self.error_count = 0
         self.transaction_count = 0
 

@@ -44,6 +44,7 @@ components/
 ├── apb5/    # APB5 protocol
 ├── axis4/   # AXI-Stream
 ├── axis5/   # AXI-Stream v5
+├── dfi/     # DFI MC<->PHY interface (JEDEC timing/state models, LPDDR2 CA)
 ├── fifo/    # FIFO controllers
 ├── gaxi/    # Generic AXI infrastructure
 ├── smbus/   # System Management Bus
@@ -73,7 +74,7 @@ Use `monitor._recvQ.popleft()` for simple transaction verification, not memory m
 from CocoTBFramework.components.shared.memory_model import MemoryModel
 from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 from CocoTBFramework.components.shared.field_config import FieldConfig
-from CocoTBFramework.components.axi4.axi4_interfaces import AXI4Master
+from CocoTBFramework.components.axi4.axi4_interfaces import AXI4MasterRead, AXI4MasterWrite
 from CocoTBFramework.components.apb.apb_components import APBSlave
 from CocoTBFramework.scoreboards.base_scoreboard import BaseScoreboard
 ```

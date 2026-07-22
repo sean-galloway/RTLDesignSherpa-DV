@@ -43,6 +43,10 @@ This directory contains scoreboard implementations for verifying transactions ac
 - [**apb_gaxi_scoreboard.py**](scoreboards_apb_gaxi_scoreboard.md) - APB-GAXI protocol bridge verification with three-phase matching
 - [**apb_gaxi_transformer.py**](scoreboards_apb_gaxi_transformer.md) - Bidirectional protocol transformation between APB and GAXI
 
+### Additional Scoreboards (source only, docs pending)
+- **dfi_scoreboard.py** - DFI semantic-shift event counting and assertion (`DFIScoreboard`)
+- **axi4/axi4_dwidth_converter_scoreboard.py** - AXI4 data width converter validation (`AXI4DWidthConverterScoreboard`)
+
 ## Quick Start
 
 ### Basic Scoreboard Usage
@@ -68,10 +72,11 @@ from CocoTBFramework.scoreboards.apb_gaxi_scoreboard import APBGAXIScoreboard
 # Create cross-protocol scoreboard
 scoreboard = APBGAXIScoreboard("APB_GAXI_Bridge", log=logger)
 
-# Add transactions from both protocols
+# Add transactions from both protocols — add_gaxi_transaction auto-detects
+# whether a packet is a command or a response
 scoreboard.add_apb_transaction(apb_transaction)
-scoreboard.add_gaxi_command(gaxi_command)
-scoreboard.add_gaxi_response(gaxi_response)
+scoreboard.add_gaxi_transaction(gaxi_command)
+scoreboard.add_gaxi_transaction(gaxi_response)
 
 # Generate comprehensive report
 report = scoreboard.report()
@@ -80,10 +85,10 @@ stats = scoreboard.get_stats()
 
 ### Multi-Slave APB Verification
 ```python
-from CocoTBFramework.scoreboards.apb_scoreboard import APBMultiSlaveScoreboard
+from CocoTBFramework.scoreboards.apb_scoreboard import APBCrossbarScoreboard
 
 # Create multi-slave scoreboard
-scoreboard = APBMultiSlaveScoreboard("MultiSlave", num_slaves=4, log=logger)
+scoreboard = APBCrossbarScoreboard("MultiSlave", num_slaves=4, log=logger)
 
 # Set custom address mapping
 addr_map = [
@@ -191,25 +196,25 @@ from CocoTBFramework.scoreboards.fifo_scoreboard import MemoryAdapter
 from CocoTBFramework.components.shared.memory_model import MemoryModel
 
 # Create memory model and adapter
-memory = MemoryModel(size=1024*1024, log=logger)
-adapter = MemoryAdapter(memory, field_map={'addr': 'address', 'data': 'data'})
+memory = MemoryModel(num_lines=1024, bytes_per_line=4, log=logger)
+adapter = MemoryAdapter(memory, field_map={'addr': 'addr', 'data': 'data'})
 
-# Use with scoreboard for automatic verification
-scoreboard.set_memory_adapter(adapter)
+# Use the adapter to mirror packets into memory for verification
+adapter.write_to_memory(write_packet)
+read_data = adapter.read_from_memory(read_packet)
 ```
 
 ### Statistics and Reporting
 ```python
-# Get comprehensive statistics
+# APBGAXIScoreboard statistics
 stats = scoreboard.get_stats()
-print(f"Pass Rate: {stats['pass_rate']}%")
-print(f"Total Transactions: {stats['total_transactions']}")
-print(f"Mismatches: {stats['mismatch_count']}")
+print(f"Matched Pairs: {stats['matched_pairs']}")
+print(f"APB Transactions: {stats['apb_transactions']}")
+print(f"Unmatched APB: {stats['unmatched_apb']}")
 
-# Generate detailed report
-report = scoreboard.generate_detailed_report()
-with open("verification_report.html", "w") as f:
-    f.write(report)
+# Text report (also logs the summary)
+report = scoreboard.report()
+print(report)
 ```
 
 ## Integration Patterns

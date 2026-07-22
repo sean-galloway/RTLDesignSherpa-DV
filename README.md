@@ -43,6 +43,7 @@ CocoTBFramework/
 │   ├── apb5/            # APB5 protocol
 │   ├── axis4/           # AXI-Stream
 │   ├── axis5/           # AXI-Stream v5
+│   ├── dfi/             # DDR PHY Interface (DFI) v2.1-v5.x BFMs
 │   ├── fifo/            # Generic FIFO
 │   ├── gaxi/            # GAXI — validate FIFO-based interfaces on small blocks
 │   ├── smbus/           # System Management Bus
@@ -51,7 +52,8 @@ CocoTBFramework/
 │   └── shared/          # Common utilities
 └── scoreboards/         # Transaction verification
     ├── base_scoreboard  # Base class for all scoreboards
-    └── axi4/            # AXI4-specific scoreboards
+    ├── apb / gaxi / fifo / axi4 / dfi scoreboards
+    └── axi4/            # AXI4-specific scoreboards (dwidth converter)
 ```
 
 ---
@@ -71,14 +73,14 @@ from CocoTBFramework.components.axi4.axi4_interfaces import AXI4MasterRead, AXI4
 from CocoTBFramework.components.axi4.axi4_interfaces import AXI4SlaveRead, AXI4SlaveWrite
 from CocoTBFramework.components.axi4.axi4_packet import AXI4Packet
 from CocoTBFramework.components.axi4.axi4_compliance_checker import AXI4ComplianceChecker
-from CocoTBFramework.components.axi4.axi4_randomization_manager import AXI4RandomizationManager
+from CocoTBFramework.components.axi4.axi4_sequence import AXI4Sequence, run_axi4_sequence
 ```
 
 **Key classes:**
 - `AXI4MasterRead` / `AXI4MasterWrite` — Full-duplex master with integrated compliance
 - `AXI4SlaveRead` / `AXI4SlaveWrite` — Slave responder with configurable timing
 - `AXI4ComplianceChecker` — Protocol violation detection and tracking
-- `AXI4RandomizationManager` — Constrained-random transaction generation
+- `AXI4Sequence` / `run_axi4_sequence` — Directed-random sequence authoring and pipelined execution
 - `AXI4Packet` — Complete transaction representation with field formatting
 
 #### AXI5
@@ -133,6 +135,16 @@ from CocoTBFramework.components.gaxi.gaxi_sequence import GAXISequence
 ```
 
 ### Other Protocols
+
+#### DFI (DDR PHY Interface)
+
+DFI v2.1-v5.x master (memory controller side) and slave (PHY side) BFMs with per-version behavior classes, JEDEC timing enforcement, and DRAM state modeling.
+
+```python
+from CocoTBFramework.components.dfi.dfi_master_mc import DFIMasterMC
+from CocoTBFramework.components.dfi.dfi_slave_phy import DFISlavePHY
+from CocoTBFramework.components.dfi.dfi_monitor import DFIMonitor
+```
 
 #### FIFO
 
@@ -212,6 +224,8 @@ from CocoTBFramework.scoreboards.apb_gaxi_scoreboard import APBGAXIScoreboard
 | `APBScoreboard` | APB transaction verification |
 | `APBGAXIScoreboard` | APB-to-GAXI cross-protocol transformation verification |
 | `FIFOScoreboard` | FIFO transaction verification with memory adapters |
+| `AXI4Scoreboard` | AXI4 master/slave transaction matching with per-ID tracking |
+| `DFIScoreboard` | DFI semantic-shift event counting and assertion |
 | `AXI4DWidthConverterScoreboard` | AXI4 data width converter validation |
 
 ### Cross-Protocol Adapters
@@ -230,8 +244,8 @@ Generate WaveJSON timing diagrams from simulation signals.
 
 ```python
 from CocoTBFramework.components.wavedrom.wavejson_gen import WaveJSONGenerator
-from CocoTBFramework.components.wavedrom.signal_binder import SignalBinder
-from CocoTBFramework.components.wavedrom.constraint_solver import ConstraintSolver
+from CocoTBFramework.components.wavedrom.signal_binder import WavedromSignalBinder
+from CocoTBFramework.components.wavedrom.constraint_solver import TemporalConstraintSolver  # needs the [wavedrom] extra (OR-Tools)
 ```
 
 ---

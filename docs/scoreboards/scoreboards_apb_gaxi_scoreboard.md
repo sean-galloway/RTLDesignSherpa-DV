@@ -82,40 +82,28 @@ apb_transaction = create_apb_write(addr=0x1000, data=0xDEADBEEF)
 scoreboard.add_apb_transaction(apb_transaction)
 ```
 
-#### `add_gaxi_command(transaction)`
-Add GAXI command transaction for bridge verification.
+#### `add_gaxi_transaction(transaction)`
+Add a GAXI transaction (command or response) for bridge verification. The
+scoreboard inspects the packet's fields to auto-detect whether it is a
+command or a response and routes it to the matching internal queue.
 
 **Parameters:**
-- `transaction`: GAXI command transaction
+- `transaction`: GAXI command or response transaction
 
 **Behavior:**
-- Extracts command fields (address, data, operation type)
-- Stores in GAXI command queue with timestamp
-- Updates command transaction statistics
+- Detects command vs response from the fields present on the packet
+- Commands (address/write-data fields) go to the GAXI command queue
+- Responses (read-data/status fields) go to the GAXI response queue
+- Stores the transaction with a timestamp and updates statistics
 - Attempts transaction matching
 
 ```python
-# Add GAXI command
+# Add GAXI command and response — same entry point for both
 gaxi_command = create_gaxi_command(addr=0x1000, data=0xDEADBEEF, cmd=1)
-scoreboard.add_gaxi_command(gaxi_command)
-```
+scoreboard.add_gaxi_transaction(gaxi_command)
 
-#### `add_gaxi_response(transaction)`
-Add GAXI response transaction for completion verification.
-
-**Parameters:**
-- `transaction`: GAXI response transaction
-
-**Behavior:**
-- Extracts response fields (data, status, error indicators)
-- Stores in GAXI response queue with timestamp
-- Tracks error transactions based on response status
-- Triggers comprehensive matching
-
-```python
-# Add GAXI response
 gaxi_response = create_gaxi_response(data=0xDEADBEEF, status='OKAY')
-scoreboard.add_gaxi_response(gaxi_response)
+scoreboard.add_gaxi_transaction(gaxi_response)
 ```
 
 ### Transaction Matching
@@ -274,8 +262,8 @@ gaxi_rsp.fields['status'] = 0  # OKAY
 
 # Add transactions in sequence
 scoreboard.add_apb_transaction(apb_write)
-scoreboard.add_gaxi_command(gaxi_cmd)
-scoreboard.add_gaxi_response(gaxi_rsp)
+scoreboard.add_gaxi_transaction(gaxi_cmd)
+scoreboard.add_gaxi_transaction(gaxi_rsp)
 
 # Verify bridge operation
 report = scoreboard.report()
@@ -316,10 +304,10 @@ async def test_bridge_read_flow():
     scoreboard.add_apb_transaction(apb_read)
     await Timer(100, units='ns')  # Bridge processing delay
     
-    scoreboard.add_gaxi_command(gaxi_cmd)
+    scoreboard.add_gaxi_transaction(gaxi_cmd)
     await Timer(50, units='ns')   # Memory access delay
     
-    scoreboard.add_gaxi_response(gaxi_rsp)
+    scoreboard.add_gaxi_transaction(gaxi_rsp)
     
     # Verify read flow
     stats = scoreboard.get_stats()
@@ -378,11 +366,11 @@ async def test_high_throughput_bridge():
         
         # Small delay for bridge processing
         await Timer(10, units='ns')
-        scoreboard.add_gaxi_command(gaxi_cmd)
+        scoreboard.add_gaxi_transaction(gaxi_cmd)
         
         # Memory response delay
         await Timer(5, units='ns')
-        scoreboard.add_gaxi_response(gaxi_rsp)
+        scoreboard.add_gaxi_transaction(gaxi_rsp)
     
     # Wait for all matching to complete
     await Timer(1000, units='ns')
@@ -427,15 +415,15 @@ async def test_bridge_error_handling():
     
     # Add transactions
     scoreboard.add_apb_transaction(normal_apb)
-    scoreboard.add_gaxi_command(normal_cmd)
-    scoreboard.add_gaxi_response(normal_rsp)
+    scoreboard.add_gaxi_transaction(normal_cmd)
+    scoreboard.add_gaxi_transaction(normal_rsp)
     
     scoreboard.add_apb_transaction(error_apb)
-    scoreboard.add_gaxi_command(error_cmd)
-    scoreboard.add_gaxi_response(error_rsp)
+    scoreboard.add_gaxi_transaction(error_cmd)
+    scoreboard.add_gaxi_transaction(error_rsp)
     
     scoreboard.add_apb_transaction(timeout_apb)
-    scoreboard.add_gaxi_command(timeout_cmd)
+    scoreboard.add_gaxi_transaction(timeout_cmd)
     # No response added
     
     # Wait for timeout
@@ -470,8 +458,8 @@ class MultiBridgeTestEnvironment:
         if bridge_id in self.scoreboards:
             sb = self.scoreboards[bridge_id]
             sb.add_apb_transaction(apb_tx)
-            sb.add_gaxi_command(gaxi_cmd)
-            sb.add_gaxi_response(gaxi_rsp)
+            sb.add_gaxi_transaction(gaxi_cmd)
+            sb.add_gaxi_transaction(gaxi_rsp)
     
     def generate_comprehensive_report(self):
         total_stats = {
@@ -555,10 +543,10 @@ def on_apb_transaction(packet):
     scoreboard.add_apb_transaction(packet)
 
 def on_gaxi_command(packet):
-    scoreboard.add_gaxi_command(packet)
+    scoreboard.add_gaxi_transaction(packet)
 
 def on_gaxi_response(packet):
-    scoreboard.add_gaxi_response(packet)
+    scoreboard.add_gaxi_transaction(packet)
 
 apb_monitor.add_callback(on_apb_transaction)
 gaxi_cmd_monitor.add_callback(on_gaxi_command)
@@ -579,8 +567,8 @@ class APBGAXIBridgeTestEnv:
         
         # Connect callbacks
         self.apb_monitor.add_callback(self.scoreboard.add_apb_transaction)
-        self.gaxi_cmd_monitor.add_callback(self.scoreboard.add_gaxi_command)
-        self.gaxi_rsp_monitor.add_callback(self.scoreboard.add_gaxi_response)
+        self.gaxi_cmd_monitor.add_callback(self.scoreboard.add_gaxi_transaction)
+        self.gaxi_rsp_monitor.add_callback(self.scoreboard.add_gaxi_transaction)
     
     def get_verification_results(self):
         return {

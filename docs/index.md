@@ -34,9 +34,14 @@ Welcome to the CocoTBFramework - a comprehensive verification framework built on
 
 ### Verification Components
 - [**Components**](components/components_index.md) - Protocol-specific verification components including masters, slaves, monitors, and supporting utilities
-  - **APB**: Advanced Peripheral Bus protocol components
+  - **AXI4 / AXI5 / AXI4-Lite**: Full AMBA memory-mapped protocol BFMs with compliance checking
+  - **APB / APB5**: Advanced Peripheral Bus protocol components
+  - **AXI-Stream (AXIS4 / AXIS5)**: Unidirectional streaming protocol components
+  - **DFI**: DDR PHY Interface (v2.1-v5.x) memory-controller and PHY BFMs
   - **FIFO**: First-In-First-Out buffer protocol components  
   - **GAXI**: Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
+  - **SMBus / UART**: Serial protocol components
+  - **Wavedrom**: WaveJSON timing-diagram generation
   - **Misc**: Specialized monitoring components
   - **Shared**: Common infrastructure used across all protocols
 
@@ -54,13 +59,13 @@ Welcome to the CocoTBFramework - a comprehensive verification framework built on
 ### Basic Component Usage
 ```python
 # Create protocol components
-from CocoTBFramework.components.gaxi import create_gaxi_master, create_gaxi_slave
-from CocoTBFramework.components.shared import FieldConfig, FlexRandomizer
+from CocoTBFramework.components.gaxi.gaxi_factories import create_gaxi_master, create_gaxi_slave
+from CocoTBFramework.components.shared.field_config import FieldConfig, FieldDefinition
 
 # Set up field configuration
 field_config = FieldConfig()
-field_config.add_field("addr", 32, format="hex")
-field_config.add_field("data", 32, format="hex")
+field_config.add_field(FieldDefinition("addr", 32, format="hex"))
+field_config.add_field(FieldDefinition("data", 32, format="hex"))
 
 # Create components
 master = create_gaxi_master(dut, "Master", "", dut.clk, field_config)
@@ -89,8 +94,9 @@ assert error_count == 0, f"Verification failed with {error_count} errors"
 
 ### Complete Testbench
 ```python
-# Use high-level testbench classes (from the RTLDesignSherpa main repo)
-from CocoTBFramework.tbclasses.gaxi.gaxi_buffer import GaxiBufferTB
+# High-level testbench classes (TBClasses) live in the RTLDesignSherpa
+# main repo, not in this package
+from TBClasses.gaxi.gaxi_buffer import GaxiBufferTB
 
 @cocotb.test()
 async def test_gaxi_buffer(dut):
@@ -205,7 +211,7 @@ graph TB
 ### Component-Level Testing
 ```python
 # Direct component usage for specific protocol testing
-from CocoTBFramework.components.apb import create_apb_master, create_apb_sequence
+from CocoTBFramework.components.apb.apb_factories import create_apb_master, create_apb_sequence
 
 master = create_apb_master(dut, "APB_Master", "apb_", dut.clk)
 sequence = create_apb_sequence(pattern="stress", num_regs=100)
@@ -217,8 +223,8 @@ for packet in sequence:
 ### System-Level Verification
 ```python
 # Complete system verification with multiple protocols
-# TBBase is located in the RTLDesignSherpa main repo (tbclasses/misc/tbbase.py)
-from CocoTBFramework.tbclasses.misc.tbbase import TBBase
+# TBBase is located in the RTLDesignSherpa main repo (bin/TBClasses/shared/tbbase.py)
+from TBClasses.shared.tbbase import TBBase
 from CocoTBFramework.scoreboards.apb_gaxi_scoreboard import APBGAXIScoreboard
 
 class SystemTestbench(TBBase):
@@ -240,10 +246,11 @@ from CocoTBFramework.scoreboards.apb_gaxi_scoreboard import APBGAXIScoreboard
 
 bridge_sb = APBGAXIScoreboard("Bridge_Verification", log=logger)
 
-# Monitor both sides of the bridge
+# Monitor both sides of the bridge — add_gaxi_transaction auto-detects
+# whether a packet is a command or a response
 apb_monitor.add_callback(bridge_sb.add_apb_transaction)
-gaxi_monitor.add_callback(bridge_sb.add_gaxi_command)
-gaxi_monitor.add_callback(bridge_sb.add_gaxi_response)
+gaxi_cmd_monitor.add_callback(bridge_sb.add_gaxi_transaction)
+gaxi_rsp_monitor.add_callback(bridge_sb.add_gaxi_transaction)
 
 # Verify bridge functionality
 error_count = bridge_sb.report()

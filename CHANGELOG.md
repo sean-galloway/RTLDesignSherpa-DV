@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`BaseScoreboard.clear()` now also clears the `mismatched` history list**,
+  matching its documented "reset scoreboard state" contract. Previously
+  mismatch pairs from a prior test phase survived a `clear()`.
+
+### Documentation
+
+- Packaging/docs audit: corrected import paths and class names in README and
+  the MkDocs pages (`WavedromSignalBinder`, `TemporalConstraintSolver`,
+  `APBCrossbarScoreboard`, `APBGAXIScoreboard.add_gaxi_transaction`, factory
+  module paths), added DFI to the README package structure and the docs nav,
+  and refreshed the stale `TODO.md` tracker.
+
 ## [0.5.0] - 2026-07-07
 
 DFI slave BFM: rdphase/wrphase-aware command decode + physical device-word DRAM

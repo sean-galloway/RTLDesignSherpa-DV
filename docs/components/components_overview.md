@@ -265,16 +265,15 @@ monitor.add_callback(statistics_collector.update_stats)
 Different strategies for data handling and randomization:
 
 ```python
-# Different randomization strategies
+# Constrained-random, weighted, and sequence fields in one randomizer
 randomizer = FlexRandomizer({
-    'data': 'uniform',     # Uniform distribution
-    'addr': 'weighted',    # Weighted random
-    'ctrl': 'sequence'     # Sequence-based
+    'data': ([(0, 0xFFFF)], [1.0]),                          # constrained-random bin
+    'addr': ([(0x1000, 0x1FFF), (0x2000, 0x2FFF)], [8, 2]),  # weighted bins
+    'ctrl': [0, 1, 2, 3],                                    # deterministic sequence
 })
 
-# Different data strategies
-component.set_data_strategy('cached')  # For performance
-component.set_data_strategy('direct')  # For debugging
+# Data collection/driving strategies are selected automatically per component
+# (see shared/data_strategies.py) based on the resolved signals.
 ```
 
 ## BFM Class Conventions

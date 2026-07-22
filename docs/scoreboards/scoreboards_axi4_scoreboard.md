@@ -270,7 +270,11 @@ print(f"Protocol Compliance: {stats['protocol_errors']} violations")
 
 ```python
 from CocoTBFramework.scoreboards.axi4_scoreboard import AXI4Scoreboard
-from CocoTBFramework.components.axi4.axi4_monitor import AXI4Monitor
+
+# NOTE: the framework does not ship an `AXI4Monitor` class. The monitors
+# below are illustrative — any object that implements `set_write_callback()`
+# and `set_read_callback()` (called with `(id_value, transaction)`) can be
+# connected via `add_master_monitor()` / `add_slave_monitor()`.
 
 # Create scoreboard for 64-bit AXI4 with 4-bit IDs
 scoreboard = AXI4Scoreboard(

@@ -4,7 +4,12 @@ Derived from a methodology review of `src/CocoTBFramework/components/` (BFM/Moni
 
 Each item below is **GitHub-Issue ready**: copy the title, labels, and body into a new issue. Because this package is on PyPI (`cocotb-framework`), every change needs a tracked issue, a PR, a CHANGELOG entry, and a release.
 
-Current published version: **0.1.1** (see `pyproject.toml:7`).
+Current published version: **0.5.0** (see `pyproject.toml`).
+
+> **Status update:** all nine items below shipped — items 8/9 as documentation
+> audits and items 1-7 as refactors — in release **0.2.0** (see
+> `CHANGELOG.md`). This file is retained as the issue-drafting record; new
+> work is tracked directly in GitHub issues.
 
 ---
 
@@ -12,15 +17,15 @@ Current published version: **0.1.1** (see `pyproject.toml:7`).
 
 | # | Title | Severity | Target | Breaking? | Issue | PR | Status |
 |---|---|---|---|---|---|---|---|
-| 1 | Merge `FIFOComponentBase` into `GAXIComponentBase` | High | 0.2.0 | Yes (internal hierarchy) | [#6](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/6) | — | Open |
-| 2 | `AXISSlave` should inherit `GAXISlave`, not `GAXIMonitorBase` | High | 0.2.0 | Yes (MRO change) | [#7](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/7) | — | Open |
-| 3 | Extract APB / APB5 common base | Medium | 0.2.0 | No (additive) | [#8](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/8) | — | Open |
-| 4 | Consolidate `protocol_type` enum into single source of truth | Medium | 0.2.0 | No | [#9](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/9) | — | Open |
-| 5 | Extract `_pop_custom_kwargs` helper for cocotb-parent init dance | Low | 0.2.0 | No | [#10](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/10) | — | Open |
-| 6 | Add type annotations to GAXI/FIFO base-class signatures | Low | 0.2.0 | No | [#11](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/11) | — | Open |
-| 7 | Document or rename the "Slave-via-BusMonitor" pattern | Low | 0.2.0 | Maybe (if renamed) | [#12](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/12) | — | Open |
-| 8 | Audit `AXI4SlaveRead._ar_callback` for in-order dict races | High | 0.1.2 | No | [#13](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/13) | — | Open |
-| 9 | Audit `AXI4SlaveWrite` shared mutable state across AW/W callbacks | High | 0.1.2 | No | [#14](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/14) | — | Open |
+| 1 | Merge `FIFOComponentBase` into `GAXIComponentBase` | High | 0.2.0 | Yes (internal hierarchy) | [#6](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/6) | — | Shipped in 0.2.0 |
+| 2 | `AXISSlave` should inherit `GAXISlave`, not `GAXIMonitorBase` | High | 0.2.0 | Yes (MRO change) | [#7](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/7) | — | Shipped in 0.2.0 |
+| 3 | Extract APB / APB5 common base | Medium | 0.2.0 | No (additive) | [#8](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/8) | — | Shipped in 0.2.0 |
+| 4 | Consolidate `protocol_type` enum into single source of truth | Medium | 0.2.0 | No | [#9](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/9) | — | Shipped in 0.2.0 |
+| 5 | Extract `_pop_custom_kwargs` helper for cocotb-parent init dance | Low | 0.2.0 | No | [#10](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/10) | — | Shipped in 0.2.0 |
+| 6 | Add type annotations to GAXI/FIFO base-class signatures | Low | 0.2.0 | No | [#11](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/11) | — | Shipped in 0.2.0 |
+| 7 | Document or rename the "Slave-via-BusMonitor" pattern | Low | 0.2.0 | Maybe (if renamed) | [#12](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/12) | — | Shipped in 0.2.0 |
+| 8 | Audit `AXI4SlaveRead._ar_callback` for in-order dict races | High | 0.1.2 | No | [#13](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/13) | — | Shipped in 0.2.0 |
+| 9 | Audit `AXI4SlaveWrite` shared mutable state across AW/W callbacks | High | 0.1.2 | No | [#14](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/14) | — | Shipped in 0.2.0 |
 
 Severity = correctness impact. Target = proposed release. Breaking = SemVer breaking (0.x allows breaking changes but downstream users should be warned via CHANGELOG).
 

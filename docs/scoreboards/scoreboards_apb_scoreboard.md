@@ -106,12 +106,12 @@ Enhanced mismatch logging with field-by-field analysis.
 
 ## Multi-Slave Support
 
-### APBMultiSlaveScoreboard
+### APBCrossbarScoreboard
 
 Advanced scoreboard for multi-slave APB systems with automatic transaction routing.
 
 ```python
-class APBMultiSlaveScoreboard:
+class APBCrossbarScoreboard:
     def __init__(self, name, num_slaves, addr_width=32, data_width=32, log=None)
 ```
 
@@ -143,7 +143,7 @@ Configure custom address ranges for slave selection.
 
 ```python
 # Custom address mapping
-scoreboard = APBMultiSlaveScoreboard("MultiSlave", num_slaves=3)
+scoreboard = APBCrossbarScoreboard("MultiSlave", num_slaves=3)
 addr_map = [
     (0x0000, 0x7FFF),  # Slave 0: 32KB
     (0x8000, 0xBFFF),  # Slave 1: 16KB  
@@ -295,10 +295,10 @@ print(f"Verification: {'PASS' if error_count == 0 else 'FAIL'} ({pass_rate:.2%})
 ### Multi-Slave System Verification
 
 ```python
-from CocoTBFramework.scoreboards.apb_scoreboard import APBMultiSlaveScoreboard
+from CocoTBFramework.scoreboards.apb_scoreboard import APBCrossbarScoreboard
 
 # Create multi-slave scoreboard
-scoreboard = APBMultiSlaveScoreboard("APB_System", num_slaves=4, log=logger)
+scoreboard = APBCrossbarScoreboard("APB_System", num_slaves=4, log=logger)
 
 # Configure custom address mapping
 addr_map = [

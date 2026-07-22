@@ -121,7 +121,7 @@ The APB scoreboard provides comprehensive verification for ARM's Advanced Periph
 - **Protocol Compliance**: APB timing and signal relationship checking
 - **Error Categorization**: Detailed classification of different error types
 
-**Multi-Slave Support (`APBMultiSlaveScoreboard`)**:
+**Multi-Slave Support (`APBCrossbarScoreboard`)**:
 - **Address-Based Routing**: Automatic transaction routing to appropriate slave scoreboards
 - **Configurable Address Maps**: Flexible address range configuration for each slave
 - **Aggregate Reporting**: Combined statistics across all slaves

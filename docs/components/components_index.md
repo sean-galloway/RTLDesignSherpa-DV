@@ -32,14 +32,22 @@ This directory contains the core verification components for the CocoTBFramework
 
 ### Bus Protocols
 - [**APB Components**](apb/components_apb_index.md) - Advanced Peripheral Bus protocol components with comprehensive transaction support
+- [**APB5 Components**](apb5/components_apb5_overview.md) - APB5 (AMBA5) extensions with USER/WAKEUP signal support
 - [**AXI4 Components**](axi4/index.md) - Full AXI4 protocol components with burst transactions, outstanding operations, and compliance checking
+- [**AXI5 Components**](axi5/components_axi5_overview.md) - AMBA5-generation AXI with extended signals and compliance checking
 - [**AXIL4 Components**](axil4/index.md) - AXI4-Lite protocol components optimized for register-oriented memory-mapped interfaces
 - [**AXIS4 Components**](axis4/index.md) - AXI4-Stream protocol components for packet-based streaming data verification
+- [**AXIS5 Components**](axis5/components_axis5_overview.md) - AXI-Stream v5 protocol components
+- [**DFI Components**](dfi/components_dfi_overview.md) - DDR PHY Interface (v2.1-v5.x) memory-controller and PHY BFMs with JEDEC timing enforcement
 - [**FIFO Components**](fifo/components_fifo_index.md) - First-In-First-Out protocol components for buffer and queue verification
 - [**GAXI Components**](gaxi/components_gaxi_index.md) - Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
 
 ### Serial Protocols
+- [**SMBus Components**](smbus/components_smbus_overview.md) - System Management Bus components with open-drain modeling and CRC-8 PEC
 - [**UART Components**](uart/uart_components.md) - Universal Asynchronous Receiver/Transmitter (UART) protocol components with 8N1 support
+
+### Visualization
+- [**Wavedrom Components**](wavedrom/wavedrom_index.md) - WaveJSON timing-diagram generation from simulation signals
 
 ### Specialized Components
 - [**Misc Components**](misc/components_misc_index.md) - Specialized monitoring and verification components for specific use cases
@@ -51,10 +59,10 @@ This directory contains the core verification components for the CocoTBFramework
 
 ### Basic Component Usage
 ```python
-# Import protocol-specific components
-from CocoTBFramework.components.apb import create_apb_master, create_apb_slave
-from CocoTBFramework.components.gaxi import create_gaxi_master, create_gaxi_slave
-from CocoTBFramework.components.fifo import create_fifo_master, create_fifo_slave
+# Import protocol-specific factory functions
+from CocoTBFramework.components.apb.apb_factories import create_apb_master, create_apb_slave
+from CocoTBFramework.components.gaxi.gaxi_factories import create_gaxi_master, create_gaxi_slave
+from CocoTBFramework.components.fifo.fifo_factories import create_fifo_master, create_fifo_slave
 
 # Create components
 apb_master = create_apb_master(dut, "APB_Master", "apb_", dut.clk)
@@ -65,9 +73,9 @@ fifo_master = create_fifo_master(dut, "FIFO_Master", dut.clk)
 ### Shared Component Integration
 ```python
 # Use shared components for configuration and utilities
-from CocoTBFramework.components.shared import (
-    FieldConfig, FieldDefinition, FlexRandomizer, MemoryModel
-)
+from CocoTBFramework.components.shared.field_config import FieldConfig, FieldDefinition
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
+from CocoTBFramework.components.shared.memory_model import MemoryModel
 
 # Create field configuration
 field_config = FieldConfig()
@@ -195,4 +203,4 @@ All protocol components provide factory functions for easy creation:
 Each component directory includes comprehensive documentation with examples, API references, and best practices for integration into verification environments.
 
 ## Navigation
-- [**Back to CocoTBFramework**](components_index.md) - Return to main framework index
+- [**Back to CocoTBFramework**](../index.md) - Return to main framework index

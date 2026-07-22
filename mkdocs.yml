@@ -123,6 +123,10 @@ nav:
       - Command Handler: components/gaxi/components_gaxi_gaxi_command_handler.md
       - Factories: components/gaxi/components_gaxi_gaxi_factories.md
 
+    - DFI:
+      - Overview: components/dfi/components_dfi_overview.md
+      - Design Notes (Semantic Shifts): internal/dfi-semantic-shifts.md
+
     - FIFO:
       - Overview: components/fifo/components_fifo_overview.md
       - Master: components/fifo/components_fifo_fifo_master.md

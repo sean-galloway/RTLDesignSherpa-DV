@@ -23,7 +23,9 @@
 
 # Misc Components Index
 
-This directory contains miscellaneous components that provide specialized functionality for various verification scenarios in the CocoTBFramework. These components handle specific protocols or monitoring tasks that don't fit into the main protocol categories.
+This section documents miscellaneous components that provide specialized functionality for various verification scenarios in the CocoTBFramework. These components handle specific protocols or monitoring tasks that don't fit into the main protocol categories.
+
+> **Note:** These modules live under `src/CocoTBFramework/components/shared/` (e.g. `arbiter_monitor.py`); there is no separate `misc` package in the source tree.
 
 ## Overview
 - [**Overview**](components_misc_overview.md) - Complete overview of the misc components directory

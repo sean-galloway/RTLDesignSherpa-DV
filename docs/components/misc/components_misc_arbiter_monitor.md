@@ -25,6 +25,8 @@
 
 Enhanced Generic Arbiter Monitor Component for observing various types of arbiter interfaces including round-robin and weighted round-robin arbiters. This module provides comprehensive monitoring capabilities with improved signal sampling timing, proper grant validation, and robust transaction tracking.
 
+**Module location:** `src/CocoTBFramework/components/shared/arbiter_monitor.py` (import from `CocoTBFramework.components.shared.arbiter_monitor`).
+
 ## Overview
 
 The `arbiter_monitor.py` module provides sophisticated arbiter monitoring capabilities for verification environments. It includes transaction tracking, fairness analysis, pattern compliance verification, and real-time statistics collection.
@@ -74,28 +76,28 @@ Enhanced generic arbiter monitor component that observes arbiter transactions wi
 #### Constructor
 
 ```python
-ArbiterMonitor(dut, title, clock, reset_n, req_signal, gnt_valid_signal, gnt_signal,
-               gnt_id_signal, gnt_ack_signal=None, block_arb_signal=None,
-               max_thresh_signal=None, is_weighted=False, clients=None, log=None,
-               clock_period_ns=10)
+ArbiterMonitor(entity, name, clock, reset_n,
+               clients=None, is_weighted=False, ack_mode=False, log=None,
+               clock_period_ns=10, callback=None, event=None, **kwargs)
 ```
 
 **Parameters:**
-- `dut`: Device under test
-- `title`: Component title (for logging and identification)
+- `entity`: Device under test
+- `name`: Component name (used for bus signal resolution and logging)
 - `clock`: Clock signal
 - `reset_n`: Reset signal (active low)
-- `req_signal`: Request input signal (bus)
-- `gnt_valid_signal`: Grant valid output signal
-- `gnt_signal`: Grant output signal (bus)
-- `gnt_id_signal`: Grant ID output signal
-- `gnt_ack_signal`: Grant acknowledge input signal (bus), optional
-- `block_arb_signal`: Signal to block arbitration, optional
-- `max_thresh_signal`: Maximum threshold signal for weighted arbiters, optional
+- `clients`: Number of clients (derived from signal width if None)
 - `is_weighted`: True if monitoring a weighted arbiter
-- `clients`: Number of clients (auto-detected if None)
+- `ack_mode`: True if the arbiter uses an ACK protocol
 - `log`: Logger instance (creates new if None)
 - `clock_period_ns`: Clock period in nanoseconds for timing calculations
+- `callback`: Callback invoked with each transaction (cocotb pattern)
+- `event`: Event fired when a transaction is received (cocotb pattern)
+
+The base class resolves `request`/`grant_valid`/`grant`/`grant_id` (plus optional
+`grant_ack`, `block_arb`, `max_thresh`) signals via the cocotb `BusMonitor` bus.
+The specialized subclasses below accept explicit per-signal handles
+(`req_signal`, `gnt_valid_signal`, ...) and are the recommended entry points.
 
 #### Core Properties
 
@@ -236,9 +238,10 @@ Monitor specifically tailored for Round Robin Arbiters with pattern compliance a
 #### Constructor
 
 ```python
-RoundRobinArbiterMonitor(dut, title, clock, reset_n, req_signal, gnt_valid_signal, 
-                        gnt_signal, gnt_id_signal, gnt_ack_signal=None, 
-                        block_arb_signal=None, clients=None, log=None, clock_period_ns=10)
+RoundRobinArbiterMonitor(dut, title, clock, reset_n, req_signal, gnt_valid_signal,
+                        gnt_signal, gnt_id_signal, gnt_ack_signal=None,
+                        block_arb_signal=None, clients=None, ack_mode=False,
+                        log=None, clock_period_ns=10)
 ```
 
 Inherits all parameters from ArbiterMonitor (automatically sets `is_weighted=False`).
@@ -268,9 +271,9 @@ Monitor specifically tailored for Weighted Round Robin Arbiters with weight comp
 
 ```python
 WeightedRoundRobinArbiterMonitor(dut, title, clock, reset_n, req_signal, gnt_valid_signal,
-                                gnt_signal, gnt_id_signal, gnt_ack_signal=None, 
-                                block_arb_signal=None, max_thresh_signal=None, 
-                                clients=None, log=None, clock_period_ns=10)
+                                gnt_signal, gnt_id_signal, gnt_ack_signal=None,
+                                block_arb_signal=None, max_thresh_signal=None,
+                                clients=None, ack_mode=False, log=None, clock_period_ns=10)
 ```
 
 Inherits all parameters from ArbiterMonitor (automatically sets `is_weighted=True`).
@@ -305,7 +308,7 @@ else:
 ```python
 import cocotb
 from cocotb.triggers import Timer, RisingEdge
-from components.misc.arbiter_monitor import RoundRobinArbiterMonitor
+from CocoTBFramework.components.shared.arbiter_monitor import RoundRobinArbiterMonitor
 
 @cocotb.test()
 async def test_round_robin_arbiter(dut):

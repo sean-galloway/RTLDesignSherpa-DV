@@ -23,7 +23,9 @@
 
 # Misc Components Overview
 
-The misc components directory contains specialized verification components that provide functionality for protocols and scenarios not covered by the main protocol categories (GAXI, FIFO, APB, AXI4). These components are designed to handle specific monitoring and verification tasks for various hardware designs.
+The misc components section covers specialized verification components that provide functionality for protocols and scenarios not covered by the main protocol categories (GAXI, FIFO, APB, AXI4). These components are designed to handle specific monitoring and verification tasks for various hardware designs.
+
+> **Note:** These modules live under `src/CocoTBFramework/components/shared/` (e.g. `arbiter_monitor.py`); import them from `CocoTBFramework.components.shared`.
 
 ## Architecture Overview
 
@@ -122,7 +124,7 @@ arbiter_monitor.add_transaction_callback(scoreboard.record_arbitration)
 arbiter_monitor.start_monitoring()
 
 # 4. Run test and analyze results
-yield run_test_sequence()
+await run_test_sequence()
 stats = arbiter_monitor.get_stats_summary()
 ```
 

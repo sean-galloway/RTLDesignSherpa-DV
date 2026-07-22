@@ -20,12 +20,10 @@ This module provides AXIS Slave functionality using GAXI infrastructure.
 Similar API to AXI4Slave but adapted for stream protocol.
 """
 
-from cocotb.triggers import RisingEdge, Timer
-from cocotb.utils import get_sim_time
+from cocotb.triggers import RisingEdge
 
 from ..gaxi.gaxi_slave import GAXISlave
 from .axis_field_configs import AXISFieldConfigs
-from .axis_packet import AXISPacket
 
 
 class AXISSlave(GAXISlave):
@@ -37,16 +35,16 @@ class AXISSlave(GAXISlave):
     plumbing. AXIS adds frame-level (TLAST) tracking and stream-specific
     monitoring on top of the same ready/valid chassis.
 
+    The GAXI receive pipeline is the sole driver of the ready signal
+    (including randomized ready delays via the slave randomizer). AXIS-level
+    frame tracking is layered on via the standard cocotb callback mechanism:
+    every packet captured by the GAXI pipeline is also fed to
+    :meth:`_axis_packet_callback` for TLAST-delimited frame accounting.
+
     AXIS-specific features added by this subclass:
-    - Stream data reception with backpressure control
     - Frame boundary detection via TLAST
     - Packet and frame statistics
-
-    .. note::
-
-        ``_monitor_recv`` is overridden here to capture TLAST-delimited frames
-        rather than per-beat transactions. ``set_ready_always``,
-        ``apply_backpressure``, and ``wait_for_frame`` are AXIS extensions.
+    - ``apply_backpressure`` and ``wait_for_frame`` extensions
     """
 
     def __init__(self, dut, title, prefix, clock, field_config=None,
@@ -115,125 +113,62 @@ class AXISSlave(GAXISlave):
         self.total_data_bytes = 0
         self.errors = 0
 
+        # Layer AXIS frame tracking on top of the GAXI receive pipeline:
+        # every packet the pipeline captures is fed to the callback below.
+        self.add_callback(self._axis_packet_callback)
+
         if self.log:
             self.log.info(f"AXISSlave '{self.title}' initialized: "
                          f"mode={self.mode}, timeout={self.timeout_cycles} cycles")
 
-    async def _monitor_recv(self):
+    @staticmethod
+    def _packet_byte_count(packet):
+        """Number of valid bytes in a captured beat, based on TSTRB bits."""
+        return bin(packet.fields.get('strb', 0)).count('1')
+
+    def _axis_packet_callback(self, packet):
         """
-        Monitor for incoming AXIS transfers.
+        AXIS frame tracking hook, fed by the GAXI receive pipeline.
 
-        This is the main monitoring loop that watches for valid/ready handshakes
-        and captures stream data.
+        The GAXI pipeline owns handshake detection, data capture, ready
+        driving, and memory-model writes; this callback only layers
+        TLAST-delimited frame accounting and AXIS statistics on top.
+
+        Args:
+            packet: Packet captured by the GAXI receive pipeline
         """
-        try:
-            while True:
-                await RisingEdge(self.clock)
+        # Update statistics
+        self.packets_received += 1
+        self.total_data_bytes += self._packet_byte_count(packet)
 
-                # Check for valid handshake
-                if self._is_handshake_valid():
-                    current_time = get_sim_time(units='ns')
+        # Handle frame boundaries
+        if packet.fields.get('last', 0):
+            self.frames_received += 1
+            self._current_frame.append(packet)
+            self._process_complete_frame(self._current_frame)
+            self._current_frame = []
+            self._frame_id = None
+        else:
+            self._current_frame.append(packet)
+            if self._frame_id is None:
+                self._frame_id = packet.fields.get('id', 0)
 
-                    # Create packet from current data
-                    packet = AXISPacket(
-                        field_config=self.field_config,
-                        timestamp=current_time
-                    )
+        if self.log and self.super_debug:
+            self.log.debug(f"AXISSlave '{self.title}': "
+                         f"Received packet {packet.formatted(compact=True)}")
 
-                    # Collect data using inherited functionality
-                    data_dict = self._get_data_dict()
-                    self._finish_packet(current_time, packet, data_dict)
-
-                    # Update statistics
-                    self.packets_received += 1
-                    self.total_data_bytes += packet.get_byte_count()
-
-                    # Handle frame boundaries
-                    if packet.is_last():
-                        self.frames_received += 1
-                        self._current_frame.append(packet)
-                        await self._process_complete_frame(self._current_frame)
-                        self._current_frame = []
-                        self._frame_id = None
-                    else:
-                        self._current_frame.append(packet)
-                        if self._frame_id is None:
-                            self._frame_id = packet.id
-
-                    # Write to memory model if available
-                    if self.memory_model:
-                        self.write_to_memory_unified(packet)
-
-                    if self.log and self.super_debug:
-                        self.log.debug(f"AXISSlave '{self.title}': "
-                                     f"Received packet {packet}")
-
-                # Apply ready signal timing if randomizer is available
-                if self.randomizer and hasattr(self, 'ready_sig'):
-                    await self._apply_ready_timing()
-
-                # Small delay to avoid oversampling
-                await Timer(1, units='ps')
-
-        except Exception as e:
-            if self.log:
-                self.log.error(f"AXISSlave '{self.title}': Exception in _monitor_recv: {e}")
-            import traceback
-            self.log.error(traceback.format_exc())
-            raise
-
-    def _is_handshake_valid(self):
-        """Check if valid/ready handshake is occurring."""
-        try:
-            # Get signals using inherited signal resolution
-            valid_signal = getattr(self, 'valid_sig', None)
-            ready_signal = getattr(self, 'ready_sig', None)
-
-            if valid_signal is None or ready_signal is None:
-                return False
-
-            return bool(valid_signal.value) and bool(ready_signal.value)
-
-        except Exception:
-            return False
-
-    async def _apply_ready_timing(self):
-        """Apply randomized ready signal timing."""
-        if not self.randomizer:
-            return
-
-        try:
-            # Get ready delay from randomizer
-            delay = self.randomizer.get_delay('ready_delay')
-
-            if delay > 0:
-                # Lower ready for delay cycles
-                if hasattr(self, 'ready_sig'):
-                    self.ready_sig.value = 0
-
-                    # Wait for delay cycles
-                    for _ in range(delay):
-                        await RisingEdge(self.clock)
-
-                    # Raise ready again
-                    self.ready_sig.value = 1
-
-        except Exception as e:
-            if self.log and self.super_debug:
-                self.log.debug(f"AXISSlave '{self.title}': Ready timing error: {e}")
-
-    async def _process_complete_frame(self, frame_packets):
+    def _process_complete_frame(self, frame_packets):
         """
         Process a complete frame (packets ending with TLAST).
 
         Args:
-            frame_packets: List of AXISPacket objects forming a complete frame
+            frame_packets: List of packets forming a complete frame
         """
         if not frame_packets:
             return
 
-        frame_size = sum(p.get_byte_count() for p in frame_packets)
-        frame_id = frame_packets[0].id if frame_packets else 0
+        frame_size = sum(self._packet_byte_count(p) for p in frame_packets)
+        frame_id = frame_packets[0].fields.get('id', 0)
 
         if self.log and self.super_debug:
             self.log.debug(f"AXISSlave '{self.title}': "
@@ -245,10 +180,18 @@ class AXISSlave(GAXISlave):
 
     def set_ready_always(self, ready=True):
         """
-        Set ready signal to always be ready or never ready.
+        Force the ready signal to a fixed value right now.
+
+        .. note::
+
+            The GAXI receive pipeline actively manages ready during
+            handshakes, so this override only holds between pipeline
+            actions (e.g. while the pipeline is waiting for valid).
+            For sustained randomized backpressure use
+            :meth:`apply_backpressure` instead.
 
         Args:
-            ready: True for always ready, False for never ready
+            ready: True for ready asserted, False for ready deasserted
         """
         if hasattr(self, 'ready_sig'):
             self.ready_sig.value = 1 if ready else 0
@@ -284,7 +227,7 @@ class AXISSlave(GAXISlave):
         return {
             'packets_in_frame': len(self._current_frame),
             'frame_id': self._frame_id,
-            'total_bytes': sum(p.get_byte_count() for p in self._current_frame),
+            'total_bytes': sum(self._packet_byte_count(p) for p in self._current_frame),
             'is_receiving': self._receiving
         }
 

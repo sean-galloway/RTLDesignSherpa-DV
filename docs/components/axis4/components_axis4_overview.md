@@ -31,6 +31,10 @@ The CocoTBFramework AXIS4 components provide comprehensive support for AXI4-Stre
 
 The AXIS4 components inherit from the robust GAXI framework, providing:
 
+**Delegation, not duplication**: GAXI is the workhorse layer. `AXISMaster` drives the bus exclusively through `GAXIMaster`'s structured transmit pipeline (queue → delay → drive/handshake → complete), and `AXISSlave` receives exclusively through `GAXISlave`'s receive pipeline, which is also the sole driver of TREADY. The AXIS classes are thin wrappers that add stream/frame conveniences and TLAST-aware statistics — they do not maintain a parallel hand-rolled drive or ready-control path.
+
+**Factories return AXIS classes**: `create_axis_master`, `create_axis_slave`, and `create_axis_monitor` construct `AXISMaster`, `AXISSlave`, and `AXISMonitor` respectively, so the returned `interface` always exposes the documented AXIS API (`send_packet`, `send_stream_data`, `wait_for_frame`, frame statistics, …).
+
 **Unified Field Configuration**: Complete integration with the CocoTBFramework field configuration system for flexible packet structures
 **Memory Model Support**: Seamless integration with memory models for data verification and complex test scenarios
 **Statistics Integration**: Comprehensive performance metrics and transaction tracking

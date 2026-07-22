@@ -37,11 +37,17 @@ class AXISSlave(GAXISlave):
     plumbing.
 
     AXIS-specific features added by this subclass:
-    - Stream data reception with backpressure control
     - Frame boundary detection via TLAST
     - Packet and frame statistics
+    - apply_backpressure and wait_for_frame extensions
     """
 ```
+
+### Delegation to the GAXI Pipeline
+
+The inherited `GAXISlave` receive pipeline performs all handshake detection, data capture, memory-model writes, and — importantly — **all TREADY driving**, including randomized ready delays taken from the slave randomizer. `AXISSlave` does not run a competing monitor loop or drive TREADY itself, so there is no contention over the ready signal.
+
+AXIS-level frame tracking is layered on through the standard cocotb callback mechanism: every packet the GAXI pipeline captures is also passed to `_axis_packet_callback`, which maintains `packets_received`, `frames_received`, `total_data_bytes`, and the current-frame state used by `get_current_frame_info()` and `wait_for_frame()`.
 
 ## Constructor
 
@@ -87,23 +93,30 @@ slave = AXISSlave(
 
 #### `set_ready_always(ready=True)`
 
-Set ready signal to always be ready or never ready.
+Force the TREADY signal to a fixed value immediately.
+
+> **Note**: the GAXI receive pipeline actively manages TREADY around each
+> handshake, so this override only holds between pipeline actions (for
+> example while the pipeline is waiting for TVALID). For sustained or
+> randomized backpressure, use `apply_backpressure()` — which feeds the
+> randomizer the pipeline actually consults — rather than pinning the
+> signal here.
 
 **Parameters:**
-- **`ready`** (bool) - True for always ready, False for never ready
+- **`ready`** (bool) - True to assert ready, False to deassert
 
 **Example:**
 ```python
-# Always accept data
+# Nudge ready high right now
 slave.set_ready_always(True)
 
-# Never accept data (create backpressure)
+# Nudge ready low right now
 slave.set_ready_always(False)
 ```
 
 #### `apply_backpressure(probability=0.2, min_cycles=1, max_cycles=5)`
 
-Apply random backpressure by controlling ready signal timing.
+Apply random backpressure by updating the ready-delay constraints that the GAXI receive pipeline uses when driving TREADY. This is the supported way to create sustained backpressure.
 
 **Parameters:**
 - **`probability`** (float) - Probability of applying backpressure (0.0 to 1.0)

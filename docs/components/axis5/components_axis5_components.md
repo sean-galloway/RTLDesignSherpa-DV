@@ -90,7 +90,12 @@ Send a single AXIS5 beat/transfer.
 
 #### `inject_parity_error(enable=True)`
 
-Enable or disable parity error injection for testing error handling.
+Enable or disable parity error injection for testing error handling. While
+enabled, every packet sent through `send_packet` (and the stream/single-beat
+helpers that build on it) has its odd-parity TPARITY value corrupted (bit 0
+flipped) before driving, and the `parity_errors_generated` counter is
+incremented once per corrupted packet. Only effective when `enable_parity`
+is `True`; call `inject_parity_error(enable=False)` to resume correct parity.
 
 #### `is_wakeup_active() -> bool`
 
@@ -142,6 +147,8 @@ master.inject_parity_error(enable=False)
 ## AXIS5Slave
 
 Stream protocol slave with AMBA5 extensions for wake-up detection and parity checking.
+
+Packets are captured by the GAXI receive pipeline inherited through `AXISSlave` (which also owns all TREADY driving). AXIS5 layers TPARITY verification on top via the same packet callback hook that `AXISSlave` uses for frame tracking — parity is checked with **odd** parity per byte, matching `AXIS5Packet.calculate_parity()`.
 
 ### Class Signature
 

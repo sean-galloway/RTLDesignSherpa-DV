@@ -28,6 +28,28 @@ from ..shared.field_config import FieldConfig, FieldDefinition
 from ..shared.flex_randomizer import FlexRandomizer
 
 
+def calculate_odd_parity(data_value: int, num_bytes: int) -> int:
+    """
+    Calculate AMBA AXI5-Stream TPARITY (odd parity, one bit per byte).
+
+    Each parity bit is set so that the corresponding data byte plus its
+    parity bit contain an odd number of ones: parity = NOT XOR(byte bits).
+
+    Args:
+        data_value: Data word to protect
+        num_bytes: Number of bytes (= number of parity bits)
+
+    Returns:
+        Parity value with bit i protecting byte i
+    """
+    parity = 0
+    for i in range(num_bytes):
+        byte_val = (data_value >> (i * 8)) & 0xFF
+        bit_parity = (bin(byte_val).count('1') & 1) ^ 1
+        parity |= (bit_parity << i)
+    return parity
+
+
 class AXIS5Packet(AXISPacket):
     """
     AXIS5 Packet class for AXI5-Stream protocol.
@@ -216,27 +238,20 @@ class AXIS5Packet(AXISPacket):
     # AXIS5-specific methods
     def calculate_parity(self) -> int:
         """
-        Calculate parity for the data field.
+        Calculate TPARITY for the data field.
+
+        Per the AMBA AXI5-Stream specification, TPARITY uses odd parity:
+        each parity bit is set so that its data byte plus the parity bit
+        contain an odd number of ones.
 
         Returns:
-            Calculated parity value (1 bit per byte)
+            Calculated parity value (1 bit per byte, odd parity)
         """
-        data_value = self.data
-        parity_width = getattr(self, 'parity_width', 4)
-        parity = 0
-
-        for i in range(parity_width):
-            byte_val = (data_value >> (i * 8)) & 0xFF
-            # Parity bit = XOR of the byte's bits (set when the byte has an
-            # odd number of ones, i.e. even-parity convention)
-            bit_parity = bin(byte_val).count('1') & 1
-            parity |= (bit_parity << i)
-
-        return parity
+        return calculate_odd_parity(self.data, getattr(self, 'parity_width', 4))
 
     def check_parity(self) -> bool:
         """
-        Check if parity matches calculated parity.
+        Check if the parity field matches the calculated odd parity.
 
         Returns:
             True if parity is correct, False otherwise
@@ -245,6 +260,35 @@ class AXIS5Packet(AXISPacket):
             return True
         calculated = self.calculate_parity()
         return self.parity == calculated
+
+    def copy(self):
+        """
+        Create a copy of this packet, preserving AXIS5 constructor options.
+
+        Overrides the base ``Packet.copy()``, which re-creates the packet
+        without ``data_width``/``enable_wakeup``/``enable_parity`` — that
+        would silently disable parity checking on the copy.
+
+        Returns:
+            New AXIS5Packet with the same configuration and field values
+        """
+        new_packet = self.__class__(
+            field_config=self.field_config,
+            skip_compare_fields=list(self.skip_compare_fields),
+            data_width=self.data_width,
+            enable_wakeup=self.enable_wakeup,
+            enable_parity=self.enable_parity,
+        )
+
+        # Copy field values
+        for field_name, value in self.fields.items():
+            new_packet.fields[field_name] = value
+
+        # Copy timing information
+        new_packet.start_time = self.start_time
+        new_packet.end_time = self.end_time
+
+        return new_packet
 
     def set_wakeup(self, enable: bool = True):
         """Set wakeup signal state."""

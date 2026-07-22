@@ -22,10 +22,10 @@ with APIs similar to AXI4 factories for consistency.
 
 from typing import Any, Dict
 
-from ..gaxi.gaxi_master import GAXIMaster
-from ..gaxi.gaxi_monitor import GAXIMonitor
-from ..gaxi.gaxi_slave import GAXISlave
 from .axis_field_configs import AXISFieldConfigs
+from .axis_master import AXISMaster
+from .axis_monitor import AXISMonitor
+from .axis_slave import AXISSlave
 
 
 def create_axis_master(dut, clock, prefix="", data_width=32, id_width=8,
@@ -55,14 +55,14 @@ def create_axis_master(dut, clock, prefix="", data_width=32, id_width=8,
         user_width=user_width
     )
 
-    # Create the master using GAXIMaster directly with AXIS protocol
-    master = GAXIMaster(
+    # Create the master using the AXIS class (delegates to GAXIMaster's
+    # pipeline internally, but exposes the documented AXIS API surface)
+    master = AXISMaster(
         dut=dut,
         title=f"AXIS_Master_{prefix}",
         prefix=prefix,
         clock=clock,
         field_config=field_config,
-        protocol_type='axis_master',  # Use AXIS protocol for proper signal mapping
         pkt_prefix="",  # AXIS is a single channel, no prefix needed
         multi_sig=True,  # Use multi-signal mode for AXIS fields
         log=log,
@@ -104,14 +104,14 @@ def create_axis_slave(dut, clock, prefix="", data_width=32, id_width=8,
         user_width=user_width
     )
 
-    # Create the slave using GAXISlave directly with AXIS protocol
-    slave = GAXISlave(
+    # Create the slave using the AXIS class (delegates to GAXISlave's
+    # pipeline internally, but exposes the documented AXIS API surface)
+    slave = AXISSlave(
         dut=dut,
         title=f"AXIS_Slave_{prefix}",
         prefix=prefix,
         clock=clock,
         field_config=field_config,
-        protocol_type='axis_slave',  # Use AXIS protocol for proper signal mapping
         pkt_prefix="",  # AXIS is a single channel, no prefix needed
         multi_sig=True,  # Use multi-signal mode for AXIS fields
         log=log,
@@ -155,15 +155,15 @@ def create_axis_monitor(dut, clock, prefix="", data_width=32, id_width=8,
         user_width=user_width
     )
 
-    # Create the monitor using GAXIMonitor directly with AXIS protocol
-    protocol_type = 'axis_slave' if is_slave else 'axis_master'
-    monitor = GAXIMonitor(
+    # Create the monitor using the AXIS class (frame tracking, protocol
+    # violation checks, and the documented AXIS monitor API)
+    monitor = AXISMonitor(
         dut=dut,
         title=f"AXIS_Monitor_{prefix}",
         prefix=prefix,
         clock=clock,
         field_config=field_config,
-        protocol_type=protocol_type,  # Use AXIS protocol for proper signal mapping
+        is_slave=is_slave,
         pkt_prefix="",  # AXIS is a single channel, no prefix needed
         multi_sig=True,  # Use multi-signal mode for AXIS fields
         log=log,
@@ -196,7 +196,7 @@ def create_axis_master_interface(dut, clock, prefix="", data_width=32,
         **kwargs: Additional configuration
 
     Returns:
-        GAXIMaster instance configured for the AXIS protocol
+        AXISMaster instance
     """
     result = create_axis_master(
         dut, clock, prefix, data_width, id_width,
@@ -223,7 +223,7 @@ def create_axis_slave_interface(dut, clock, prefix="", data_width=32,
         **kwargs: Additional configuration
 
     Returns:
-        GAXISlave instance configured for the AXIS protocol
+        AXISSlave instance
     """
     result = create_axis_slave(
         dut, clock, prefix, data_width, id_width,

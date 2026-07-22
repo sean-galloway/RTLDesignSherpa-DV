@@ -96,6 +96,7 @@ class AXIS5Master(AXISMaster):
         # AXIS5 state
         self._wakeup_active = False
         self._wakeup_pending = False
+        self._inject_parity_error = False
 
         # AXIS5 statistics
         self.wakeup_events = 0
@@ -151,9 +152,19 @@ class AXIS5Master(AXISMaster):
             await self._assert_wakeup()
             self._wakeup_pending = False
 
-        # Calculate and set parity if enabled
+        # Calculate and set parity if enabled (odd parity per byte)
         if self.enable_parity and isinstance(packet, AXIS5Packet):
-            packet.parity = packet.calculate_parity()
+            parity = packet.calculate_parity()
+
+            # Corrupt parity if error injection is enabled (flip bit 0)
+            if self._inject_parity_error:
+                parity ^= 0x1
+                self.parity_errors_generated += 1
+                if self.log:
+                    self.log.info(f"AXIS5Master '{self.title}': "
+                                 f"Injecting parity error (parity=0x{parity:X})")
+
+            packet.parity = parity
 
         # Use parent send_packet
         result = await super().send_packet(packet)
@@ -235,14 +246,11 @@ class AXIS5Master(AXISMaster):
 
             packets.append(packet)
 
-        # Send all packets
-        for i, packet in enumerate(packets):
-            if i == 0:
-                # First packet triggers wakeup
-                success = await self.send_packet(packet)
-            else:
-                success = await super().send_packet(packet)
-
+        # Send all packets through the AXIS5 send path so every beat gets
+        # parity handling; only the first send performs wakeup signaling
+        # (the pending-wakeup flag is cleared after the first packet).
+        for packet in packets:
+            success = await self.send_packet(packet)
             if not success:
                 return False
 
@@ -291,10 +299,14 @@ class AXIS5Master(AXISMaster):
         """
         Enable/disable parity error injection for testing.
 
+        While enabled, every packet sent through ``send_packet`` has its
+        TPARITY corrupted (bit 0 flipped after odd-parity calculation) and
+        ``parity_errors_generated`` is incremented per corrupted packet.
+        Only effective when ``enable_parity`` is True.
+
         Args:
             enable: True to inject errors, False to generate correct parity
         """
-        # This will be used during packet creation to flip parity
         self._inject_parity_error = enable
 
     def is_wakeup_active(self):

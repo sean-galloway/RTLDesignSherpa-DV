@@ -22,12 +22,12 @@ This module provides AXIS5 Slave functionality with:
 """
 
 import cocotb
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import RisingEdge
 from cocotb.utils import get_sim_time
 
 from ..axis4.axis_slave import AXISSlave
 from .axis5_field_configs import AXIS5FieldConfigs
-from .axis5_packet import AXIS5Packet
+from .axis5_packet import calculate_odd_parity
 
 
 class AXIS5Slave(AXISSlave):
@@ -36,8 +36,12 @@ class AXIS5Slave(AXISSlave):
 
     Extends AXISSlave with AMBA5-specific features:
     - Wake-up signaling detection (TWAKEUP)
-    - Parity checking (TPARITY)
+    - Parity checking (TPARITY, odd parity per byte)
     - Power management coordination
+
+    Packets are captured by the GAXI receive pipeline (inherited via
+    AXISSlave); parity checking is layered on through the AXIS packet
+    callback hook.
     """
 
     def __init__(self, dut, title, prefix, clock, field_config=None,
@@ -169,94 +173,53 @@ class AXIS5Slave(AXISSlave):
             if self.log:
                 self.log.error(f"AXIS5Slave '{self.title}': Exception in _monitor_wakeup: {e}")
 
-    async def _monitor_recv(self):
+    def _axis_packet_callback(self, packet):
         """
-        Monitor for incoming AXIS5 transfers with parity checking.
+        AXIS5 packet hook, fed by the GAXI receive pipeline.
 
-        Extends parent _monitor_recv with parity verification.
+        Adds TPARITY verification before the standard AXIS frame tracking.
+
+        Args:
+            packet: Packet captured by the GAXI receive pipeline
         """
-        try:
-            while True:
-                await RisingEdge(self.clock)
+        if self.enable_parity:
+            self._check_parity(packet)
 
-                # Check for valid handshake
-                if self._is_handshake_valid():
-                    current_time = get_sim_time(units='ns')
+        super()._axis_packet_callback(packet)
 
-                    # Create AXIS5 packet from current data
-                    packet = AXIS5Packet(
-                        field_config=self.field_config,
-                        enable_wakeup=self.enable_wakeup,
-                        enable_parity=self.enable_parity,
-                        timestamp=current_time
-                    )
-
-                    # Collect data using inherited functionality
-                    data_dict = self._get_data_dict()
-                    self._finish_packet(current_time, packet, data_dict)
-
-                    # Check parity if enabled
-                    if self.enable_parity:
-                        self._check_parity(packet)
-
-                    # Update statistics
-                    self.packets_received += 1
-                    self.total_data_bytes += packet.get_byte_count()
-
-                    # Handle frame boundaries
-                    if packet.is_last():
-                        self.frames_received += 1
-                        self._current_frame.append(packet)
-                        await self._process_complete_frame(self._current_frame)
-                        self._current_frame = []
-                        self._frame_id = None
-                    else:
-                        self._current_frame.append(packet)
-                        if self._frame_id is None:
-                            self._frame_id = packet.id
-
-                    # Write to memory model if available
-                    if self.memory_model:
-                        self.write_to_memory_unified(packet)
-
-                    if self.log and self.super_debug:
-                        self.log.debug(f"AXIS5Slave '{self.title}': "
-                                     f"Received packet {packet}")
-
-                # Apply ready signal timing if randomizer is available
-                if self.randomizer and hasattr(self, 'ready_sig'):
-                    await self._apply_ready_timing()
-
-                # Small delay to avoid oversampling
-                await Timer(1, units='ps')
-
-        except Exception as e:
-            if self.log:
-                self.log.error(f"AXIS5Slave '{self.title}': Exception in _monitor_recv: {e}")
-            import traceback
-            self.log.error(traceback.format_exc())
-            raise
+    def _parity_byte_count(self):
+        """Number of parity bits (one per data byte) for this configuration."""
+        if 'parity' in self.field_config:
+            return self.field_config['parity'].bits
+        if 'data' in self.field_config:
+            return self.field_config['data'].bits // 8
+        return 0
 
     def _check_parity(self, packet):
         """
-        Check parity for received packet.
+        Check TPARITY (odd parity per byte) for a received packet.
 
         Args:
-            packet: AXIS5Packet to check
+            packet: Packet captured by the GAXI receive pipeline
         """
-        if not isinstance(packet, AXIS5Packet):
+        num_bytes = self._parity_byte_count()
+        if num_bytes == 0 or 'parity' not in packet.fields:
             return
 
-        if packet.check_parity():
+        received = packet.fields.get('parity', 0)
+        expected = calculate_odd_parity(packet.fields.get('data', 0), num_bytes)
+
+        if received == expected:
             self.parity_checks_passed += 1
         else:
             self.parity_errors_detected += 1
-            packet.parity_error = 1
+            if 'parity_error' in packet.fields:
+                packet.fields['parity_error'] = 1
 
             if self.log:
                 self.log.warning(f"AXIS5Slave '{self.title}': "
-                               f"Parity error detected - expected=0x{packet.calculate_parity():X}, "
-                               f"received=0x{packet.parity:X}")
+                               f"Parity error detected - expected=0x{expected:X}, "
+                               f"received=0x{received:X}")
 
     def is_wakeup_active(self):
         """Check if wakeup is currently detected."""

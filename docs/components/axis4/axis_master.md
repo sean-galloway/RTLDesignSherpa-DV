@@ -32,19 +32,27 @@ class AXISMaster(GAXIMaster):
     """
     AXIS Master component for driving AXI4-Stream protocol.
 
-    Inherits common functionality from GAXIComponentBase:
+    Inherits the transmit pipeline from GAXIMaster:
     - Signal resolution and data driving setup
+    - Structured transmit pipeline with handshake/timeout handling
     - Unified field configuration handling
-    - Memory model integration
     - Statistics and logging patterns
 
-    AXIS-specific features:
-    - Stream data transmission
-    - Flow control with backpressure
+    AXIS-specific features added by this subclass:
+    - Stream/frame conveniences (send_stream_data, send_frame,
+      send_single_beat)
     - Packet/frame boundary handling with TLAST
-    - Optional ID and destination routing
+    - Frame-level statistics (packets_sent / frames_sent)
     """
 ```
+
+### Delegation to the GAXI Pipeline
+
+All bus driving is performed by `GAXIMaster`'s structured transmit pipeline. `send_packet` queues the packet on that pipeline and awaits completion; `send_stream_data` (and therefore `send_frame`) queues **every beat up front** so they stream back-to-back — the GAXI pipeline keeps TVALID asserted between queued beats for zero-bubble operation when the slave holds TREADY high — and then waits for the pipeline to drain.
+
+`AXISMaster` maintains no send queue, busy flag, or drive loop of its own. `is_busy()` and `get_queue_depth()` report the state of the inherited GAXI transmit queue (`self.transmit_queue` / `self.transfer_busy`).
+
+**Timeout behavior**: a TREADY handshake timeout is detected and raised by the GAXI pipeline (as a cocotb `TestFailure` after `timeout_cycles`), rather than being reported as a `False` return value. The `send_*` methods return `True` on success.
 
 ## Constructor
 
@@ -100,7 +108,7 @@ Send multiple data values as a stream with automatic packet management.
 - **`auto_last`** (bool) - Automatically set TLAST on final transfer (default: True)
 - **`strb_list`** (list) - Optional list of strobe values
 
-**Returns:** `bool` - True if successful, False if timeout
+**Returns:** `bool` - True if successful (a TREADY timeout raises from the GAXI pipeline)
 
 **Example:**
 ```python
@@ -121,7 +129,7 @@ Send a single AXIS packet with complete control over all fields.
 **Parameters:**
 - **`packet`** (AXISPacket) - Configured packet to send
 
-**Returns:** `bool` - True if successful, False if timeout
+**Returns:** `bool` - True if successful (a TREADY timeout raises from the GAXI pipeline)
 
 **Example:**
 ```python
@@ -198,7 +206,7 @@ Check if master is currently busy sending data.
 
 Get current send queue depth.
 
-**Returns:** `int` - Number of packets waiting to be sent
+**Returns:** `int` - Number of packets waiting in the inherited GAXI transmit queue
 
 ### `get_stats()`
 
@@ -349,7 +357,7 @@ The AXISMaster provides robust error handling:
 
 ## Performance Considerations
 
-- **Queue Management**: Efficient deque-based packet queuing
+- **Queue Management**: Efficient deque-based packet queuing (the inherited GAXI transmit queue)
 - **Pipeline Optimization**: Minimal cycle overhead for back-to-back transfers
 - **Memory Efficiency**: Optimized data structures for high-throughput scenarios
 - **Statistics Overhead**: Minimal performance impact from statistics collection

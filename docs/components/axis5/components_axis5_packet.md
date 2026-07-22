@@ -5,7 +5,7 @@ The `AXIS5Packet` class extends the `AXISPacket` class with AXI5-Stream-specific
 ## Key Differences from AXIS4 Packet
 
 - **Added fields**: `wakeup` (1 bit), `parity` (1 bit per data byte), `parity_error` (1 bit)
-- **Parity support**: Automatic per-byte even parity calculation and verification
+- **Parity support**: Automatic per-byte odd parity calculation and verification (per the AMBA AXI5-Stream TPARITY convention)
 - **Wakeup support**: Wake-up signal state tracking in the packet
 - **Backward compatibility**: All AXIS4 fields (data, strb, last, id, dest, user) remain unchanged
 - **Conversion**: `to_axis4_packet()` method for dropping AXIS5 extensions
@@ -72,17 +72,21 @@ Create a field configuration for AXIS5 packets.
 
 #### `calculate_parity() -> int`
 
-Calculate the expected parity for the current data field value. Uses per-byte even parity (1 parity bit per data byte).
+Calculate the expected TPARITY for the current data field value. Uses per-byte **odd** parity (1 parity bit per data byte), matching the AMBA AXI5-Stream specification.
 
 **Returns**: Calculated parity value.
 
-**Algorithm**: For each byte of data, count the number of set bits. If the count is even, the parity bit is 0; if odd, it is 1.
+**Algorithm**: For each byte of data, count the number of set bits. The parity bit is chosen so that the byte plus its parity bit have an odd total number of ones — i.e. the parity bit is the inverted XOR of the byte's bits (0 when the byte has an odd number of ones, 1 when it has an even number). The standalone helper `calculate_odd_parity(data_value, num_bytes)` (exported from `axis5_packet`) implements the same math and is reused by the slave and monitor.
 
 #### `check_parity() -> bool`
 
-Check if the stored parity matches the calculated parity for the current data.
+Check if the stored parity matches the calculated odd parity for the current data.
 
 **Returns**: `True` if parity is correct (or parity is disabled), `False` if mismatch.
+
+#### `copy() -> AXIS5Packet`
+
+Create a copy of the packet. Unlike the base `Packet.copy()`, this override **preserves the AXIS5 constructor options** (`data_width`, `enable_wakeup`, `enable_parity`) as well as all field values and timing. This matters for parity: a copy of a packet with a deliberately corrupted parity value still reports `check_parity() == False`, because the copy keeps `enable_parity` enabled.
 
 #### `set_wakeup(enable=True)`
 

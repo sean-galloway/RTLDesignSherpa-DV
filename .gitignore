@@ -64,3 +64,6 @@ tests/sim/rtl/litedram/sdr/
 tests/sim/rtl/litedram/ddr2/
 tests/sim/rtl/litedram/ddr3/
 tests/sim/rtl/litedram/ddr4/
+
+# Generated PDF books (build with docs/generate_pdfs.sh; publish via Releases)
+docs/pdf/

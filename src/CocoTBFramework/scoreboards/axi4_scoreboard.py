@@ -69,21 +69,112 @@ class AXI4Scoreboard(BaseScoreboard):
         self.data_width = data_width
         self.user_width = user_width
 
+    @staticmethod
+    def _get_field(obj, *names):
+        """
+        Get the first available field from an object or dict, trying each name.
+
+        Framework packets use generic field names ('addr', 'data', 'resp', ...)
+        while AXI-style transaction objects use prefixed names ('awaddr',
+        'wdata', 'rresp', ...). This helper makes match logic work with both.
+
+        Returns None if no name resolves.
+        """
+        for name in names:
+            if isinstance(obj, dict):
+                if name in obj:
+                    return obj[name]
+            elif hasattr(obj, name):
+                return getattr(obj, name)
+        return None
+
+    def _register_monitor(self, monitor, write_handler, read_handler, side):
+        """
+        Register scoreboard callbacks on a monitor.
+
+        Supports two callback mechanisms:
+        - Custom monitors exposing set_write_callback()/set_read_callback(),
+          which are called with (id_value, transaction).
+        - Framework monitors (GAXIMonitor / cocotb_bus BusMonitor) exposing
+          add_callback(), which is called with (transaction). Transactions are
+          classified as read or write and their ID extracted automatically.
+        """
+        if hasattr(monitor, 'set_write_callback') and hasattr(monitor, 'set_read_callback'):
+            monitor.set_write_callback(write_handler)
+            monitor.set_read_callback(read_handler)
+        elif hasattr(monitor, 'add_callback'):
+            monitor.add_callback(
+                lambda transaction: self._route_monitor_transaction(
+                    transaction, write_handler, read_handler, side
+                )
+            )
+        else:
+            raise ValueError(
+                f"{side} monitor {monitor!r} provides neither "
+                "set_write_callback()/set_read_callback() nor add_callback()"
+            )
+
+    def _route_monitor_transaction(self, transaction, write_handler, read_handler, side):
+        """Classify a monitor transaction as read/write and dispatch it."""
+        is_write = any(
+            self._get_field(transaction, key) is not None
+            for key in ('aw_transaction', 'w_transactions', 'b_transaction')
+        )
+        is_read = any(
+            self._get_field(transaction, key) is not None
+            for key in ('ar_transaction', 'r_transactions')
+        )
+
+        if is_write and not is_read:
+            write_handler(self._extract_transaction_id(transaction, is_write=True), transaction)
+        elif is_read and not is_write:
+            read_handler(self._extract_transaction_id(transaction, is_write=False), transaction)
+        else:
+            if self.log:
+                self.log.warning(
+                    f"{self.name} - Could not classify {side} monitor transaction "
+                    f"as read or write: {transaction!r}"
+                )
+
+    def _extract_transaction_id(self, transaction, is_write):
+        """Extract the AXI4 transaction ID from a composite transaction."""
+        id_value = self._get_field(transaction, 'id', 'txn_id')
+        if id_value is not None:
+            return id_value
+
+        # Fall back to the per-channel packets that carry the ID
+        if is_write:
+            candidates = [
+                (self._get_field(transaction, 'aw_transaction'), ('awid', 'id')),
+                (self._get_field(transaction, 'b_transaction'), ('bid', 'id')),
+            ]
+        else:
+            r_transactions = self._get_field(transaction, 'r_transactions') or []
+            candidates = [
+                (self._get_field(transaction, 'ar_transaction'), ('arid', 'id')),
+                (r_transactions[0] if r_transactions else None, ('rid', 'id')),
+            ]
+
+        for channel_tx, id_names in candidates:
+            if channel_tx is not None:
+                id_value = self._get_field(channel_tx, *id_names)
+                if id_value is not None:
+                    return id_value
+        return 0
+
     def add_master_monitor(self, monitor):
         """Connect a master-side AXI4 monitor to the scoreboard"""
         self.master_monitor = monitor
-
-        # Register callbacks
-        monitor.set_write_callback(self._handle_master_write)
-        monitor.set_read_callback(self._handle_master_read)
+        self._register_monitor(
+            monitor, self._handle_master_write, self._handle_master_read, 'master'
+        )
 
     def add_slave_monitor(self, monitor):
         """Connect a slave-side AXI4 monitor to the scoreboard"""
         self.slave_monitor = monitor
-
-        # Register callbacks
-        monitor.set_write_callback(self._handle_slave_write)
-        monitor.set_read_callback(self._handle_slave_read)
+        self._register_monitor(
+            monitor, self._handle_slave_write, self._handle_slave_read, 'slave'
+        )
 
     def _handle_master_write(self, id_value, transaction):
         """Process a completed write transaction from the master side"""
@@ -121,33 +212,58 @@ class AXI4Scoreboard(BaseScoreboard):
             # Both sides have transactions, check if they match
             self._check_read_match(id_value, self.master_reads[id_value], self.slave_reads[id_value])
 
+    def _compare_channel_field(self, label, master_obj, slave_obj, names, mismatches, hex_format=False):
+        """
+        Compare one field between master and slave channel transactions.
+
+        Tries each name in `names` on both objects (supporting AXI-prefixed
+        names such as 'awaddr' and generic framework names such as 'addr').
+        Appends a description to `mismatches` when the values differ or when
+        the field is present on only one side.
+        """
+        master_val = self._get_field(master_obj, *names)
+        slave_val = self._get_field(slave_obj, *names)
+
+        if master_val is None and slave_val is None:
+            return  # Field not carried by either side; nothing to compare
+
+        if master_val is None or slave_val is None:
+            mismatches.append(f"{label}: present on one side only "
+                              f"(master={master_val}, slave={slave_val})")
+            return
+
+        if master_val != slave_val:
+            if hex_format:
+                mismatches.append(f"{label}: master=0x{master_val:X}, slave=0x{slave_val:X}")
+            else:
+                mismatches.append(f"{label}: master={master_val}, slave={slave_val}")
+
     def _check_write_match(self, id_value, master_tx, slave_tx):
         """Check if master and slave-side write transactions match"""
         mismatches = []
 
         # Check AW fields
-        if master_tx.get('aw_transaction') and slave_tx.get('aw_transaction'):
-            master_aw = master_tx['aw_transaction']
-            slave_aw = slave_tx['aw_transaction']
-
-            # Check key fields
-            if hasattr(master_aw, 'awaddr') and hasattr(slave_aw, 'awaddr') and master_aw.awaddr != slave_aw.awaddr:
-                mismatches.append(f"AWADDR: master=0x{master_aw.awaddr:X}, slave=0x{slave_aw.awaddr:X}")
-
-            if hasattr(master_aw, 'awlen') and hasattr(slave_aw, 'awlen') and master_aw.awlen != slave_aw.awlen:
-                mismatches.append(f"AWLEN: master={master_aw.awlen}, slave={slave_aw.awlen}")
-
-            if hasattr(master_aw, 'awsize') and hasattr(slave_aw, 'awsize') and master_aw.awsize != slave_aw.awsize:
-                mismatches.append(f"AWSIZE: master={master_aw.awsize}, slave={slave_aw.awsize}")
-
-            if hasattr(master_aw, 'awburst') and hasattr(slave_aw, 'awburst') and master_aw.awburst != slave_aw.awburst:
-                mismatches.append(f"AWBURST: master={master_aw.awburst}, slave={slave_aw.awburst}")
+        master_aw = self._get_field(master_tx, 'aw_transaction')
+        slave_aw = self._get_field(slave_tx, 'aw_transaction')
+        if master_aw is not None and slave_aw is not None:
+            self._compare_channel_field('AWADDR', master_aw, slave_aw,
+                                        ('awaddr', 'addr'), mismatches, hex_format=True)
+            self._compare_channel_field('AWLEN', master_aw, slave_aw,
+                                        ('awlen', 'len'), mismatches)
+            self._compare_channel_field('AWSIZE', master_aw, slave_aw,
+                                        ('awsize', 'size'), mismatches)
+            self._compare_channel_field('AWBURST', master_aw, slave_aw,
+                                        ('awburst', 'burst'), mismatches)
         else:
             mismatches.append("Missing AW transaction on one side")
 
         # Check W data
-        master_data = [w.wdata for w in master_tx.get('w_transactions', []) if hasattr(w, 'wdata')]
-        slave_data = [w.wdata for w in slave_tx.get('w_transactions', []) if hasattr(w, 'wdata')]
+        master_data = [self._get_field(w, 'wdata', 'data')
+                       for w in self._get_field(master_tx, 'w_transactions') or []]
+        master_data = [d for d in master_data if d is not None]
+        slave_data = [self._get_field(w, 'wdata', 'data')
+                      for w in self._get_field(slave_tx, 'w_transactions') or []]
+        slave_data = [d for d in slave_data if d is not None]
 
         if len(master_data) != len(slave_data):
             mismatches.append(f"Data beat count: master={len(master_data)}, slave={len(slave_data)}")
@@ -157,12 +273,11 @@ class AXI4Scoreboard(BaseScoreboard):
                     mismatches.append(f"Data beat {i}: master=0x{master_beat:X}, slave=0x{slave_beat:X}")
 
         # Check B response
-        if master_tx.get('b_transaction') and slave_tx.get('b_transaction'):
-            master_b = master_tx['b_transaction']
-            slave_b = slave_tx['b_transaction']
-
-            if hasattr(master_b, 'bresp') and hasattr(slave_b, 'bresp') and master_b.bresp != slave_b.bresp:
-                mismatches.append(f"BRESP: master={master_b.bresp}, slave={slave_b.bresp}")
+        master_b = self._get_field(master_tx, 'b_transaction')
+        slave_b = self._get_field(slave_tx, 'b_transaction')
+        if master_b is not None and slave_b is not None:
+            self._compare_channel_field('BRESP', master_b, slave_b,
+                                        ('bresp', 'resp'), mismatches)
         else:
             mismatches.append("Missing B transaction on one side")
 
@@ -186,28 +301,27 @@ class AXI4Scoreboard(BaseScoreboard):
         mismatches = []
 
         # Check AR fields
-        if master_tx.get('ar_transaction') and slave_tx.get('ar_transaction'):
-            master_ar = master_tx['ar_transaction']
-            slave_ar = slave_tx['ar_transaction']
-
-            # Check key fields
-            if hasattr(master_ar, 'araddr') and hasattr(slave_ar, 'araddr') and master_ar.araddr != slave_ar.araddr:
-                mismatches.append(f"ARADDR: master=0x{master_ar.araddr:X}, slave=0x{slave_ar.araddr:X}")
-
-            if hasattr(master_ar, 'arlen') and hasattr(slave_ar, 'arlen') and master_ar.arlen != slave_ar.arlen:
-                mismatches.append(f"ARLEN: master={master_ar.arlen}, slave={slave_ar.arlen}")
-
-            if hasattr(master_ar, 'arsize') and hasattr(slave_ar, 'arsize') and master_ar.arsize != slave_ar.arsize:
-                mismatches.append(f"ARSIZE: master={master_ar.arsize}, slave={slave_ar.arsize}")
-
-            if hasattr(master_ar, 'arburst') and hasattr(slave_ar, 'arburst') and master_ar.arburst != slave_ar.arburst:
-                mismatches.append(f"ARBURST: master={master_ar.arburst}, slave={slave_ar.arburst}")
+        master_ar = self._get_field(master_tx, 'ar_transaction')
+        slave_ar = self._get_field(slave_tx, 'ar_transaction')
+        if master_ar is not None and slave_ar is not None:
+            self._compare_channel_field('ARADDR', master_ar, slave_ar,
+                                        ('araddr', 'addr'), mismatches, hex_format=True)
+            self._compare_channel_field('ARLEN', master_ar, slave_ar,
+                                        ('arlen', 'len'), mismatches)
+            self._compare_channel_field('ARSIZE', master_ar, slave_ar,
+                                        ('arsize', 'size'), mismatches)
+            self._compare_channel_field('ARBURST', master_ar, slave_ar,
+                                        ('arburst', 'burst'), mismatches)
         else:
             mismatches.append("Missing AR transaction on one side")
 
         # Check R data
-        master_data = [r.rdata for r in master_tx.get('r_transactions', []) if hasattr(r, 'rdata')]
-        slave_data = [r.rdata for r in slave_tx.get('r_transactions', []) if hasattr(r, 'rdata')]
+        master_data = [self._get_field(r, 'rdata', 'data')
+                       for r in self._get_field(master_tx, 'r_transactions') or []]
+        master_data = [d for d in master_data if d is not None]
+        slave_data = [self._get_field(r, 'rdata', 'data')
+                      for r in self._get_field(slave_tx, 'r_transactions') or []]
+        slave_data = [d for d in slave_data if d is not None]
 
         if len(master_data) != len(slave_data):
             mismatches.append(f"Data beat count: master={len(master_data)}, slave={len(slave_data)}")

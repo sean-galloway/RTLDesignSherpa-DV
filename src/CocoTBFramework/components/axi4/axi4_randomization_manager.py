@@ -29,7 +29,105 @@ This completes Phase 3 of the refactoring plan by providing:
 from typing import Any, Dict, List, Optional
 
 from .axi4_randomization_config import AXI4RandomizationConfig
-from .axi4_timing_config import AXI4TimingConfig, create_axi4_timing_config
+from .axi4_timing_config import create_axi4_timing_from_profile
+
+# Mapping from manager performance modes to AXI4 timing profile names
+_PERFORMANCE_MODE_PROFILES = {
+    'fast': 'axi4_fast',
+    'normal': 'axi4_normal',
+    'slow': 'axi4_slow',
+    'bursty': 'axi4_backtoback',
+    'throttled': 'axi4_slow',
+    'stress': 'axi4_stress',
+}
+
+
+class AXI4TimingConfig:
+    """
+    AXI4 timing configuration wrapper.
+
+    Provides an interface compatible with the randomization manager,
+    mirroring the AXI5TimingConfig wrapper in axi5_randomization_manager.
+    """
+
+    def __init__(self, channels: Optional[List[str]] = None, performance_mode: str = 'normal'):
+        """
+        Initialize timing configuration.
+
+        Args:
+            channels: List of AXI4 channels
+            performance_mode: Performance mode name
+        """
+        self.channels = channels or ['AW', 'W', 'B', 'AR', 'R']
+        self.performance_mode = performance_mode
+
+        profile_name = _PERFORMANCE_MODE_PROFILES.get(performance_mode, 'axi4_normal')
+        self._timing = create_axi4_timing_from_profile(profile_name)
+        self._strict_handshakes = False
+        self._burst_mode = False
+        self._variable_delays = False
+
+    def get_channel_configs(self, channels: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Get timing configurations for specified channels."""
+        channels = channels or self.channels
+        return {ch: self._timing for ch in channels}
+
+    def get_master_profile(self) -> Dict[str, Any]:
+        """Get timing profile optimized for master."""
+        return self._timing
+
+    def get_slave_profile(self) -> Dict[str, Any]:
+        """Get timing profile optimized for slave."""
+        return self._timing
+
+    def get_monitor_profile(self) -> Dict[str, Any]:
+        """Get timing profile optimized for monitor."""
+        return self._timing
+
+    def set_performance_mode(self, mode: str):
+        """Update performance mode."""
+        self.performance_mode = mode
+        profile_name = _PERFORMANCE_MODE_PROFILES.get(mode, 'axi4_normal')
+        self._timing = create_axi4_timing_from_profile(profile_name)
+
+    def enable_strict_handshakes(self):
+        """Enable strict handshake timing."""
+        self._strict_handshakes = True
+
+    def enable_burst_mode(self):
+        """Enable burst-optimized timing."""
+        self._burst_mode = True
+        self._timing = create_axi4_timing_from_profile('axi4_backtoback')
+
+    def enable_variable_delays(self):
+        """Enable variable delay patterns."""
+        self._variable_delays = True
+        self._timing = create_axi4_timing_from_profile('axi4_stress')
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get timing statistics."""
+        return {
+            'performance_mode': self.performance_mode,
+            'channels': self.channels,
+            'strict_handshakes': self._strict_handshakes,
+            'burst_mode': self._burst_mode,
+            'variable_delays': self._variable_delays,
+        }
+
+
+def create_axi4_timing_config(channels: Optional[List[str]] = None,
+                              performance_mode: str = 'normal') -> AXI4TimingConfig:
+    """
+    Create AXI4 timing configuration.
+
+    Args:
+        channels: List of channels to configure
+        performance_mode: Performance mode name
+
+    Returns:
+        AXI4TimingConfig instance
+    """
+    return AXI4TimingConfig(channels, performance_mode)
 
 
 class AXI4RandomizationManager:
@@ -194,9 +292,10 @@ class AXI4RandomizationManager:
 
     def configure_for_error_injection(self, error_rate: float = 0.05):
         """Configure for error injection testing."""
-        # Enhanced error injection
-        self.protocol.set_error_injection_rate(error_rate)
+        # Enhanced error injection (apply the requested rate last so it is
+        # not clobbered by enable_error_scenarios' default rate)
         self.protocol.enable_error_scenarios()
+        self.protocol.set_error_injection_rate(error_rate)
 
         # Variable timing to trigger edge cases
         self.timing.set_performance_mode('throttled')

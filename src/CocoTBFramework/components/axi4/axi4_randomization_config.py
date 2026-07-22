@@ -247,9 +247,10 @@ class AXI4RandomizationConfig:
         """
         self.stats['randomizations_performed'] += 1
         randomized = {}
+        supported_fields = set(self._get_supported_fields())
 
         for field_name, constraints in field_requests.items():
-            if field_name in self._get_supported_fields():
+            if field_name in supported_fields:
                 value = self._randomize_single_field(field_name, constraints)
                 randomized[field_name] = value
                 self.stats['fields_randomized'] += 1
@@ -266,19 +267,21 @@ class AXI4RandomizationConfig:
 
     def _randomize_single_field(self, field_name: str, constraints: Any) -> Any:
         """Randomize a single field with AXI4-specific intelligence."""
-        if field_name.startswith('aw') or field_name.startswith('ar'):
+        field_lower = field_name.lower()
+
+        if 'addr' in field_lower:
             return self._randomize_address_field(field_name, constraints)
-        elif field_name.startswith('w') or field_name.startswith('r'):
+        elif 'data' in field_lower:
             return self._randomize_data_field(field_name, constraints)
-        elif field_name.startswith('b'):
+        elif 'resp' in field_lower:
             return self._randomize_response_field(field_name, constraints)
-        elif 'id' in field_name.lower():
+        elif 'id' in field_lower:
             return self._randomize_id_field(field_name, constraints)
-        elif 'len' in field_name.lower():
+        elif 'len' in field_lower:
             return self._randomize_length_field(field_name, constraints)
-        elif 'size' in field_name.lower():
+        elif 'size' in field_lower:
             return self._randomize_size_field(field_name, constraints)
-        elif 'burst' in field_name.lower():
+        elif 'burst' in field_lower:
             return self._randomize_burst_field(field_name, constraints)
         else:
             return self._randomize_generic_field(field_name, constraints)
@@ -430,9 +433,9 @@ class AXI4RandomizationConfig:
 
     def _randomize_generic_field(self, field_name: str, constraints: Any) -> int:
         """Generic field randomization using field configuration."""
-        if field_name in self.field_configs:
-            field_config = self.field_configs[field_name]
-            width = field_config.width
+        field_def = self._get_field_definition(field_name)
+        if field_def is not None:
+            width = field_def.bits
             max_value = (1 << width) - 1
 
             if isinstance(constraints, dict):
@@ -492,9 +495,40 @@ class AXI4RandomizationConfig:
 
         return randomized
 
+    # Channel-name to signal-prefix mapping ('AW' channel fields are 'aw*', etc.)
+    _CHANNEL_PREFIXES = {'AW': 'aw', 'W': 'w', 'B': 'b', 'AR': 'ar', 'R': 'r'}
+
     def _get_supported_fields(self) -> List[str]:
-        """Get list of supported randomization fields."""
-        return list(self.field_configs.keys())
+        """
+        Get list of supported randomization fields.
+
+        Builds the set from the union of per-channel field names combined with
+        the channel prefix (e.g. AW channel field 'addr' -> 'awaddr'), so
+        randomize_fields() accepts signal-style field names such as 'awaddr',
+        'arlen', 'wdata', 'bresp', etc.
+        """
+        supported = set()
+        for channel, field_config in self.field_configs.items():
+            prefix = self._CHANNEL_PREFIXES.get(channel, channel.lower())
+            for field_name in field_config.field_names():
+                supported.add(f"{prefix}{field_name}")
+        return sorted(supported)
+
+    def _get_field_definition(self, field_name: str):
+        """
+        Resolve a signal-style field name (e.g. 'awqos') to its FieldDefinition.
+
+        Returns None if the field cannot be resolved.
+        """
+        # Try longer prefixes first so 'aw'/'ar' win over 'w'/'r'
+        for channel, prefix in sorted(self._CHANNEL_PREFIXES.items(),
+                                      key=lambda item: -len(item[1])):
+            if field_name.startswith(prefix) and channel in self.field_configs:
+                short_name = field_name[len(prefix):]
+                field_config = self.field_configs[channel]
+                if field_config.has_field(short_name):
+                    return field_config.get_field(short_name)
+        return None
 
     # Configuration methods
 

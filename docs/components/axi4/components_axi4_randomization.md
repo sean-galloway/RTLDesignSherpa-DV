@@ -139,11 +139,12 @@ The method applies:
 2. Cross-field protocol constraints (address/size alignment, burst boundary checks)
 3. Industry-specific optimizations
 
-> **Warning:** the current implementation validates requested field names against
-> `field_configs.keys()`, which holds channel names (`'AW'`, `'W'`, `'B'`, `'AR'`, `'R'`)
-> rather than signal field names. Requests keyed by signal names such as `'awaddr'`
-> are logged as "Unsupported field" and omitted from the result, so this API is
-> effectively non-functional until that mismatch is fixed.
+Field requests are keyed by signal-style field names, built from the channel
+prefix plus the per-channel field name: `'awaddr'`, `'awlen'`, `'awsize'`,
+`'awburst'`, `'awid'`, `'wdata'`, `'wstrb'`, `'bresp'`, `'araddr'`, `'arlen'`,
+`'rdata'`, `'rresp'`, and so on. Unknown field names are logged as
+"Unsupported field" and omitted from the result. The same convention applies
+to `AXI5RandomizationConfig.randomize_fields` in the AXI5 package.
 
 ##### `set_profile(profile)`
 
@@ -200,6 +201,46 @@ Reset all statistics counters and caches.
 
 ---
 
+### AXI4TimingConfig
+
+```python
+class AXI4TimingConfig:
+    def __init__(self, channels=None, performance_mode='normal')
+```
+
+Timing configuration wrapper defined in `axi4_randomization_manager` (mirroring
+`AXI5TimingConfig` in `axi5_randomization_manager`). It maps manager performance
+modes to the named timing profiles in `axi4_timing_config` and exposes the
+interface the randomization manager expects.
+
+**Performance mode to timing profile mapping:**
+
+| Mode | Timing profile |
+|------|----------------|
+| `'fast'` | `axi4_fast` |
+| `'normal'` | `axi4_normal` |
+| `'slow'` | `axi4_slow` |
+| `'bursty'` | `axi4_backtoback` |
+| `'throttled'` | `axi4_slow` |
+| `'stress'` | `axi4_stress` |
+
+Unknown modes fall back to `axi4_normal`.
+
+**Methods:**
+
+- `get_channel_configs(channels=None) -> Dict[str, Any]` -- Per-channel timing configuration dictionaries (each with `profile_name`, `randomizer` (a `FlexRandomizer`), and `constraints` keys).
+- `get_master_profile()` / `get_slave_profile()` / `get_monitor_profile()` -- Current timing configuration dictionary.
+- `set_performance_mode(mode)` -- Switch the active timing profile.
+- `enable_strict_handshakes()` -- Flag strict handshake timing.
+- `enable_burst_mode()` -- Switch to back-to-back timing.
+- `enable_variable_delays()` -- Switch to stress timing.
+- `get_statistics() -> Dict[str, Any]` -- Mode, channels, and enabled flags.
+
+The factory `create_axi4_timing_config(channels=None, performance_mode='normal')`
+returns a configured instance.
+
+---
+
 ### AXI4RandomizationManager
 
 ```python
@@ -209,12 +250,6 @@ class AXI4RandomizationManager:
 ```
 
 Unified manager combining protocol and timing randomization for AXI4 components.
-
-> **Warning:** `axi4_randomization_manager` currently fails to import: it expects
-> `AXI4TimingConfig` and `create_axi4_timing_config` from `axi4_timing_config`, which
-> only provides `create_axi4_timing_from_profile` / `create_axi4_randomizer_configs`.
-> The AXI5 equivalent (`axi5_randomization_manager`) defines its own `AXI5TimingConfig`
-> wrapper and works; the AXI4 module needs the same treatment before this API is usable.
 
 **Parameters:**
 

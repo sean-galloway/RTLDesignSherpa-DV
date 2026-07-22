@@ -321,9 +321,10 @@ class AXI5RandomizationConfig:
         """
         self.stats['randomizations_performed'] += 1
         randomized = {}
+        supported_fields = set(self._get_supported_fields())
 
         for field_name, constraints in field_requests.items():
-            if field_name in self._get_supported_fields():
+            if field_name in supported_fields:
                 value = self._randomize_single_field(field_name, constraints)
                 randomized[field_name] = value
                 self.stats['fields_randomized'] += 1
@@ -585,9 +586,24 @@ class AXI5RandomizationConfig:
 
         return randomized
 
+    # Channel-name to signal-prefix mapping ('AW' channel fields are 'aw*', etc.)
+    _CHANNEL_PREFIXES = {'AW': 'aw', 'W': 'w', 'B': 'b', 'AR': 'ar', 'R': 'r'}
+
     def _get_supported_fields(self) -> List[str]:
-        """Get list of supported randomization fields."""
-        return list(self.field_configs.keys())
+        """
+        Get list of supported randomization fields.
+
+        Builds the set from the union of per-channel field names combined with
+        the channel prefix (e.g. AW channel field 'addr' -> 'awaddr'), so
+        randomize_fields() accepts signal-style field names such as 'awaddr',
+        'arlen', 'wdata', 'bresp', etc.
+        """
+        supported = set()
+        for channel, field_config in self.field_configs.items():
+            prefix = self._CHANNEL_PREFIXES.get(channel, channel.lower())
+            for field_name in field_config.field_names():
+                supported.add(f"{prefix}{field_name}")
+        return sorted(supported)
 
     # Configuration methods
 

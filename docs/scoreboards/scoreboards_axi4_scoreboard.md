@@ -64,17 +64,54 @@ class AXI4Scoreboard(BaseScoreboard):
 
 ## Monitor Integration
 
+The scoreboard supports two monitor callback mechanisms:
+
+1. **Custom monitors** exposing `set_write_callback(cb)` / `set_read_callback(cb)`.
+   Callbacks are invoked with `(id_value, transaction)`. When a monitor provides
+   both methods, they are preferred.
+2. **Framework monitors** (`GAXIMonitor`, any `cocotb_bus` `Monitor`/`BusMonitor`
+   subclass) exposing `add_callback(cb)`. Callbacks are invoked with
+   `(transaction,)`; the scoreboard classifies each transaction as a read or a
+   write from its composite keys (`aw_transaction`/`w_transactions`/
+   `b_transaction` vs `ar_transaction`/`r_transactions`) and extracts the AXI4
+   ID automatically (from an `id` key, or from the AW/B or AR/R packets).
+
+A monitor providing neither mechanism raises `ValueError` at connection time.
+Transactions that cannot be classified as read or write are logged and ignored.
+
+### Transaction format
+
+Transactions are composite dictionaries assembled per AXI4 transaction:
+
+```python
+write_tx = {
+    'aw_transaction': aw_packet,      # AW channel packet
+    'w_transactions': [w_packet, ...],  # W channel packets (one per beat)
+    'b_transaction': b_packet,        # B channel packet
+}
+read_tx = {
+    'ar_transaction': ar_packet,
+    'r_transactions': [r_packet, ...],
+}
+```
+
+Channel packets may use **either** AXI-prefixed field names (`awaddr`, `awlen`,
+`wdata`, `bresp`, `rdata`, ...) **or** the framework's generic field names
+(`addr`, `len`, `data`, `resp`, ...). Field access tries both, so master and
+slave sides can even use different naming styles. Packets may be objects
+(attribute access) or dictionaries (key access).
+
 ### Master Monitor Connection
 
 #### `add_master_monitor(monitor)`
 Connect master-side AXI4 monitor to scoreboard.
 
 **Parameters:**
-- `monitor`: AXI4 monitor instance observing master interface
+- `monitor`: monitor instance observing the master interface
 
 **Behavior:**
-- Registers write callback: `_handle_master_write`
-- Registers read callback: `_handle_master_read`
+- Registers write/read handlers via `set_write_callback`/`set_read_callback`
+  when available, otherwise via `add_callback`
 - Enables automatic transaction capture from master side
 
 ```python
@@ -90,11 +127,11 @@ axi4_scoreboard.add_master_monitor(master_monitor)
 Connect slave-side AXI4 monitor to scoreboard.
 
 **Parameters:**
-- `monitor`: AXI4 monitor instance observing slave interface
+- `monitor`: monitor instance observing the slave interface
 
 **Behavior:**
-- Registers write callback: `_handle_slave_write`
-- Registers read callback: `_handle_slave_read`
+- Registers write/read handlers via `set_write_callback`/`set_read_callback`
+  when available, otherwise via `add_callback`
 - Enables automatic transaction capture from slave side
 
 ```python
@@ -175,11 +212,12 @@ Compare master and slave write transactions for specific ID.
 - `slave_transaction`: Slave-side write transaction
 
 **Verification Checks:**
-- Address field consistency
-- Data payload matching
-- Write strobe validation
-- Burst parameters compliance
-- Response code verification
+- Address field consistency (`awaddr`/`addr`)
+- Burst parameters (`awlen`/`len`, `awsize`/`size`, `awburst`/`burst`)
+- Data payload matching per beat (`wdata`/`data`)
+- Response code verification (`bresp`/`resp`)
+- A field present on only one side is reported as a mismatch; a field absent
+  on both sides is skipped
 
 ```python
 # Example write verification
@@ -199,11 +237,11 @@ Compare master and slave read transactions for specific ID.
 - `slave_transaction`: Slave-side read transaction
 
 **Verification Checks:**
-- Address field consistency
-- Burst length matching
-- Read data validation
-- Response code checking
-- Timing constraint compliance
+- Address field consistency (`araddr`/`addr`)
+- Burst parameters (`arlen`/`len`, `arsize`/`size`, `arburst`/`burst`)
+- Read data validation per beat (`rdata`/`data`)
+- A field present on only one side is reported as a mismatch; a field absent
+  on both sides is skipped
 
 ```python
 # Example read verification
@@ -272,9 +310,11 @@ print(f"Protocol Compliance: {stats['protocol_errors']} violations")
 from CocoTBFramework.scoreboards.axi4_scoreboard import AXI4Scoreboard
 
 # NOTE: the framework does not ship an `AXI4Monitor` class. The monitors
-# below are illustrative — any object that implements `set_write_callback()`
-# and `set_read_callback()` (called with `(id_value, transaction)`) can be
-# connected via `add_master_monitor()` / `add_slave_monitor()`.
+# below are illustrative — any framework monitor with `add_callback()`
+# (GAXIMonitor, cocotb_bus BusMonitor) or any custom object implementing
+# `set_write_callback()` / `set_read_callback()` (called with
+# `(id_value, transaction)`) can be connected via `add_master_monitor()` /
+# `add_slave_monitor()`.
 
 # Create scoreboard for 64-bit AXI4 with 4-bit IDs
 scoreboard = AXI4Scoreboard(

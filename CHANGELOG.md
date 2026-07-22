@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-22
+
 A full quality audit of every component family and its documentation. Many
 convenience entry points (factories, compliance checkers, randomization
 managers, protocol scoreboards) raised on their first call or silently did
@@ -118,6 +120,15 @@ Silent wrong behavior:
   `APBCrossbarScoreboard`, `APBGAXIScoreboard.add_gaxi_transaction`, factory
   module paths), added DFI to the README package structure and the docs nav,
   and refreshed the stale `TODO.md` tracker.
+- Every component and scoreboard documentation page was rewritten in a
+  consistent engineering voice, then re-checked against the source: this pass
+  fixed a truncated `apb_gaxi_transformer` page, several runnable-example bugs
+  (a missing `Timer` import, an invalid `units='clk'`, a `nonlocal` ordering
+  error, a non-terminating perf loop, a read-only `deque.maxlen` assignment,
+  impossible sequential-data sample values), and doc contradictions in the
+  AXI5 packet, AXI5/AXI4-Lite compliance, and DFI version-behavior pages.
+- Added a per-family PDF book generator (`docs/generate_pdfs.sh` +
+  `bin/md_to_docx.py`) that renders each BFM's docs to a styled PDF.
 
 ## [0.5.0] - 2026-07-07
 

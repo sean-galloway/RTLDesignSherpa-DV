@@ -48,27 +48,25 @@ class DFIv2_1Behavior:
     def phy_master(self, bus, state): ...
     # ...
 
-class DFIv3_0Behavior(DFIv2_1Behavior):
-    def crc(self, bus, state): ...                # CRC introduced
-    def update_request(self, bus, state): ...     # update i/f rewritten
+class DFIv3_1Behavior(DFIv2_1Behavior):           # one class for the whole v3.x major
+    def crc(self, bus, state): ...                # CRC introduced (v3.0)
+    def update_request(self, bus, state): ...     # update i/f rewritten (v3.0)
+    def training_step(self, bus, state): ...      # training (v3.0) + v3.1 PHY-requested mode
 
-class DFIv4_0Behavior(DFIv3_0Behavior):
+class DFIv4_0Behavior(DFIv3_1Behavior):
     def phy_master(self, bus, state): ...         # PHY master added
     def disconnect(self, bus, state): ...         # disconnect protocol added
 
-class DFIv5_2Behavior(DFIv4_0Behavior):
-    def phy_master(self, bus, state): ...         # renamed; semantics evolved
-    # everything else inherited
-
 # 2. Registry dict — the ONLY place that knows about versions.
+#    `DFIVersion` enumerates one representative per major: V3_1 stands in
+#    for the whole v3.x line, and V5_2 rides on DFIv4_0Behavior because the
+#    v5.x deltas are signal additions (handled by the envelope) plus the
+#    PHY-Master rename — no semantic shift.
 VERSION_BEHAVIOR = {
     DFIVersion.V2_1: DFIv2_1Behavior,
-    DFIVersion.V3_0: DFIv3_0Behavior,
-    DFIVersion.V3_1: DFIv3_0Behavior,   # v3.1 is v3.0 + LPDDR3 (additive)
+    DFIVersion.V3_1: DFIv3_1Behavior,   # v3.x: CRC, update rewrite, training (+ v3.1 PHY-requested)
     DFIVersion.V4_0: DFIv4_0Behavior,
-    DFIVersion.V5_0: DFIv4_0Behavior,   # v5.0 is corrections-only
-    DFIVersion.V5_1: DFIv4_0Behavior,   # v5.1 is new signals (additive)
-    DFIVersion.V5_2: DFIv5_2Behavior,   # PHY-master renamed
+    DFIVersion.V5_2: DFIv4_0Behavior,   # PHY-Master rename only; no semantic shift
     # v6.0+ is a future BFM generation — see scope statement at the top.
 }
 ```
@@ -435,33 +433,34 @@ def ca_parity_check(self, bus, state) -> CAParityEvent | None: ...
 ```
 DFIv2_1Behavior            ← all NotSupportedInThisVersionError for shifts
     │                        introduced post-v2.1
-    └── DFIv3_0Behavior    ← CRC, Update rewrite, Training (MC-driven),
-        │                    Error interface, CA parity, Frequency indicator
-        │
-        ├── DFIv3_1Behavior  ← PHY-requested training, Low-power separation
+    └── DFIv3_1Behavior    ← one class for the whole v3.x major:
+        │                    v3.0's CRC, Update rewrite, Training (MC-driven),
+        │                    Error interface, CA parity, Frequency indicator,
+        │                    plus v3.1's PHY-requested training + Low-power
+        │                    separation. (`DFIVersion` has no V3_0 member; V3_1
+        │                    is the v3.x representative, so v3.0 and v3.1 collapse
+        │                    into this single class.)
         │
         └── DFIv4_0Behavior  ← PHY Master, Disconnect, Frequency change
                                protocol split, Training (optional + per-slice),
                                Update (self-refresh exit)
-            (DFIv5_2Behavior only created if the PHY Master rename has any
-             genuine semantic implication — see open question below.)
+            (No DFIv5_2Behavior: the v5.2 PHY-Master rename carries no genuine
+             semantic implication, so V5_2 maps straight to DFIv4_0Behavior.)
 
 VERSION_BEHAVIOR = {
     DFIVersion.V2_1: DFIv2_1Behavior,
-    DFIVersion.V3_0: DFIv3_0Behavior,
-    DFIVersion.V3_1: DFIv3_1Behavior,
+    DFIVersion.V3_1: DFIv3_1Behavior,   # v3.x: CRC, update, training (+ v3.1 PHY-requested)
     DFIVersion.V4_0: DFIv4_0Behavior,
-    DFIVersion.V5_0: DFIv4_0Behavior,   # corrections-only release
-    DFIVersion.V5_1: DFIv4_0Behavior,   # new signals (additive, no shift)
     DFIVersion.V5_2: DFIv4_0Behavior,   # rename only (no semantic shift)
     # v6.0+ is a future BFM generation; out of scope here.
 }
 ```
 
 The thing worth noticing: **the registry can map several versions to the same
-behavior class.** v5.0 / v5.1 / v5.2 all share `DFIv4_0Behavior` because none
-of them introduce a semantic shift — only signal additions (handled by the
-envelope) and a rename (cosmetic). That keeps the class count at the bare
+behavior class.** V5_2 rides on `DFIv4_0Behavior` because the v5.x deltas —
+signal additions (handled by the envelope) and the PHY-Master rename (cosmetic)
+— introduce no semantic shift. `DFIVersion` only enumerates one representative
+per major (V2_1, V3_1, V4_0, V5_2), which keeps the class count at the bare
 minimum.
 
 ## Cross-cutting design decisions
@@ -509,7 +508,7 @@ by accident.
    any yet, but it deserves one deliberate sweep.
 
 4. **Phase 2 vs Phase 3.** The implementation order in the
-   [project_mem_ctrl_dfi.md](../../) memory note says:
+   `project_mem_ctrl_dfi` memory note says:
    - Phase 2: training, update, status
    - Phase 3: PHY-master, low-power, frequency change
    This catalog covers Phase 2 + Phase 3 areas. Should the behavior classes

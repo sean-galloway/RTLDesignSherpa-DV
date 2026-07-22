@@ -316,6 +316,7 @@ async def test_performance_monitoring(dut):
     last_time = 0
     
     def track_performance(packet):
+        nonlocal last_time
         current_time = get_sim_time('ns')
         transaction_times.append(current_time)
         
@@ -323,7 +324,6 @@ async def test_performance_monitoring(dut):
             inter_time = current_time - last_time
             inter_transaction_times.append(inter_time)
         
-        nonlocal last_time
         last_time = current_time
     
     monitor.add_callback(track_performance)

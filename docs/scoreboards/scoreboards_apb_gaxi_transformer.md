@@ -124,6 +124,8 @@ apb_transaction = transformer.gaxi_to_apb(gaxi_read, APBPacket)
 
 ## Adapter Framework
 
+The transformer above is stateless—it converts one packet and hands it back. The adapters wrap it with the bookkeeping a live testbench needs: they own a transformer, forward converted transactions to a master component, and keep running counts so you can ask how the bridge behaved after the fact.
+
 ### APBGAXIAdapterBase
 
 Base class for the adapters—everything the concrete adapters share lives here.
@@ -133,4 +135,120 @@ class APBGAXIAdapterBase:
     def __init__(self, transformer, field_config=None, log=None)
 ```
 
-**
+**Parameters:**
+- `transformer`: the `APBtoGAXITransformer` instance doing the actual conversion
+- `field_config`: field configuration to use (defaults to the transformer's `gaxi_field_config` when omitted)
+- `log`: logger (defaults to the transformer's logger when omitted)
+
+**What it holds:**
+- `transaction_count`, `error_count`, `total_latency`: running statistics, all starting at zero
+- `transformer`, `field_config`, `log`: the shared plumbing the subclasses reach for
+
+**Methods:**
+
+#### `reset_statistics()`
+Zero the three counters (`transaction_count`, `error_count`, `total_latency`). Use it between test phases.
+
+#### `get_average_latency()`
+Return `total_latency / transaction_count`, or `0` if nothing has been processed yet.
+
+### APBtoGAXIAdapter
+
+Takes APB transactions in, sends GAXI packets out. Subclass of `APBGAXIAdapterBase`.
+
+```python
+class APBtoGAXIAdapter(APBGAXIAdapterBase):
+    def __init__(self, transformer, gaxi_master, field_config=None, log=None)
+```
+
+**Parameters:**
+- `transformer`: the `APBtoGAXITransformer` instance
+- `gaxi_master`: the GAXI master the converted packets get sent to
+- `field_config`: field configuration (defaults to the transformer's)
+- `log`: logger (defaults to the transformer's)
+
+Beyond the base state, it keeps a `pending_transactions` dict keyed by address, so the originating APB transaction can be looked up while its GAXI packet is in flight.
+
+#### `async process_transaction(apb_transaction)`
+Convert an APB transaction to a GAXI packet and push it through the GAXI master.
+
+**Parameters:**
+- `apb_transaction`: the APB transaction to process
+
+**Returns:**
+- `GAXIPacket`: the packet that was sent to the master
+
+Under the hood it calls `transformer.apb_to_gaxi()`, records the transaction in `pending_transactions` under its address, bumps `transaction_count`, then `await`s `gaxi_master.send(packet)`.
+
+### GAXItoAPBAdapter
+
+The other direction: GAXI packets in, APB transactions out. Subclass of `APBGAXIAdapterBase`.
+
+```python
+class GAXItoAPBAdapter(APBGAXIAdapterBase):
+    def __init__(self, transformer, apb_master, apb_transaction_class,
+                 field_config=None, log=None)
+```
+
+**Parameters:**
+- `transformer`: the `APBtoGAXITransformer` instance
+- `apb_master`: the APB master the converted transactions get sent to
+- `apb_transaction_class`: the class used to build APB transactions
+- `field_config`: field configuration (defaults to the transformer's)
+- `log`: logger (defaults to the transformer's)
+
+It keeps a `pending_packets` dict keyed by address, mirroring the forward adapter.
+
+#### `async process_packet(gaxi_packet)`
+Convert a GAXI packet to an APB transaction and push it through the APB master.
+
+**Parameters:**
+- `gaxi_packet`: the GAXI packet to process
+
+**Returns:**
+- `APBTransaction`: the transaction that was sent to the master
+
+It calls `transformer.gaxi_to_apb(gaxi_packet, apb_transaction_class)`, records the packet in `pending_packets`, bumps `transaction_count`, then `await`s `apb_master.send(transaction)`.
+
+### `create_apb_gaxi_adapters(...)`
+
+A factory for the common case: you want both directions wired up against a shared transformer.
+
+```python
+def create_apb_gaxi_adapters(apb_master, gaxi_master,
+                             apb_transaction_class, gaxi_field_config,
+                             log=None)
+```
+
+**Parameters:**
+- `apb_master`: APB master for outgoing APB transactions
+- `gaxi_master`: GAXI master for outgoing GAXI packets
+- `apb_transaction_class`: class used to build APB transactions
+- `gaxi_field_config`: field configuration for GAXI packets
+- `log`: logger instance
+
+**Returns:**
+- `tuple` of `(APBtoGAXIAdapter, GAXItoAPBAdapter)`—both sharing one freshly built `APBtoGAXITransformer`.
+
+```python
+from CocoTBFramework.scoreboards.apb_gaxi_transformer import create_apb_gaxi_adapters
+
+# Build both adapters against a shared transformer
+apb_to_gaxi, gaxi_to_apb = create_apb_gaxi_adapters(
+    apb_master=apb_master,
+    gaxi_master=gaxi_master,
+    apb_transaction_class=APBPacket,
+    gaxi_field_config=field_config,
+    log=logger,
+)
+
+# APB in → GAXI out
+gaxi_packet = await apb_to_gaxi.process_transaction(apb_write)
+
+# GAXI in → APB out
+apb_transaction = await gaxi_to_apb.process_packet(gaxi_response)
+
+# Check how the bridge behaved
+print(f"Forward transactions: {apb_to_gaxi.transaction_count}")
+print(f"Average latency: {apb_to_gaxi.get_average_latency()} ns")
+```

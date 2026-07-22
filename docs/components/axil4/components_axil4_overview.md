@@ -42,7 +42,7 @@ AXIL4 isn't a separate stack; it's a specialization layered on GAXI. That buys y
 On top of that foundation, these components are shaped specifically for Lite:
 
 **Simplified Five Channel Architecture**: AR, R, AW, W, and B, with none of the burst bookkeeping
-**Single Transaction Model**: no burst support, single outstanding transaction architecture
+**Single-Beat Transfer Model**: no burst support -- one beat per transaction. Multiple transactions may be outstanding at once; with no IDs, they simply complete in issue order
 **Register-Oriented Design**: the API is built around control/status register access patterns
 **Reduced Signaling**: no ID, USER, QoS, or REGION signals -- Lite doesn't have them
 **Protocol Compliance**: an integrated checker scoped to the Lite subset of the AXI4 rules
@@ -69,7 +69,7 @@ graph TB
 
         subgraph Features["AXIL4 Specific Features"]
             RegAPI[Register API]
-            Single[Single Outstanding]
+            Single[Single-Beat Transfers]
             Compliance[Compliance]
             PktUtils[Packet Utils]
             Timing[Simplified Timing]
@@ -179,7 +179,7 @@ b_config = AXIL4FieldConfigHelper.create_b_field_config()
 
 The omissions are the point:
 
-- **No ID Fields**: a single outstanding transaction leaves nothing for an ID to distinguish
+- **No ID Fields**: the Lite spec omits them; with no IDs, any outstanding transactions simply complete in the order they were issued
 - **No Burst Fields**: AWLEN, ARLEN, AWSIZE, ARSIZE, AWBURST, ARBURST simply don't exist here
 - **No USER Fields**: Lite has no sideband signaling
 - **No LAST Fields**: one beat per transaction makes WLAST and RLAST meaningless
@@ -328,9 +328,9 @@ async def test_memory_mapped_fifo():
 
 ## Performance Optimization
 
-### Single Transaction Benefits
+### Single-Beat Transfer Benefits
 
-The single-transfer model isn't just less protocol -- it's less testbench. With no bursts and one transaction in flight, there's no outstanding-transaction scoreboarding, slave state machines stay small, responses come back without queueing delay, and buffering requirements are minimal. Addresses map straight onto registers with no burst decode in between, so a read can complete in a cycle, and arbitration is trivial when there's at most one thing to arbitrate.
+The single-beat model isn't just less protocol -- it's less testbench. With no bursts, slave state machines stay small, buffering requirements are minimal, and addresses map straight onto registers with no burst decode in between, so a read can complete in a cycle. Multiple transactions may still be outstanding, but with no IDs to reorder against they're matched in simple issue order rather than scoreboarded by ID.
 
 ### Timing Optimization
 

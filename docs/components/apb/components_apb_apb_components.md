@@ -303,7 +303,7 @@ The monitor starts watching as soon as it's constructed — you register a callb
 
 ```python
 import cocotb
-from cocotb.triggers import RisingEdge
+from cocotb.triggers import RisingEdge, Timer
 from CocoTBFramework.components.apb.apb_components import APBMonitor
 
 @cocotb.test()

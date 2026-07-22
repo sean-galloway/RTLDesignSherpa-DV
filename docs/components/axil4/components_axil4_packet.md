@@ -193,7 +193,7 @@ Checks the packet against the Lite protocol rules.
 
 What it checks:
 
-- **Address channels (AW/AR):** address must be word-aligned (multiple of 4)
+- **Address channels (AW/AR):** address must be word-aligned -- a **fixed** multiple of 4, regardless of `data_width`. This differs from `AXIL4ComplianceChecker.check_address_alignment()`, which aligns to the configured data-width boundary (`data_width // 8` bytes -- e.g. 8 bytes at 64-bit). On a 64-bit bus this packet method still only requires 4-byte alignment.
 - **Response channels (B/R):** response code must be 0-3
 - **W channel:** strobe pattern must fit the data width's byte count
 - **Unrecognized channels:** flagged as invalid

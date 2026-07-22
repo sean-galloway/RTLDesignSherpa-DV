@@ -40,6 +40,6 @@ Everything APB lives in this directory: the protocol BFMs, the packet and transa
 
 ## Navigation
 - [**Back to Components**](../components_index.md) - Return to main components index
-- [**Back to CocoTBFramework**](../components_index.md) - Return to main framework index
+- [**Back to CocoTBFramework**](../../index.md) - Return to main framework index
 
 ---

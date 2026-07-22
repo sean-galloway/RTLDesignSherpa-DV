@@ -419,11 +419,11 @@ One way to structure a performance soak, using the stats the master already coll
 ```python
 async def monitor_performance(master, duration_ms=1000):
     """Monitor master performance over time"""
-    import asyncio
-    
+    from cocotb.triggers import Timer
+
     start_time = get_sim_time('ns')
     end_time = start_time + duration_ms * 1e6  # Convert to ns
-    
+
     while get_sim_time('ns') < end_time:
         # Send transaction
         packet = master.create_packet(
@@ -431,9 +431,9 @@ async def monitor_performance(master, duration_ms=1000):
             data=random.randint(0, 0xFFFFFFFF)
         )
         await master.send(packet)
-        
-        # Brief delay
-        await asyncio.sleep(0.001)  # 1ms
+
+        # Brief delay in simulation time (same clock as the termination check)
+        await Timer(1000, units='ns')  # 1µs between sends
     
     # Analyze performance
     stats = master.get_stats()

@@ -296,7 +296,7 @@ async def test_with_scoreboard(dut):
 - Detailed logging on while chasing mismatches
 - Formatted packet output beats raw reprs
 - The built-in statistics are your performance baseline
-- Generate HTML reports when you need the long-form view
+- Read `report()` for the text summary and error count when you need the long-form view
 
 ## Navigation
 - [**Back to CocoTBFramework**](../index.md) - Return to main framework index

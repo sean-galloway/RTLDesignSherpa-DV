@@ -54,7 +54,7 @@ The AXIL4 family, at a glance:
 ### AXI4-Lite Protocol Support
 - All five channels (AR, R, AW, W, B), no burst machinery
 - Master and slave interface support
-- Single outstanding transaction architecture
+- Single-beat transfers; multiple transactions may be outstanding at once (matched in issue order -- no IDs)
 - None of the signals Lite doesn't have: no ID, USER, QoS, or REGION
 
 ### GAXI Infrastructure Integration
@@ -117,7 +117,7 @@ graph TB
             W["W Channel<br/>(Write Data)<br/>Single"]
         end
         B["B Channel<br/>(Write Resp)"]
-        Single["Single Outstanding<br/>Transaction"]
+        Single["Single-Beat<br/>Transfers"]
     end
 
     AR --> R
@@ -131,7 +131,7 @@ graph TB
 
 ### Simplified Signaling
 - **No Burst Support**: fixed length of one transfer per transaction
-- **No ID Signals**: single outstanding transaction, so nothing to tag
+- **No ID Signals**: the Lite spec has none; outstanding transactions complete in issue order
 - **No User Signals**: no sideband at all
 - **No QoS/Region**: plain memory access only
 - **Fixed Size**: transfer size always matches the data width
@@ -210,14 +210,14 @@ device_id = await master_read.read_register(0x1000)     # Device ID
 
 ## Performance Considerations
 
-### Single Transaction Focus
-- **Simple state machines**: no burst or outstanding-transaction bookkeeping
+### Single-Beat Focus
+- **Simple state machines**: no burst bookkeeping
 - **Low latency**: minimal protocol overhead per transfer
 - **Register access tuned**: the control/status pattern is the fast path
 
 ### Memory Efficiency
 - **Small footprint**: very little per-transaction state
-- **Trivial queuing**: one outstanding transaction doesn't need much of a queue
+- **Simple queuing**: with no IDs, outstanding transactions match in FIFO issue order, so the tracking stays lightweight
 
 If your DUT talks registers over AXI4-Lite, this is the toolkit: the same GAXI machinery the full AXI4 BFMs use, wearing a much lighter protocol.
 

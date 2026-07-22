@@ -610,8 +610,11 @@ arbiter_monitor.enable_debug(True)
 A few knobs for keeping long tests cheap:
 
 ```python
-# Limit transaction history for memory efficiency
-arbiter_monitor.transactions.maxlen = 500  # Reduce from default 1000
+# Limit transaction history for memory efficiency.
+# deque.maxlen is read-only, so swap in a smaller-bounded deque
+# (this keeps the most recent entries and drops older ones):
+from collections import deque
+arbiter_monitor.transactions = deque(arbiter_monitor.transactions, maxlen=500)  # Reduce from default 1000
 
 # Disable debug logging for performance
 arbiter_monitor.enable_debug(False)

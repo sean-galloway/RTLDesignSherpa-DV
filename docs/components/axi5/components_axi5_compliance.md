@@ -131,7 +131,7 @@ What the checker can raise — first the standard AXI set, then the AXI5 additio
 | Violation | Description |
 |-----------|-------------|
 | `VALID_DROPPED` | VALID signal dropped before handshake |
-| `READY_BEFORE_VALID` | READY asserted before VALID |
+| `READY_BEFORE_VALID` | Enum member only — **never emitted**. READY before VALID is legal AXI (A3.2, e.g. an always-ready slave), so the checker does not flag it. |
 | `VALID_UNSTABLE` | VALID signal unstable during handshake |
 | `BURST_LENGTH_VIOLATION` | Burst length exceeds 256 |
 | `BURST_SIZE_VIOLATION` | Burst size exceeds 7 |

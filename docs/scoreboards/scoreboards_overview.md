@@ -91,7 +91,7 @@ graph TB
 - **Transformer Integration**: the cross-protocol hook
 - **Memory Model Support**: memory adapters for memory-mapped checking
 - **Flexible Matching**: FIFO, ID-based, or your own strategy
-- **Rich Reporting**: text reports, with HTML output available
+- **Rich Reporting**: text summaries with per-field mismatch detail and error counts
 
 ### ProtocolTransformer - Cross-Protocol Support
 

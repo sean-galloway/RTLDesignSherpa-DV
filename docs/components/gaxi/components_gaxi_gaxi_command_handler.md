@@ -175,10 +175,11 @@ Produce the invented read value for an address the memory model doesn't cover.
 - Deterministic, so the test can compute what it expects
 
 ```python
-# Generates predictable data patterns:
-# Address 0x1000 → 0x10000400 (first read)
-# Address 0x1004 → 0x10000401 (next read)
-# Address 0x1000 → 0x10000800 (later read)
+# Generates predictable data patterns.
+# Counter starts at 0x10000000 and increments by 1 after each read:
+# 1st read, address 0x1000 → 0x10000400  (0x10000000 + (0x1000 >> 2))
+# 2nd read, address 0x1004 → 0x10000402  (0x10000001 + (0x1004 >> 2))
+# 3rd read, address 0x1000 → 0x10000402  (0x10000002 + (0x1000 >> 2))
 ```
 
 ## Field Extraction and Response Handling

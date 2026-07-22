@@ -133,7 +133,7 @@ Pulls out just the AXI5-specific state — usually the first thing you want when
 
 ## Convenience Functions
 
-Small builders for the common cases.
+Small builders for the common cases. These live in `axi5_packet` and are what you get when you import their bare names from the `CocoTBFramework.components.axi5` package.
 
 ### `create_simple_write_packets(id_val, addr, data, id_width, addr_width, data_width) -> Tuple[AXI5Packet, AXI5Packet]`
 
@@ -164,8 +164,17 @@ AW and W packets with Memory Tagging Extension fields populated.
 
 The `axi5_packet_utils` module rounds this out with a larger set of helpers, grouped by what you're building:
 
+> **Name collision — read carefully.** Two of these helpers share a name with the Convenience Functions above but are *different functions with different signatures and return types*. To keep both reachable, the package re-exports the `axi5_packet_utils` versions under aliases:
+>
+> | Bare name | `from ...axi5 import <bare name>` resolves to | `axi5_packet_utils` version is exported as |
+> |-----------|----------------------------------------------|--------------------------------------------|
+> | `create_simple_read_packet` | `axi5_packet` version — `(id_val, addr, id_width, addr_width)`, returns one AR packet | `create_ar_packet` — `(address, id_val, burst_len, size, burst_type, **kwargs)` |
+> | `create_tagged_write_packets` | `axi5_packet` version — `(id_val, addr, data, tag, tagop, ...)`, returns `(aw, w)` | `create_mte_write_packets` — `(id_val, addr, data_list, tag, tagop, data_width, **kwargs)`, returns `(aw, [w, ...])` |
+>
+> Importing the bare name from the package always gives you the `axi5_packet` version. Use the alias (or import from `axi5_packet_utils` directly) for the utility version. Calling one with the other's arguments — e.g. passing `data_list=` to the bare `create_tagged_write_packets` — raises `TypeError`.
+
 ### Address Packets
-- `create_simple_read_packet(address, id_val, burst_len, size, burst_type, **kwargs)` — AR packet
+- `create_simple_read_packet(address, id_val, burst_len, size, burst_type, **kwargs)` — AR packet (package alias: `create_ar_packet`; see name-collision note above)
 - `create_simple_write_address_packet(address, id_val, burst_len, size, burst_type, **kwargs)` — AW packet
 
 ### Data Packets
@@ -179,7 +188,7 @@ The `axi5_packet_utils` module rounds this out with a larger set of helpers, gro
 
 ### AXI5-Specific Packets
 - `create_atomic_transaction_packets(id_val, addr, data, atop, data_width, **kwargs)` — Atomic AW + W
-- `create_tagged_write_packets(id_val, addr, data_list, tag, tagop, data_width, **kwargs)` — MTE AW + W list
+- `create_tagged_write_packets(id_val, addr, data_list, tag, tagop, data_width, **kwargs)` — MTE AW + W list (package alias: `create_mte_write_packets`; see name-collision note above)
 - `create_tagged_read_packet(id_val, addr, burst_len, tagop, **kwargs)` — MTE AR
 - `create_chunked_read_packet(id_val, addr, burst_len, **kwargs)` — Chunked AR
 - `create_secure_write_packets(id_val, addr, data, nsaid, mpam, mecid, data_width, **kwargs)` — Security AW + W
@@ -216,11 +225,14 @@ Tagged traffic in both directions:
 
 ```python
 from CocoTBFramework.components.axi5 import (
-    create_tagged_write_packets, create_tagged_read_packet
+    create_mte_write_packets, create_tagged_read_packet
 )
 
-# Create tagged write (MTE)
-aw_pkt, w_pkts = create_tagged_write_packets(
+# Create tagged write (MTE) -- burst variant from axi5_packet_utils.
+# It is exported as create_mte_write_packets to avoid the name clash with
+# the single-beat create_tagged_write_packets from axi5_packet (see the
+# name-collision note above). This one takes data_list and returns a W list.
+aw_pkt, w_pkts = create_mte_write_packets(
     id_val=2, addr=0x3000,
     data_list=[0x11111111, 0x22222222],
     tag=0xA, tagop=2  # Update operation

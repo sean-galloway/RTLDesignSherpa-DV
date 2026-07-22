@@ -232,9 +232,9 @@ class TimedGAXIMaster:
         # Get timing delay
         valid_delay = packet.get_master_delay()
         
-        # Apply delay before driving
-        if valid_delay > 0:
-            await Timer(valid_delay, units='clk')
+        # Apply delay before driving (delay is in clock cycles)
+        for _ in range(valid_delay):
+            await RisingEdge(self.clock)
         
         # Drive packet fields
         self.dut.addr.value = packet.addr
@@ -286,9 +286,9 @@ class TimedGAXISlave:
         # Get ready delay
         ready_delay = packet.get_slave_delay()
         
-        # Apply delay before asserting ready
-        if ready_delay > 0:
-            await Timer(ready_delay, units='clk')
+        # Apply delay before asserting ready (delay is in clock cycles)
+        for _ in range(ready_delay):
+            await RisingEdge(self.clock)
         
         # Assert ready and capture data
         self.dut.ready.value = 1

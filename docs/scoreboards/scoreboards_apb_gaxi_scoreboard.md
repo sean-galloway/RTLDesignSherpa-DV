@@ -23,22 +23,22 @@
 
 # apb_gaxi_scoreboard.py
 
-APB-GAXI bridge scoreboard implementation for verifying protocol conversion between APB and GAXI protocols. This module provides specialized verification for APB-GAXI bridge systems with comprehensive transaction matching and response validation.
+An APB-to-GAXI bridge has three observable moments: the APB transaction goes in, a GAXI command comes out, and a GAXI response comes back. This scoreboard keeps a queue for each one and checks that they line up into complete, correct flows—which is the whole job when the DUT exists to convert one protocol into the other.
 
 ## Overview
 
-The APB-GAXI scoreboard system provides:
-- **Three-Phase Transaction Matching**: APB transaction → GAXI command → GAXI response
-- **Protocol-Aware Verification**: Understands both APB and GAXI protocol semantics
-- **Response Handling**: Proper matching of both read and write responses
-- **Enhanced Error Classification**: Detailed error categorization and field-level analysis
-- **Timeout-Based Matching**: Robust verification with configurable timeouts
+What you get:
+- **Three-Phase Transaction Matching**: follows each transfer through APB transaction → GAXI command → GAXI response
+- **Protocol-Aware Verification**: understands APB and GAXI semantics rather than doing blind field comparison
+- **Response Handling**: pairs both read and write responses with the right command
+- **Enhanced Error Classification**: sorts failures by category and narrows them to the offending field
+- **Timeout-Based Matching**: a transaction that never completes gets flagged, not quietly forgotten
 
 ## Classes
 
 ### APBGAXIScoreboard
 
-Comprehensive APB-GAXI bridge verification with three-queue transaction matching.
+Bridge verification built around three queues—one per phase.
 
 ```python
 class APBGAXIScoreboard:
@@ -46,35 +46,35 @@ class APBGAXIScoreboard:
 ```
 
 **Parameters:**
-- `name`: Scoreboard name for identification
-- `log`: Logger instance for detailed reporting
+- `name`: scoreboard name; shows up in report headers
+- `log`: logger for the detailed blow-by-blow
 
 **Key Features:**
-- Separate transaction queues for APB, GAXI commands, and GAXI responses
-- Automatic timeout-based transaction matching
-- Comprehensive statistics tracking
-- Enhanced error reporting with field extraction
+- Separate queues for APB transactions, GAXI commands, and GAXI responses
+- Matching runs automatically as transactions arrive, with a configurable timeout
+- Full statistics on matches, mismatches, and errors
+- Field-level error reporting through the transaction extractor
 
 **Transaction Queues:**
-- `apb_queue`: APB transactions from master/slave interface
-- `gaxi_cmd_queue`: GAXI command transactions
-- `gaxi_rsp_queue`: GAXI response transactions
+- `apb_queue`: APB transactions seen on the master/slave interface
+- `gaxi_cmd_queue`: GAXI commands
+- `gaxi_rsp_queue`: GAXI responses
 
 ## Core Methods
 
 ### Transaction Management
 
 #### `add_apb_transaction(transaction)`
-Add APB transaction to the scoreboard for verification.
+Feed an APB transaction into the scoreboard.
 
 **Parameters:**
-- `transaction`: APB transaction to be matched
+- `transaction`: the APB transaction to match
 
 **Behavior:**
-- Extracts APB transaction fields using `APBTransactionExtractor`
-- Stores transaction with timestamp for timeout management
-- Increments APB transaction counter
-- Triggers automatic matching attempt
+- Pulls the fields out with `APBTransactionExtractor`
+- Timestamps the transaction so the timeout logic has something to work with
+- Bumps the APB transaction counter
+- Immediately attempts a match
 
 ```python
 # Add APB transaction
@@ -83,19 +83,19 @@ scoreboard.add_apb_transaction(apb_transaction)
 ```
 
 #### `add_gaxi_transaction(transaction)`
-Add a GAXI transaction (command or response) for bridge verification. The
-scoreboard inspects the packet's fields to auto-detect whether it is a
-command or a response and routes it to the matching internal queue.
+One entry point for both halves of the GAXI side. The scoreboard looks at which
+fields the packet carries, decides whether it's a command or a response, and
+routes it to the matching internal queue—so your monitor wiring stays one
+callback per interface.
 
 **Parameters:**
-- `transaction`: GAXI command or response transaction
+- `transaction`: GAXI command or response
 
 **Behavior:**
-- Detects command vs response from the fields present on the packet
-- Commands (address/write-data fields) go to the GAXI command queue
-- Responses (read-data/status fields) go to the GAXI response queue
-- Stores the transaction with a timestamp and updates statistics
-- Attempts transaction matching
+- Command vs. response is decided from the fields present on the packet
+- Commands (address/write-data fields) go to the command queue
+- Responses (read-data/status fields) go to the response queue
+- Timestamped, counted, and matched on arrival
 
 ```python
 # Add GAXI command and response — same entry point for both
@@ -109,17 +109,17 @@ scoreboard.add_gaxi_transaction(gaxi_response)
 ### Transaction Matching
 
 #### `_match_transactions()`
-Core matching algorithm for three-phase transaction verification.
+The matching engine. It runs on every transaction arrival.
 
 **Matching Logic:**
-1. **APB-GAXI Command Matching**: Matches APB transactions with corresponding GAXI commands based on address and operation type
-2. **Command-Response Pairing**: Links GAXI commands with their responses using transaction identifiers
-3. **End-to-End Verification**: Ensures complete APB→GAXI→Response flow integrity
+1. **APB-GAXI Command Matching**: an APB transaction and a GAXI command match on address and operation type
+2. **Command-Response Pairing**: GAXI commands and responses get paired through their transaction identifiers
+3. **End-to-End Verification**: a flow only counts when all three phases check out
 
 **Timeout Handling:**
-- Configurable timeout (`match_timeout_ns`) for transaction completion
-- Automatic cleanup of expired transactions
-- Timeout error reporting and statistics
+- `match_timeout_ns` sets how long a phase may dangle before it's declared stale
+- Expired transactions are cleaned out of the queues automatically
+- Timeouts are logged and counted in the statistics
 
 ```python
 # Configure timeout (default: 10μs)
@@ -128,16 +128,16 @@ scoreboard.match_timeout_ns = 50000  # 50μs timeout
 
 ### Field Extraction and Formatting
 
-The scoreboard uses `APBTransactionExtractor` for robust field extraction:
+Field access goes through `APBTransactionExtractor` rather than poking at attributes directly—packet layouts vary, and the extractor knows the variations.
 
 #### APB Transaction Fields
-- **Command Fields**: Address, data, write enable, strobe
-- **Response Fields**: Read data, error status, completion status
-- **Timing Fields**: Start time, end time, duration
+- **Command Fields**: address, data, write enable, strobe
+- **Response Fields**: read data, error status, completion status
+- **Timing Fields**: start time, end time, duration
 
 #### GAXI Transaction Fields
-- **Command Fields**: Address, data, command type, strobe
-- **Response Fields**: Response data, status codes, error indicators
+- **Command Fields**: address, data, command type, strobe
+- **Response Fields**: response data, status codes, error indicators
 
 ```python
 # Example field extraction
@@ -152,7 +152,7 @@ gaxi_fields = APBTransactionExtractor.extract_response_fields(gaxi_response)
 
 ### Comprehensive Statistics Tracking
 
-The scoreboard maintains detailed statistics:
+Everything the scoreboard counts, in one dictionary:
 
 ```python
 stats = {
@@ -174,16 +174,16 @@ stats = {
 ### Reporting Methods
 
 #### `report()`
-Generate comprehensive scoreboard report.
+The whole picture as a formatted string.
 
 **Returns:**
-- `str`: Detailed report with all statistics and analysis
+- `str`: report with every statistic and the analysis
 
 **Report Contents:**
 - Transaction counts for all three phases
-- Match success rates for reads and writes
-- Error analysis and unmatched transaction counts
-- Field extraction and type error statistics
+- Match rates broken out for reads and writes
+- Error analysis and unmatched counts
+- Field-extraction and type-error statistics
 
 ```python
 print(scoreboard.report())
@@ -202,10 +202,10 @@ print(scoreboard.report())
 ```
 
 #### `get_stats()`
-Get detailed statistics dictionary for programmatic analysis.
+The same numbers as a dictionary, for when you'd rather assert on them than read them.
 
 **Returns:**
-- `dict`: Complete statistics dictionary
+- `dict`: the complete statistics dictionary
 
 ```python
 stats = scoreboard.get_stats()
@@ -216,12 +216,12 @@ print(f"Bridge success rate: {success_rate:.2f}%")
 ### Utility Methods
 
 #### `clear()`
-Reset scoreboard state for new test phase.
+Reset for the next test phase.
 
 **Behavior:**
-- Clears all transaction queues
-- Resets all statistics counters
-- Preserves configuration settings
+- Empties all three queues
+- Zeroes the counters
+- Leaves your configuration (including the timeout) alone
 
 ```python
 # Reset between test phases
@@ -231,6 +231,8 @@ scoreboard.clear()
 ## Usage Examples
 
 ### Basic APB-GAXI Bridge Verification
+
+The full write flow, end to end: APB write in, GAXI command and response out, all three matched.
 
 ```python
 from CocoTBFramework.scoreboards.apb_gaxi_scoreboard import APBGAXIScoreboard
@@ -279,6 +281,8 @@ else:
 
 ### Read Transaction Verification
 
+Reads exercise the same three queues with the data flowing the other way.
+
 ```python
 # Test read transaction flow
 async def test_bridge_read_flow():
@@ -318,6 +322,8 @@ async def test_bridge_read_flow():
 ```
 
 ### High-Throughput Bridge Testing
+
+A hundred transactions back to back, with small delays standing in for bridge and memory latency.
 
 ```python
 # Test bridge with multiple concurrent transactions
@@ -393,6 +399,8 @@ async def test_high_throughput_bridge():
 
 ### Error Injection and Recovery Testing
 
+Three flavors of trouble in one test: a clean transaction, a SLVERR, and a command whose response never shows up.
+
 ```python
 # Test bridge error handling
 async def test_bridge_error_handling():
@@ -445,6 +453,8 @@ async def test_bridge_error_handling():
 ```
 
 ### Multi-Bridge System Verification
+
+One scoreboard per bridge, rolled up into a system report at the end.
 
 ```python
 # Test system with multiple APB-GAXI bridges
@@ -515,28 +525,30 @@ async def test_multi_bridge_system():
 ## Best Practices
 
 ### Timeout Configuration
-- Configure appropriate timeouts based on bridge latency characteristics
-- Use shorter timeouts for low-latency bridges
-- Account for memory access delays in timeout calculations
+- Set the timeout from actual bridge latency plus memory access time, with margin
+- A low-latency bridge deserves a tight timeout so a hang fails fast instead of stalling the test
 
 ### Transaction Ordering
-- Add transactions in realistic temporal order
-- Ensure APB transactions are added before corresponding GAXI commands
-- Add GAXI responses promptly after commands for timing accuracy
+- Add transactions in the order they'd actually occur
+- APB first, then the GAXI command, then the response
+- Don't sit on responses—the timeout clock is running
 
 ### Error Analysis
-- Enable detailed logging for field extraction debugging
-- Monitor timeout statistics for performance analysis
-- Use error classification for systematic debugging
+- Turn logging up when chasing field-extraction problems; the extractor messages usually name the culprit
+- Watch the timeout counters—they tell you about bridge performance, not just correctness
+- Use the error classifications to debug systematically instead of one waveform at a time
 
 ### Performance Optimization
-- Clear scoreboards between major test phases
-- Monitor queue sizes in high-throughput scenarios
-- Use appropriate timeout values to balance accuracy and performance
+- `clear()` between major test phases so queues don't accumulate history
+- Keep an eye on queue depth in high-throughput runs
+- Pick timeouts that fail fast without tripping on legitimate latency
 
 ## Integration Points
 
 ### Monitor Integration
+
+The GAXI command and response monitors can share one callback—the scoreboard sorts out which is which.
+
 ```python
 # Connect monitors to scoreboard
 def on_apb_transaction(packet):
@@ -554,6 +566,7 @@ gaxi_rsp_monitor.add_callback(on_gaxi_response)
 ```
 
 ### Test Environment Integration
+
 ```python
 # Complete bridge test environment
 class APBGAXIBridgeTestEnv:
@@ -577,4 +590,4 @@ class APBGAXIBridgeTestEnv:
         }
 ```
 
-The APB-GAXI scoreboard provides comprehensive verification for protocol bridge systems with robust transaction matching, detailed error analysis, and extensive configuration options for complex multi-bridge verification scenarios.
+Three queues, automatic matching, and statistics detailed enough to tell you whether a failure lived in the command path, the response path, or the timing. That's the whole bridge story.

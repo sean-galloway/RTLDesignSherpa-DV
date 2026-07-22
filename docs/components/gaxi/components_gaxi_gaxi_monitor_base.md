@@ -23,19 +23,19 @@
 
 # gaxi_monitor_base.py
 
-Base class providing common GAXI monitoring functionality using unified infrastructure. Eliminates duplication while preserving exact APIs and timing-critical behavior.
+The shared observe-side machinery for GAXIMonitor and GAXISlave. A slave is really a monitor that also drives ready, so everything that watches signals, builds packets, and manages the receive queue lives here once instead of twice. You don't normally instantiate this directly — you inherit from it, or you get it for free through the two subclasses.
 
 ## Overview
 
 The `GAXIMonitorBase` class provides:
-- **Common monitoring functionality** shared by GAXIMonitor and GAXISlave
-- **Signal resolution and data collection** setup from GAXIComponentBase
-- **Unified field configuration** handling and packet management
-- **Memory model integration** using base MemoryModel directly
-- **Clean data collection** with automatic field unpacking
-- **Unified packet finishing** without conditional complexity
+- **The monitoring core** shared by GAXIMonitor and GAXISlave
+- **Signal resolution and data collection** from GAXIComponentBase
+- **Field configuration and packet management** in the family's common shape
+- **Memory model access** using the base MemoryModel directly
+- **`_get_data_dict()`** — one clean implementation of field unpacking
+- **`_finish_packet()`** — one clean implementation of packet completion
 
-This base class eliminates code duplication between monitor components while preserving exact timing-critical behavior.
+Both of those used to exist as near-identical copies in the monitor and the slave, conditionals and all. Now there's one version, and the timing behavior is unchanged.
 
 ## Class
 
@@ -70,9 +70,9 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
 ### Data Collection
 
 #### `_get_data_dict()`
-Clean data collection with automatic field unpacking.
+Read the current signals and return them unpacked into fields.
 
-This replaces messy conditional unpacking logic that was duplicated in both GAXIMonitor and GAXISlave. Uses the unified DataCollectionStrategy.collect_and_unpack_data() method.
+This is the method that replaced the conditional unpacking logic that was duplicated in GAXIMonitor and GAXISlave. It goes through the unified DataCollectionStrategy.collect_and_unpack_data() path.
 
 **Returns:** Dictionary of field values, properly unpacked
 
@@ -83,9 +83,9 @@ data_dict = self._get_data_dict()
 ```
 
 #### `_finish_packet(current_time, packet, data_dict=None)`
-Clean packet finishing without conditional complexity.
+Complete a packet: stamp the time, populate the fields, update the counters.
 
-Replaces duplicate _finish_packet logic that was in both GAXIMonitor and GAXISlave with identical functionality.
+The other half of the deduplication — the identical `_finish_packet` that lived in both subclasses now lives here.
 
 **Parameters:**
 - `current_time`: Current simulation time
@@ -116,7 +116,7 @@ packet = monitor.create_packet(addr=0x1000, data=0xDEADBEEF)
 ```
 
 #### `get_observed_packets(count=None)`
-Get observed packets from standard cocotb _recvQ.
+Read packets out of the standard cocotb _recvQ.
 
 **Parameters:**
 - `count`: Number of packets to return (None = all)
@@ -141,7 +141,7 @@ monitor.clear_queue()
 ### Memory Operations
 
 #### `handle_memory_write(packet)`
-Handle memory write using unified memory integration.
+Store a write transaction's data into the memory model.
 
 **Parameters:**
 - `packet`: Packet to write to memory
@@ -155,7 +155,7 @@ if success:
 ```
 
 #### `handle_memory_read(packet)`
-Handle memory read using unified memory integration.
+Fetch expected read data from the memory model.
 
 **Parameters:**
 - `packet`: Packet with address to read
@@ -171,9 +171,7 @@ if success:
 ### Statistics
 
 #### `get_base_stats()`
-Get base statistics common to all GAXI monitoring components.
-
-Subclasses should call this and add their own specific statistics.
+The counters every monitoring component reports. Subclasses call this and layer their own numbers on top.
 
 **Returns:** Dictionary containing base statistics
 
@@ -192,22 +190,24 @@ _finish_packet() → _recv() → Callbacks → Statistics Update
 ```
 
 ### Packet Processing Pipeline
-1. **Signal sampling** using unified DataCollectionStrategy
+1. **Signal sampling** through the unified DataCollectionStrategy
 2. **Data unpacking** with automatic field handling  
 3. **Packet creation** with timing information
-4. **Field population** using packet unpack methods
+4. **Field population** using the packet's own unpack methods
 5. **Statistics update** and callback triggering
 6. **Queue management** using standard cocotb patterns
 
 ### Memory Integration
-- Automatic memory writes for received transactions
-- Memory read support for validation
-- Error handling and logging
-- Statistics collection for memory operations
+- Writes are stored automatically for received transactions
+- Reads are supported for testbench-side validation
+- Failures are logged, not raised — monitoring continues
+- Memory operations show up in the statistics
 
 ## Usage Patterns
 
 ### Creating a Custom Monitor
+
+The shape every custom monitor takes: pick a `protocol_type`, then implement `_monitor_recv()` using the two unified helpers.
 
 ```python
 from CocoTBFramework.components.gaxi.gaxi_monitor_base import GAXIMonitorBase
@@ -465,6 +465,9 @@ class StatisticsMonitor(GAXIMonitorBase):
 ## Integration with CocoTB
 
 ### Callback System
+
+Standard cocotb BusMonitor callbacks — register one and it fires for every received packet.
+
 ```python
 # GAXIMonitorBase uses standard cocotb callback system
 monitor.add_callback(transaction_handler)
@@ -482,6 +485,9 @@ packets = monitor.get_observed_packets()  # Preferred method
 ```
 
 ### Signal Handling
+
+Signal resolution comes from GAXIComponentBase — automatic discovery first, manual `signal_map` when the DUT's naming defeats it.
+
 ```python
 # Automatic signal resolution from GAXIComponentBase
 # Supports both automatic discovery and manual mapping
@@ -502,6 +508,9 @@ except AttributeError as e:
 ```
 
 ### Memory Operations
+
+Memory helpers return a success flag rather than raising — a failed write shouldn't kill observation.
+
 ```python
 # Memory operations return success status
 success = self.handle_memory_write(packet)
@@ -510,6 +519,9 @@ if not success:
 ```
 
 ### Data Collection Errors
+
+X and Z values come back as -1 in the data dictionary. The collection itself keeps going; what you do about the -1 is the test's business.
+
 ```python
 # Data collection handles X/Z values and signal errors
 data_dict = self._get_data_dict()
@@ -518,7 +530,10 @@ data_dict = self._get_data_dict()
 
 ## Best Practices
 
-### 1. **Use Unified Methods**
+### 1. **Use the Unified Helpers**
+
+That's what they're for — the fiddly unpacking and timing code is already written and already tested.
+
 ```python
 # Prefer unified methods over custom implementations
 data_dict = self._get_data_dict()           # Not custom collection
@@ -534,7 +549,7 @@ def safe_signal_access(self):
         return {}  # Return empty dict on signal errors
 ```
 
-### 3. **Use Memory Integration When Available**
+### 3. **Use Memory Integration When You Have a Model**
 ```python
 if self.memory_model:
     success = self.handle_memory_write(packet)
@@ -550,7 +565,7 @@ if packet_count % 100 == 0:
     print(f"Monitored {stats['observed_packets']} packets")
 ```
 
-### 5. **Implement Protocol-Specific Checks**
+### 5. **Add Your Protocol Checks in the Subclass**
 ```python
 class ProtocolSpecificMonitor(GAXIMonitorBase):
     def _validate_transaction(self, packet):
@@ -559,4 +574,4 @@ class ProtocolSpecificMonitor(GAXIMonitorBase):
             self.log.error("Unaligned address detected")
 ```
 
-GAXIMonitorBase provides a solid foundation for GAXI monitoring components, eliminating code duplication while maintaining flexibility for protocol-specific monitoring requirements.
+If you're writing a custom monitor, inherit here and implement `_monitor_recv()`. `_get_data_dict()` and `_finish_packet()` do the fiddly unpacking and timing for you, and the queue and callbacks come from BusMonitor — you're left writing only the parts that are actually about your protocol.

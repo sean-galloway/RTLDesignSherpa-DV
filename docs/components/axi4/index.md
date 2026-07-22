@@ -25,11 +25,11 @@
 
 # AXI4 Components
 
-The AXI4 (AXI4-Full) components provide comprehensive verification capabilities for AXI4 protocol implementations. Built on the robust GAXI infrastructure, these components offer advanced memory-mapped transaction generation, protocol compliance checking, and comprehensive verification features for full AXI4 implementations.
+The AXI4 (AXI4-Full) components are the framework's full-featured memory-mapped BFMs: all five channels, bursts, outstanding transactions, QoS, plus an integrated compliance checker. They sit on the GAXI infrastructure that every protocol component here shares, so the configuration model, memory models, and statistics work the way you'd expect if you've used any of the others.
 
 ## Component Overview
 
-The AXI4 component ecosystem includes specialized interfaces and utilities for comprehensive full AXI4 protocol verification:
+The AXI4 ecosystem, piece by piece:
 
 ### Core Interface Components
 
@@ -57,14 +57,14 @@ The AXI4 component ecosystem includes specialized interfaces and utilities for c
 ### Full AXI4 Protocol Support
 - Complete 5-channel implementation (AR, R, AW, W, B)
 - Master and slave interface support
-- Advanced features: Burst transactions, outstanding transactions, QoS
-- Complete sideband signal support (ID, USER, CACHE, PROT, QOS, REGION)
+- Bursts, outstanding transactions, and QoS
+- Full sideband support: ID, USER, CACHE, PROT, QOS, REGION
 
 ### GAXI Infrastructure Integration
-- Unified field configuration system
+- One field configuration system across the framework
 - Memory model integration for data verification
-- Comprehensive statistics and performance metrics
-- Advanced debugging and transaction logging
+- Statistics and performance metrics collected as tests run
+- Multi-level debug and transaction logging
 - Automatic signal resolution across naming conventions
 
 ### Advanced Verification Features
@@ -120,7 +120,7 @@ await master_write.write_transaction(
 
 ## Protocol Architecture
 
-AXI4 implements a full 5-channel protocol:
+AXI4's five channels, and how they relate:
 
 ```mermaid
 graph TB
@@ -154,7 +154,7 @@ graph TB
 
 ## Advanced Use Cases
 
-### Pipelined Traffic with AXI4Sequence
+### Declarative Traffic with AXI4Sequence
 ```python
 from CocoTBFramework.components.axi4 import AXI4Sequence, run_axi4_sequence
 
@@ -191,4 +191,4 @@ slave_read = AXI4SlaveRead(dut, clk, "s_axi_", memory_model=memory)
 # Writes land in the memory model; reads are served from it
 ```
 
-The AXI4 components provide a complete solution for AXI4-Full protocol verification, combining the power and flexibility of the GAXI infrastructure with AXI4-specific optimizations and advanced features for comprehensive memory-mapped interface testing.
+Everything above is covered in depth in the pages linked from this index — start with the overview if you're new to the component set, or jump straight to the interface references if you just need a signature.

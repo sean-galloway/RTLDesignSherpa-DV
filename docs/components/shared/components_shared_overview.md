@@ -23,11 +23,11 @@
 
 # Shared Components Overview
 
-The shared components directory contains the foundational building blocks used across all protocols in the CocoTBFramework. These components are designed to be protocol-agnostic and provide essential functionality for verification, randomization, statistics collection, and signal management.
+Everything in this directory exists because every protocol family needed it. Packets, field configs, randomization, statistics, memory modeling, signal mapping — the protocol BFMs (GAXI, FIFO, APB, AXI4) are built on top of these pieces, and none of it knows which protocol it's serving. When you find yourself reaching for the same helper in two different testbenches, this is where it belongs.
 
 ## Architecture Overview
 
-The shared components follow a layered architecture:
+The shared components sit between the protocol layers and cocotb itself:
 
 ```mermaid
 graph TB
@@ -57,8 +57,8 @@ graph TB
 
 ## Component Categories
 
-### 🎯 **Packet Management & Data Handling**
-These components handle the core data structures and field management:
+### **Packet Management & Data Handling**
+The core data structures and the fast paths that move field values in and out of them:
 
 - **packet.py**: Thread-safe generic packet class with field caching
 - **packet_factory.py**: Factory pattern for packet creation and management  
@@ -69,11 +69,11 @@ These components handle the core data structures and field management:
 - Protocol-agnostic packet handling
 - Automatic field validation and masking
 - Thread-safe operations for parallel testing
-- Performance optimization through caching
+- Caching where the hot loops are
 - FIFO packing/unpacking support
 
-### 🎲 **Randomization & Configuration**
-Advanced randomization capabilities for directed and constrained testing:
+### **Randomization & Configuration**
+Directed and constrained-random stimulus, from simple weighted bins to field dependencies:
 
 - **flex_randomizer.py**: Multi-mode randomization engine (constrained, sequence, custom)
 - **flex_config_gen.py**: Helper for creating weighted randomization profiles
@@ -85,10 +85,10 @@ Advanced randomization capabilities for directed and constrained testing:
 - Custom generator functions
 - Object bin support (non-numeric values)
 - Dependency management between fields
-- Multiple pre-defined timing profiles
+- Pre-defined timing profiles
 
-### 📊 **Statistics & Monitoring**
-Comprehensive statistics collection for performance analysis:
+### **Statistics & Monitoring**
+The numbers that tell you what the test actually did:
 
 - **master_statistics.py**: Statistics for master/slave components (latency, throughput, errors)
 - **monitor_statistics.py**: Basic monitor statistics (transactions, violations)
@@ -98,23 +98,23 @@ Comprehensive statistics collection for performance analysis:
 - Moving window averages
 - Error categorization and tracking
 - Protocol violation detection
-- Comprehensive reporting
+- Reporting you can paste into a bug ticket
 
-### 💾 **Memory & Storage**
-High-performance memory modeling with diagnostics:
+### **Memory & Storage**
+The memory model your slave BFMs and scoreboards talk to:
 
 - **memory_model.py**: NumPy-based memory with access tracking and region management
 
 **Key Features:**
-- High-performance NumPy backend
-- Comprehensive access tracking
-- Memory region management
+- NumPy backend for bulk operations
+- Per-address access tracking
+- Named region management
 - Boundary checking and validation
 - Coverage analysis
 - Detailed memory dumps
 
-### 🔌 **Protocol Support**
-Protocol-agnostic infrastructure for signal handling and error injection:
+### **Protocol Support**
+Signal discovery and error injection — the infrastructure the protocol BFMs stand on:
 
 - **signal_mapping_helper.py**: Automatic signal discovery and mapping for GAXI/FIFO
 - **protocol_error_handler.py**: Generic error injection for testing error handling
@@ -126,35 +126,36 @@ Protocol-agnostic infrastructure for signal handling and error injection:
 - Error region and transaction management
 - Protocol violation simulation
 
-### 🔧 **Utilities & Debug**
-Helper utilities for development and debugging:
+### **Utilities & Debug**
+The small tools that save debug time:
 
 - **debug_object.py**: Object inspection and detailed logging utilities
 
 ## Design Principles
 
 ### 1. **Protocol Agnostic**
-All shared components are designed to work across different protocols (GAXI, FIFO, APB, AXI4) without modification.
+Nothing in the shared layer knows which protocol it's serving. GAXI, FIFO, APB, AXI4 — the same packet, randomizer, and memory model work for all of them unmodified.
 
 ### 2. **Performance Optimized**
-- Thread-safe caching for high-performance parallel testing
+The optimizations live where the cycles are:
+- Thread-safe caching for parallel testing
 - NumPy backend for memory operations  
 - Pre-computed field validation rules
-- Cached signal references
+- Cached signal references in the per-cycle loops
 
 ### 3. **Flexible Configuration**
-- Rich configuration classes with validation
+- Real configuration classes with validation, not bare dicts
 - Multiple randomization modes
 - Configurable statistics collection
-- Customizable field encoding and formatting
+- Field encoding and formatting hooks
 
 ### 4. **Comprehensive Error Handling**
-- Detailed error messages with caller context
+- Error messages with caller context, not bare exceptions
 - Graceful degradation for optional features
-- Comprehensive validation with helpful suggestions
+- Validation that tells you what's wrong and usually how to fix it
 
 ### 5. **Rich Debugging Support**
-- Detailed logging at multiple levels
+- Logging at multiple levels
 - Object inspection utilities
 - Performance statistics and cache hit rates
 - Rich table formatting for configuration display
@@ -191,38 +192,38 @@ resolver.apply_to_component(component)
 
 ### Cross-Component Integration
 
-The shared components are designed to integrate seamlessly:
+The pieces are designed to fit together, and the seams are deliberate:
 
-- **Packets** work with **PacketFactory** for creation and **FieldConfig** for structure
-- **Randomization** components integrate with **Packets** for field value generation
-- **Statistics** components track operations from **Masters/Slaves/Monitors**
-- **MemoryModel** integrates with **Packets** for transaction-based read/write
-- **SignalResolver** bridges **CocoTB** signals with component attributes
+- **Packets** get their structure from **FieldConfig** and are built by **PacketFactory**
+- **Randomization** components fill **Packet** fields with generated values
+- **Statistics** components count what **Masters/Slaves/Monitors** do
+- **MemoryModel** consumes **Packets** for transaction-based read/write
+- **SignalResolver** bridges **CocoTB** signals to component attributes — the exact handles that **data_strategies** then caches
 
 ## Performance Characteristics
 
 ### Thread Safety
-- All caching mechanisms are thread-safe using RLock
-- Components can be safely used in parallel test environments
+- Caching uses RLock throughout, so components are safe in parallel test environments
 - Statistics collection is atomic and consistent
 
 ### Memory Efficiency  
-- Field caching reduces repeated computation overhead
+- Field caching avoids repeated per-access computation
 - NumPy backend for large memory operations
-- Efficient signal reference caching
-- Moving window statistics to limit memory growth
+- Cached signal references instead of repeated lookups
+- Moving-window statistics so history doesn't grow without bound
 
 ### Performance Gains
+Measured against the naive implementations they replaced:
 - 40% faster data collection through cached signal references
 - 30% faster data driving through cached driving functions  
-- Elimination of repeated hasattr()/getattr() calls
+- No per-cycle `hasattr()`/`getattr()` calls
 - Pre-computed field validation rules
 
 ## Testing & Validation
 
-The shared components include extensive validation:
+The shared components validate their own inputs:
 
-- **Field validation** with helpful error messages
+- **Field validation** with specific error messages
 - **Signal mapping validation** with detailed diagnostics
 - **Memory boundary checking** with overflow protection
 - **Randomization constraint validation** with type checking
@@ -230,20 +231,24 @@ The shared components include extensive validation:
 
 ## Future Extensions
 
-The shared component architecture is designed for easy extension:
+The architecture leaves room to grow:
 
 - New protocol support through signal mapping patterns
 - Additional randomization modes in FlexRandomizer
-- Enhanced statistics collection with custom metrics
+- Custom metrics in the statistics classes
 - Extended memory model features (compression, persistence)
 - Additional debugging and profiling utilities
 
 ## Getting Started
 
+Where to start depends on what you're building:
+
 1. **For Packet Handling**: Start with `field_config.py` and `packet.py`
 2. **For Randomization**: Begin with `flex_randomizer.py` and `flex_config_gen.py` 
 3. **For Memory Testing**: Use `memory_model.py` with your protocol components
-4. **For Signal Mapping**: Leverage `signal_mapping_helper.py` for automatic discovery
+4. **For Signal Mapping**: Start with `signal_mapping_helper.py` for automatic discovery
 5. **For Statistics**: Integrate `master_statistics.py` or `monitor_statistics.py`
 
-Each component includes comprehensive documentation with examples and best practices for integration into your verification environment.
+Each component's page has the full API, examples, and the gotchas worth knowing before you wire it into a testbench.
+
+---

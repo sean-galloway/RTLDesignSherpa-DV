@@ -23,17 +23,17 @@
 
 # Misc Components Index
 
-This section documents miscellaneous components that provide specialized functionality for various verification scenarios in the CocoTBFramework. These components handle specific protocols or monitoring tasks that don't fit into the main protocol categories.
+Everything that doesn't belong to a protocol family lands here. At the moment that's the arbiter monitor — arbitration lives inside buses, schedulers, and DMA engines rather than on a standalone interface, so it gets its own corner of the tree.
 
 > **Note:** These modules live under `src/CocoTBFramework/components/shared/` (e.g. `arbiter_monitor.py`); there is no separate `misc` package in the source tree.
 
 ## Overview
-- [**Overview**](components_misc_overview.md) - Complete overview of the misc components directory
+- [**Overview**](components_misc_overview.md) - What lives here and how these components are meant to be used
 
 ## Components
 
 ### Monitoring Components
-- [**arbiter_monitor.py**](components_misc_arbiter_monitor.md) - Enhanced generic arbiter monitor for round-robin and weighted round-robin arbiters
+- [**arbiter_monitor.py**](components_misc_arbiter_monitor.md) - Arbiter monitor for round-robin and weighted round-robin designs, with fairness scoring and pattern analysis
 
 ## Navigation
 - [**Back to Components**](../components_index.md) - Return to main components index

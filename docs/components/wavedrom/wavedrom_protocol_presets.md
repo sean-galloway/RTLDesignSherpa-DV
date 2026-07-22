@@ -29,17 +29,17 @@
 
 ## Overview
 
-Protocol presets provide pre-configured temporal constraints for standard bus protocols. Each preset includes field configurations, constraint patterns, and boundary detection tuned for the specific protocol.
+Presets are the reason wavedrom setup is measured in minutes instead of days. Each one bundles the field configuration, constraint patterns, and boundary detection for one bus protocol, so "draw me an APB write with wait states" is a preset name, not an afternoon of hand-writing temporal constraints.
 
 ### Available Protocols
 
 | Protocol | File | Template Class | Status |
 |----------|------|----------------|--------|
-| **GAXI** | `gaxi.py` | `GAXIWaveDromTemplate` | ✅ Production |
-| **APB** | `apb.py` | `APBWaveDromTemplate` | ✅ Production |
-| **AXI4** | `axi4.py` | *(manual setup)* | ✅ Ready |
-| **AXI4-Lite** | `axil4.py` | *(manual setup)* | ✅ Ready |
-| **AXI-Stream** | `axis.py` | *(manual setup)* | ✅ Ready |
+| **GAXI** | `gaxi.py` | `GAXIWaveDromTemplate` | Production |
+| **APB** | `apb.py` | `APBWaveDromTemplate` | Production |
+| **AXI4** | `axi4.py` | *(manual setup)* | Ready |
+| **AXI4-Lite** | `axil4.py` | *(manual setup)* | Ready |
+| **AXI-Stream** | `axis.py` | *(manual setup)* | Ready |
 
 !!! note "Wavedrom User Examples"
     The protocol-specific wavedrom user examples (gaxi.py, apb.py, etc.) are located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository under `tbclasses/wavedrom_user/`.
@@ -48,7 +48,7 @@ Protocol presets provide pre-configured temporal constraints for standard bus pr
 
 ## GAXI (Generic AXI) Protocol
 
-**Simple valid/ready handshake - basis for all other protocols**
+**The plain valid/ready handshake the rest of the framework is built on — and the simplest place to start.**
 
 ### Presets
 
@@ -56,7 +56,7 @@ Protocol presets provide pre-configured temporal constraints for standard bus pr
 **Constraints:** 1
 - `handshake`: Detects valid→ready sequences
 
-**Use Case:** Quick verification that transactions occur
+**Use Case:** Sanity check that transactions are happening at all.
 
 ```python
 # Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
@@ -77,7 +77,7 @@ gaxi_wave = GAXIWaveDromTemplate(
 - `stall`: Backpressure (valid=1, ready=0)
 - `idle`: Both signals low
 
-**Use Case:** Full protocol behavior analysis
+**Use Case:** The default for a reason — it covers the behaviors you almost always want to see.
 
 ```python
 preset="comprehensive"  # Most common choice
@@ -89,7 +89,7 @@ preset="comprehensive"  # Most common choice
 - `back2back`: Continuous transfers
 - `stall`: Extended window (100 cycles)
 
-**Use Case:** Throughput optimization, identifying bottlenecks
+**Use Case:** Finding where throughput goes to die — the long stall window catches backpressure that shorter windows clip.
 
 ```python
 preset="performance"
@@ -101,7 +101,7 @@ preset="performance"
 - `stall`: 200 cycle window
 - `idle`: 50 cycle window
 
-**Use Case:** Debugging stuck or misbehaving interfaces
+**Use Case:** The interface is stuck and you don't know why yet. Long windows catch the slow failure.
 
 ```python
 preset="debug"
@@ -132,7 +132,7 @@ config = get_gaxi_field_config(
 
 ## APB (AMBA Peripheral Bus) Protocol
 
-**Register access protocol with setup and access phases**
+**Register access with setup and access phases — two cycles minimum, wait states when the slave needs them.**
 
 ### Presets
 
@@ -141,7 +141,7 @@ config = get_gaxi_field_config(
 - `apb_write_sequence`: PSEL→PWRITE=1→PENABLE→PREADY
 - `apb_read_sequence`: PSEL→PWRITE=0→PENABLE→PREADY
 
-**Use Case:** Basic read/write verification
+**Use Case:** Prove reads and writes work before you care about anything fancier.
 
 ```python
 # Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/apb.py)
@@ -164,7 +164,7 @@ apb_wave = APBWaveDromTemplate(
 - Complete transactions
 - Error responses
 
-**Use Case:** Full APB protocol analysis
+**Use Case:** Full protocol visibility — phases, completions, and error responses in one run.
 
 ```python
 preset="comprehensive"
@@ -178,7 +178,7 @@ preset="comprehensive"
 - Write data changes
 - Read data capture
 
-**Use Case:** Signal activity troubleshooting
+**Use Case:** "Is anything even toggling?" troubleshooting. Start here when the bench is quiet.
 
 ```python
 preset="debug"
@@ -191,7 +191,7 @@ preset="debug"
 - Wait state sequences
 - Complete transactions
 
-**Use Case:** Timing analysis and wait state behavior
+**Use Case:** Wait state behavior and phase timing — the preset you want when the slave's PREADY is the suspect.
 
 ```python
 preset="timing"
@@ -203,7 +203,7 @@ preset="timing"
 - Error transaction (PSLVERR)
 - Wait state sequences
 
-**Use Case:** Error handling verification
+**Use Case:** Verifying PSLVERR handling actually fires when it should.
 
 ```python
 preset="error"
@@ -211,7 +211,7 @@ preset="error"
 
 ### Field Configuration
 
-APB uses utility function:
+APB uses a utility function:
 
 ```python
 from CocoTBFramework.components.wavedrom.utility import get_apb_field_config
@@ -228,7 +228,7 @@ config = get_apb_field_config(
 
 ## AXI4 (Full) Protocol
 
-**5-channel protocol with bursts and out-of-order support**
+**Five channels, bursts, ID-based reordering — the constraints track each channel's handshake plus WLAST/RLAST.**
 
 ### Presets
 
@@ -238,7 +238,7 @@ config = get_apb_field_config(
 - `w_handshake`: Write data channel (with WLAST)
 - `b_handshake`: Write response channel
 
-**Use Case:** Write transaction verification
+**Use Case:** The write path end to end — address, data, response.
 
 ```python
 # Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/axi4.py)
@@ -258,7 +258,7 @@ setup_axi4_constraints_with_boundaries(
 - `ar_handshake`: Read address channel
 - `r_handshake`: Read data channel (with RLAST)
 
-**Use Case:** Read transaction verification
+**Use Case:** The read path — address out, data back with RLAST.
 
 ```python
 preset_name="read_basic"
@@ -269,7 +269,7 @@ preset_name="read_basic"
 - All write_basic constraints
 - All read_basic constraints
 
-**Use Case:** Full AXI4 protocol analysis
+**Use Case:** All five channels in one run. Expect a lot of output; that's the point.
 
 ```python
 preset_name="comprehensive"
@@ -279,7 +279,7 @@ preset_name="comprehensive"
 **Constraints:** 5 (all with 100 cycle windows)
 - Extended windows for all channels
 
-**Use Case:** Debugging hung transactions
+**Use Case:** Hung transactions — the long windows catch the handshake that never completes.
 
 ```python
 preset_name="debug"
@@ -287,7 +287,7 @@ preset_name="debug"
 
 ### Field Configuration
 
-Uses AXI4 field config helper:
+AXI4 has its own field config helper, one config per channel:
 
 ```python
 from CocoTBFramework.components.axi4.axi4_field_configs import get_axi4_field_configs
@@ -306,6 +306,8 @@ w_config = field_configs['W']
 ```
 
 ### Manual Setup (No Template Class Yet)
+
+AXI4 doesn't have a template wrapper, so you wire the solver yourself. One sharp edge to know about: auto-binding currently only supports the read channels (`axi4_read`), so write-channel signals get bound by hand:
 
 ```python
 from CocoTBFramework.components.wavedrom.constraint_solver import TemporalConstraintSolver
@@ -335,7 +337,7 @@ setup_axi4_constraints_with_boundaries(
 
 ## AXI4-Lite Protocol
 
-**Simplified AXI4 (no bursts, single outstanding transaction)**
+**AXI4 with the interesting parts removed: no bursts, no IDs, one outstanding transaction.**
 
 ### Presets
 
@@ -380,7 +382,7 @@ setup_axil4_constraints_with_boundaries(
 
 ## AXI-Stream (AXIS) Protocol
 
-**Data streaming with optional packet boundaries (TLAST)**
+**Data streaming with optional packet boundaries — TLAST is where one packet ends and the next begins.**
 
 ### Presets
 
@@ -388,7 +390,7 @@ setup_axil4_constraints_with_boundaries(
 **Constraints:** 1
 - `handshake`: TVALID→TREADY sequences
 
-**Use Case:** Verify stream is flowing
+**Use Case:** Confirm the stream is flowing at all.
 
 ```python
 # Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/axis.py)
@@ -411,7 +413,7 @@ setup_axis_constraints_with_boundaries(
 - `stall`: Backpressure
 - `idle`: Both low
 
-**Use Case:** Full stream behavior analysis
+**Use Case:** Stream behavior including packet boundaries — the preset that shows you TLAST placement, not just data movement.
 
 ```python
 preset_name="comprehensive"
@@ -423,7 +425,7 @@ preset_name="comprehensive"
 - `back2back`: Continuous transfers
 - `stall`: Extended window (100 cycles)
 
-**Use Case:** Throughput optimization
+**Use Case:** Throughput work — where the stream stalls and for how long.
 
 ```python
 preset_name="performance"
@@ -435,7 +437,7 @@ preset_name="performance"
 - `stall`: 200 cycles
 - `idle`: 50 cycles
 
-**Use Case:** Debugging stuck streams
+**Use Case:** A stream that's backed up or dead, cause unknown.
 
 ```python
 preset_name="debug"
@@ -477,12 +479,14 @@ config = get_axis_field_config(
 | **Bursts** | No | No | Yes | No | Implicit |
 | **Out-of-Order** | No | No | Yes (ID-based) | No | Optional (TID) |
 | **Packet Boundary** | No | No | WLAST/RLAST | No | TLAST |
-| **Complexity** | ⭐ Simple | ⭐⭐ Moderate | ⭐⭐⭐⭐⭐ Complex | ⭐⭐⭐ Moderate | ⭐⭐ Simple |
-| **Template Class** | ✅ Yes | ✅ Yes | ❌ No | ❌ No | ❌ No |
+| **Complexity** | Simple | Moderate | High | Moderate | Low |
+| **Template Class** | Yes | Yes | No | No | No |
 
 ---
 
 ## Creating Custom Presets
+
+A preset is just a dictionary of constraints — the factory functions do the tedious part. Building your own mix is unglamorous but easy:
 
 ### Example: Custom GAXI Preset
 

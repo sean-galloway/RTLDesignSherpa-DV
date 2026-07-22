@@ -1,37 +1,37 @@
 # AXIS5 Components Overview
 
-The CocoTBFramework AXIS5 components provide comprehensive support for AXI5-Stream protocol verification and transaction generation. Built on the proven GAXI infrastructure and extending the existing AXIS4 components, these components offer a consistent and powerful interface for stream protocol testing with AMBA5-specific extensions for power management and data integrity.
+The AXIS5 components bring AXI5-Stream support to the framework: master, slave, monitor, and packet classes with the two AMBA5 additions — TWAKEUP power signaling and TPARITY data protection — built in. They inherit from the AXIS4 components and sit on the same GAXI substrate as everything else here, so moving an existing AXIS4 testbench to AXIS5 is mostly a matter of changing class names.
 
 ## Key Differences from AXIS4
 
-AXI5-Stream extends AXI4-Stream with two significant additions focused on power management and data integrity:
+AXI5-Stream adds two signals to AXI4-Stream, aimed at two different problems — power management and data integrity:
 
 **Added Signals**:
-- `TWAKEUP` -- Wake-up signaling for power management coordination (1 bit). Allows a master to signal a slave to exit a low-power state before data transfer begins.
-- `TPARITY` -- Data parity protection (1 bit per data byte). Provides per-byte **odd** parity checking for TDATA integrity verification, per the AMBA AXI5-Stream specification.
+- `TWAKEUP` — wake-up signaling for power management coordination (1 bit). Lets a master warn a slave to come out of a low-power state before data starts moving.
+- `TPARITY` — data parity protection (1 bit per data byte). Per-byte **odd** parity checking for TDATA integrity, per the AMBA AXI5-Stream specification.
 
-**Backward Compatibility**: AXIS5 components extend AXIS4 components directly. All AXIS4 signals (TDATA, TSTRB, TLAST, TID, TDEST, TUSER, TVALID, TREADY) remain unchanged. Existing AXIS4 testbenches can be upgraded to AXIS5 by changing the component class with minimal code changes.
+**Backward Compatibility**: AXIS5 components extend the AXIS4 components directly. All AXIS4 signals (TDATA, TSTRB, TLAST, TID, TDEST, TUSER, TVALID, TREADY) are unchanged, and all AXIS4 APIs keep working. Upgrading an AXIS4 testbench is a class-name change, not a rewrite.
 
 ## Framework Integration
 
 ### GAXI Infrastructure Foundation
 
-The AXIS5 components inherit from the robust GAXI framework through their AXIS4 parent classes, providing:
+The AXIS5 components reach the GAXI framework through their AXIS4 parents, and that's where the heavy lifting lives:
 
-**Unified Field Configuration**: Complete integration with the CocoTBFramework field configuration system for flexible packet structures
-**Memory Model Support**: Seamless integration with memory models for data verification and complex test scenarios
-**Statistics Integration**: Comprehensive performance metrics and transaction tracking, extended with AXIS5-specific counters
-**Signal Resolution**: Automatic signal detection and mapping across different naming conventions, including TWAKEUP and TPARITY
-**Advanced Debugging**: Multi-level debugging capabilities with detailed transaction logging
+**Unified Field Configuration**: packet layouts come from the framework's field configuration system — widths and sidebands are declarations, not code
+**Memory Model Support**: received traffic can land in a memory model for checking against expected data
+**Statistics Integration**: the standard performance and transaction counters, extended with AXIS5-specific ones
+**Signal Resolution**: automatic signal detection across naming conventions, TWAKEUP and TPARITY included
+**Advanced Debugging**: multi-level debug logging with per-transaction detail when you turn it up
 
 ### Stream Protocol Specialization
 
-While inheriting GAXI's power through AXIS4, AXIS5 components add:
+On top of what AXIS4 already provides, AXIS5 adds:
 
-**Wake-up Signaling**: Master-driven power management coordination with configurable hold cycles
-**Parity Protection**: Automatic per-byte odd parity generation and checking (AMBA AXI5-Stream TPARITY)
-**Extended Protocol Monitoring**: AXIS5-specific violation detection including parity errors and wakeup protocol violations
-**Power State Tracking**: Wakeup event history and timing analysis
+**Wake-up Signaling**: master-driven power coordination with a configurable hold time
+**Parity Protection**: automatic per-byte odd parity generation and checking (the AMBA AXI5-Stream TPARITY convention)
+**Extended Protocol Monitoring**: AXIS5-specific violation detection — parity errors and wakeup sequencing problems
+**Power State Tracking**: a timestamped history of wakeup events
 
 ## Core Components Architecture
 
@@ -76,70 +76,70 @@ graph TB
 
 ### AXIS5Master - Stream Data Generation with Wake-up and Parity
 
-The `AXIS5Master` component drives AXI5-Stream protocol as a master (source):
+The `AXIS5Master` drives AXI5-Stream as a master (source):
 
 **Wake-up Signaling**:
-- **TWAKEUP Assertion**: Configurable wake-up signaling before data transfer
-- **Hold Cycle Control**: Programmable number of clock cycles for TWAKEUP assertion
-- **Automatic Coordination**: Wake-up automatically asserted before first packet in a stream
+- **TWAKEUP Assertion**: wake-up signaling ahead of a transfer, on demand or automatic
+- **Hold Cycle Control**: programmable number of clock cycles for the TWAKEUP assertion
+- **Automatic Coordination**: wake-up is asserted automatically before the first packet of a stream
 
 **Parity Generation**:
-- **Automatic Calculation**: Per-byte odd parity computed for TDATA
-- **Error Injection**: Programmable parity error injection for testing error handling
-- **Transparent Operation**: Parity added without affecting data flow
+- **Automatic Calculation**: per-byte odd parity computed over TDATA
+- **Error Injection**: corrupt parity on purpose to exercise the DUT's error handling
+- **Transparent Operation**: parity rides along without changing the data flow
 
 **Inherited AXIS4 Features**:
-- **Packet-Based Transmission**: Variable-length packets with TLAST boundaries
-- **Flow Control**: Intelligent TREADY backpressure handling
+- **Packet-Based Transmission**: variable-length packets delimited by TLAST
+- **Flow Control**: respects TREADY backpressure, with a configurable timeout
 - **Multi-Stream Support**: TID-based stream identification
-- **Byte-Level Control**: TSTRB byte-level data control
+- **Byte-Level Control**: TSTRB byte enables
 
 ### AXIS5Slave - Stream Data Reception with Wake-up Detection and Parity Checking
 
-The `AXIS5Slave` component receives AXI5-Stream protocol as a slave (sink):
+The `AXIS5Slave` receives AXI5-Stream as a slave (sink):
 
 **Wake-up Detection**:
-- **TWAKEUP Monitoring**: Continuous monitoring of wake-up signal
-- **Event Tracking**: Timestamped wakeup event history
-- **Background Monitoring**: Automatic cocotb coroutine for non-intrusive detection
+- **TWAKEUP Monitoring**: continuous monitoring of the wake-up signal
+- **Event Tracking**: timestamped history of wakeup events
+- **Background Monitoring**: a cocotb coroutine does the watching, so your test doesn't have to
 
 **Parity Checking**:
-- **Automatic Verification**: Per-byte parity checking on received data
-- **Error Reporting**: Parity error detection with detailed logging
-- **Error Statistics**: Pass/fail counters and error rate calculation
-- **Packet Marking**: Received packets marked with parity error status
+- **Automatic Verification**: per-byte parity checked on received data
+- **Error Reporting**: parity errors detected and logged with the details
+- **Error Statistics**: pass/fail counters and an error rate
+- **Packet Marking**: received packets are marked with their parity error status
 
 **Inherited AXIS4 Features**:
 - **Automatic Handshaking**: TVALID/TREADY protocol handling
-- **Packet Assembly**: Automatic frame boundary detection using TLAST
-- **Memory Integration**: Direct memory model integration
+- **Packet Assembly**: frame boundaries detected from TLAST
+- **Memory Integration**: direct memory model integration
 
 ### AXIS5Monitor - Protocol Analysis with Extended Checking
 
-The `AXIS5Monitor` component provides comprehensive AXIS5 protocol monitoring.
+The `AXIS5Monitor` watches the bus and checks both generations of the protocol.
 
-**Structure**: `AXIS5Monitor` → `AXISMonitor` → `GAXIMonitor`. The GAXI receive loop is the only sampling path; AXIS5 adds behaviour through `_build_packet` (real `AXIS5Packet` instances with this monitor's wakeup/parity options) and `_axis_packet_observed` (parity verification and AXIS5 protocol checks, before the inherited AXIS4 frame tracking). The TWAKEUP observer remains a separate background coroutine because it watches a sideband signal rather than the data handshake.
+**Structure**: `AXIS5Monitor` → `AXISMonitor` → `GAXIMonitor`. The GAXI receive loop is the only sampling path; AXIS5 adds behaviour through `_build_packet` (real `AXIS5Packet` instances with this monitor's wakeup/parity options) and `_axis_packet_observed` (parity verification and AXIS5 protocol checks, ahead of the inherited AXIS4 frame tracking). TWAKEUP gets its own background coroutine because it's a sideband signal, not part of the data handshake.
 
 **Wake-up Observation**:
-- **Signal Tracking**: Full TWAKEUP assert/deassert history with timestamps
-- **Protocol Compliance**: Wakeup-before-transfer sequence verification
-- **Statistics Collection**: Wakeup event counts and violation tracking
+- **Signal Tracking**: full TWAKEUP assert/deassert history with timestamps
+- **Protocol Compliance**: verifies wakeup actually precedes the transfer
+- **Statistics Collection**: wakeup event counts and violation tracking
 
 **Parity Verification**:
-- **Non-Intrusive Checking**: Parity verification without affecting data flow
-- **Error Logging**: Detailed parity error reports with expected vs actual values
-- **Coverage Tracking**: Parity check pass/fail statistics
+- **Non-Intrusive Checking**: parity verified without affecting data flow
+- **Error Logging**: expected-vs-actual detail on every parity error
+- **Coverage Tracking**: parity pass/fail statistics
 
 **Extended Protocol Monitoring**:
-- **AXIS5-Specific Violations**: Parity width mismatch detection, wakeup protocol violations
-- **Combined Violation Counts**: Both AXIS4 and AXIS5 violation tracking
-- **Wakeup History**: Complete timeline of wakeup events for analysis
+- **AXIS5-Specific Violations**: parity width mismatches, wakeup protocol violations
+- **Combined Violation Counts**: AXIS4 and AXIS5 violations tracked together
+- **Wakeup History**: the full wakeup timeline for post-test analysis
 
 ## Field Configuration System
 
 ### AXIS5FieldConfigs - Protocol Adaptation
 
-The field configuration system enables flexible AXIS5 protocol adaptation:
+Field configs are how you describe your particular flavor of AXIS5 — widths, sidebands, and whether the AMBA5 extensions are present:
 
 **Configuration Methods**:
 ```python
@@ -176,6 +176,8 @@ config = AXIS5FieldConfigs.create_full_axis5_config(data_width=32)
 
 ### Basic Stream Testing
 
+Master, slave, and monitor created through the factories, then a wakeup-annotated stream:
+
 ```python
 from CocoTBFramework.components.axis5 import (
     create_axis5_master, create_axis5_slave, create_axis5_monitor
@@ -205,6 +207,8 @@ await master['interface'].send_stream_data_with_wakeup(
 
 ### Wake-up Protocol Testing
 
+Wakeup can be armed explicitly on the master and observed on the far side:
+
 ```python
 # Request wakeup before next transfer
 master['interface'].request_wakeup()
@@ -221,6 +225,8 @@ last_wakeup_time = slave['interface'].get_last_wakeup_time()
 
 ### Parity Error Injection and Detection
 
+Injection on the master, detection on the slave — the pairing you want for error-handling tests:
+
 ```python
 # Enable parity error injection on master
 master['interface'].inject_parity_error(enable=True)
@@ -236,6 +242,8 @@ assert stats['parity_errors_detected'] > 0
 ```
 
 ### Complete Testbench Setup
+
+One call builds the whole bench:
 
 ```python
 from CocoTBFramework.components.axis5 import create_axis5_testbench
@@ -266,7 +274,7 @@ summary = get_axis5_stats_summary(components)
 
 ### Statistics Key Structure
 
-AXIS5 components extend AXIS4 statistics with additional fields:
+AXIS5 components keep all the AXIS4 statistics and add their own:
 
 ```python
 stats = component.get_stats()
@@ -287,6 +295,8 @@ parity_passed = stats.get('parity_checks_passed', 0)
 
 ### Monitor-Specific Statistics
 
+The monitor breaks parity and wakeup out into their own dictionaries:
+
 ```python
 # Parity statistics
 parity_stats = monitor.get_parity_stats()
@@ -306,6 +316,8 @@ history = monitor.get_wakeup_history()
 ## Configuration Examples
 
 ### Hardware Parameter Matching
+
+Match the component widths to your RTL parameters and the BFM lines up with the SystemVerilog interface:
 
 ```python
 # Match SystemVerilog AXIS5 interface parameters
@@ -330,6 +342,8 @@ master = create_axis5_master(
 
 ### Simple Data Pipe Configuration
 
+If your interface is just data with no sidebands, use the simple factories:
+
 ```python
 from CocoTBFramework.components.axis5 import (
     create_simple_axis5_master, create_simple_axis5_slave
@@ -347,4 +361,4 @@ slave = create_simple_axis5_slave(
 )
 ```
 
-The AXIS5 components provide a comprehensive, backward-compatible extension of the AXIS4 infrastructure with power management and data integrity features, combining the power of the GAXI infrastructure with AXI5-Stream-specific optimizations for complete next-generation stream interface testing.
+Everything here is additive. If you know the AXIS4 components you already know most of this API, and the GAXI substrate underneath is the same one the rest of the framework runs on. Turn parity on when you need data integrity, use wakeup when your DUT sleeps, and leave both off when you don't.

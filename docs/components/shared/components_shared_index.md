@@ -23,7 +23,7 @@
 
 # Shared Components Index
 
-This directory contains the core shared components used across all protocols in the CocoTBFramework. These components provide essential functionality for packet handling, randomization, statistics, memory modeling, and signal mapping.
+The shared layer: packets, randomization, statistics, memory modeling, and signal mapping that every protocol family in the CocoTBFramework builds on. Nothing in here knows or cares whether you're verifying GAXI, APB, or AXI4 — that's the point.
 
 ## Overview
 - [**Overview**](components_shared_overview.md) - Complete overview of the shared components directory
@@ -57,3 +57,5 @@ This directory contains the core shared components used across all protocols in 
 
 ## Navigation
 - [**Back to CocoTBFramework**](../components_index.md) - Return to main framework index
+
+---

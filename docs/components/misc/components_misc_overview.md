@@ -23,13 +23,13 @@
 
 # Misc Components Overview
 
-The misc components section covers specialized verification components that provide functionality for protocols and scenarios not covered by the main protocol categories (GAXI, FIFO, APB, AXI4). These components are designed to handle specific monitoring and verification tasks for various hardware designs.
+The misc section is where verification components live when they don't belong to a protocol family. Arbitration is the current example: it shows up *inside* designs — bus fabrics, schedulers, DMA engines — rather than on a port you can hang a BFM on, so it doesn't fit under GAXI, FIFO, APB, or AXI4. It still needs verifying, though, and arbiters have a real talent for failing quietly.
 
 > **Note:** These modules live under `src/CocoTBFramework/components/shared/` (e.g. `arbiter_monitor.py`); import them from `CocoTBFramework.components.shared`.
 
 ## Architecture Overview
 
-The misc components follow the same design principles as other CocoTBFramework components:
+Misc components build on the same shared infrastructure as everything else in the framework — different problem, same foundation:
 
 ```mermaid
 graph TB
@@ -53,56 +53,57 @@ graph TB
 
 ## Current Components
 
-### 🎯 **Arbiter Monitoring**
-Components for monitoring arbitration logic and fairness analysis:
+### **Arbiter Monitoring**
 
-- **arbiter_monitor.py**: Enhanced generic arbiter monitor supporting both round-robin and weighted round-robin arbiters
+Monitors that sit on arbitration logic and grade its behavior — fairness, order, weight compliance:
+
+- **arbiter_monitor.py**: Round-robin and weighted round-robin monitoring, built on a shared base with per-scheme analysis
 
 **Key Features:**
-- Transaction tracking with timing information
-- Fairness analysis using Jain's fairness index
-- Pattern compliance verification
-- Real-time statistics collection
-- Support for multiple arbiter types
-- Configurable callbacks for events
-- Comprehensive error handling
+- Full transaction records with request-to-grant timing
+- Fairness scoring via Jain's fairness index
+- Round-robin order and weight compliance checking
+- Statistics you can poll while the test runs
+- Callbacks for transaction and reset events
 
 ## Design Principles
 
 ### 1. **Specialized Functionality**
-Each misc component addresses specific verification needs that don't fit into standard protocol categories.
+Each component here does one job that doesn't fit a protocol category. If it could live under GAXI, it would.
 
 ### 2. **Reusable Design**
-Components are designed to be easily integrated into various testbenches and verification environments.
+Nothing here is tied to a particular DUT. Hand the component your signal handles and it works in any testbench with the same kind of logic.
 
-### 3. **Comprehensive Monitoring**
-Monitors provide detailed statistics, timing analysis, and behavioral verification capabilities.
+### 3. **Thorough Monitoring**
+Counting grants isn't enough — that's a waveform viewer with extra steps. Components here record transactions: who asked, who won, how long they waited.
 
 ### 4. **Event-Driven Architecture**
-Components use callback mechanisms for flexible integration with different verification flows.
+Components report through callbacks, so you can feed a scoreboard, a coverage model, or your own analysis without subclassing anything.
 
-### 5. **Performance Optimized**
-Efficient signal monitoring and data collection for minimal simulation impact.
+### 5. **Performance**
+Monitors sample on the clock and keep bounded history, so leaving one attached for a million-cycle soak test is not going to hurt.
 
 ## Component Categories
 
 ### Arbitration Monitoring
-Components that monitor arbitration logic, analyze fairness, and verify priority schemes.
+Components that watch arbitration logic, measure fairness, and check priority schemes.
 
 **Current Components:**
-- `ArbiterMonitor`: Base class for generic arbiter monitoring
-- `RoundRobinArbiterMonitor`: Specialized for round-robin arbiters
-- `WeightedRoundRobinArbiterMonitor`: Specialized for weighted round-robin arbiters
+- `ArbiterMonitor`: the base monitor — scheme-agnostic recording and statistics
+- `RoundRobinArbiterMonitor`: adds round-robin rotation checking
+- `WeightedRoundRobinArbiterMonitor`: adds weight compliance analysis
 
 **Common Use Cases:**
-- Verifying arbiter fairness in multi-master systems
-- Analyzing arbitration patterns and compliance
-- Performance monitoring of arbitration logic
-- Debugging priority violations
+- Catching starvation in multi-master systems
+- Checking that a "round-robin" arbiter actually rotates
+- Verifying grant distribution against programmed weights
+- Debugging priority violations from a transaction record instead of a waveform
 
 ## Integration Patterns
 
 ### Typical Usage Flow
+
+Every integration has the same shape — construct, hook up callbacks, start, analyze:
 
 ```python
 # 1. Create arbiter monitor
@@ -130,7 +131,7 @@ stats = arbiter_monitor.get_stats_summary()
 
 ## Future Extensions
 
-The misc components directory is designed for easy extension with additional specialized components:
+This directory is the landing spot for new non-protocol components. On the list:
 
 ### Planned Component Types
 - **Protocol Bridges**: Monitors for protocol conversion interfaces
@@ -140,47 +141,47 @@ The misc components directory is designed for easy extension with additional spe
 - **Debug Interfaces**: Monitors for debug protocols (JTAG, etc.)
 
 ### Extension Guidelines
-New misc components should:
-1. Follow the established CocoTBFramework patterns
-2. Provide comprehensive statistics and analysis
-3. Include proper error handling and validation
-4. Support callback mechanisms for integration
-5. Include thorough documentation and examples
+If you're adding a component here:
+1. Follow the framework's existing patterns — signal handling, callbacks, `start_monitoring()`
+2. Record real statistics, not just event counts
+3. Fail loudly on missing signals and malformed data
+4. Report through callbacks so others can integrate without subclassing
+5. Document the API with working examples, the way these pages do
 
 ## Performance Characteristics
 
 ### Signal Monitoring
-- Efficient edge detection for minimal simulation overhead
-- Proper signal sampling timing to avoid race conditions
-- Robust handling of X/Z states and signal resolution
+- Edge-based sampling keeps simulation overhead low
+- Sampling timing is arranged to avoid races with DUT outputs
+- X/Z states during reset don't turn into phantom transactions
 
 ### Memory Efficiency
-- Bounded data structures to prevent memory growth
-- Configurable history limits for long-running tests
-- Efficient storage of transaction records
+- Bounded history, so long tests can't grow storage without limit
+- History depth is configurable when you need less (or more)
+- Transaction records are plain data, cheap to keep around
 
 ### Real-time Analysis
-- Live statistics calculation during simulation
-- Streaming analysis capabilities for large datasets
-- Minimal impact on simulation performance
+- Statistics update as transactions complete, not at end of test
+- Fairness and per-client numbers are queryable mid-simulation
+- The monitor's own overhead stays out of the DUT's way
 
 ## Testing Strategy
 
-Misc components include validation through:
-- Unit tests for individual component functionality
-- Integration tests with real arbiter designs
-- Performance benchmarks to ensure minimal overhead
-- Compatibility tests across different CocoTB versions
+These components get the same treatment as the rest of the framework:
+- Unit tests for the component logic
+- Integration tests against real arbiter designs
+- Performance benchmarks to keep monitoring overhead honest
+- Compatibility tests across cocotb versions
 
 ## Getting Started
 
-1. **For Arbiter Monitoring**: Start with `arbiter_monitor.py`
-2. **For Custom Components**: Use existing components as templates
-3. **For Integration**: Follow the standard CocoTBFramework patterns
-4. **For Extensions**: Refer to the design principles and guidelines
+1. **Monitoring an arbiter**: Start with `arbiter_monitor.py`
+2. **Writing something new**: Use an existing component as the template
+3. **Integrating**: The patterns are the same as the rest of the framework
+4. **Extending**: Follow the design principles and guidelines above
 
-Each component includes comprehensive documentation with examples, API references, and best practices for integration into verification environments.
+Each component page has the full API, working examples, and the integration notes to go with them.
 
 ## Component Documentation
 
-- [**arbiter_monitor.py**](components_misc_arbiter_monitor.md): Complete API reference and usage examples for arbiter monitoring components
+- [**arbiter_monitor.py**](components_misc_arbiter_monitor.md): Complete API reference and usage examples for the arbiter monitors

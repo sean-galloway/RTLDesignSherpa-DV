@@ -1,14 +1,14 @@
 # AXIS5Packet Class
 
-The `AXIS5Packet` class extends the `AXISPacket` class with AXI5-Stream-specific fields for wake-up signaling and data parity protection. It also includes the `AXIS5Transaction` class for randomized transaction generation.
+`AXIS5Packet` is `AXISPacket` plus the AMBA5 fields: a wakeup bit, per-byte parity, and a `parity_error` flag for recording check results. This page also covers `AXIS5Transaction`, the randomized generator that produces these packets.
 
 ## Key Differences from AXIS4 Packet
 
 - **Added fields**: `wakeup` (1 bit), `parity` (1 bit per data byte), `parity_error` (1 bit)
-- **Parity support**: Automatic per-byte odd parity calculation and verification (per the AMBA AXI5-Stream TPARITY convention)
-- **Wakeup support**: Wake-up signal state tracking in the packet
-- **Backward compatibility**: All AXIS4 fields (data, strb, last, id, dest, user) remain unchanged
-- **Conversion**: `to_axis4_packet()` method for dropping AXIS5 extensions
+- **Parity support**: automatic per-byte odd parity calculation and verification, per the AMBA AXI5-Stream TPARITY convention
+- **Wakeup support**: the wake-up signal state travels with the packet
+- **Backward compatibility**: all AXIS4 fields (data, strb, last, id, dest, user) are unchanged
+- **Conversion**: `to_axis4_packet()` drops the AXIS5 extras when you need a plain AXIS4 packet
 
 ## AXIS5Packet
 
@@ -35,7 +35,7 @@ class AXIS5Packet(AXISPacket):
 
 #### `create_axis5_field_config(data_width, id_width, dest_width, user_width, enable_wakeup, enable_parity) -> FieldConfig`
 
-Create a field configuration for AXIS5 packets.
+Builds a field configuration for AXIS5 packets.
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
@@ -72,25 +72,25 @@ Create a field configuration for AXIS5 packets.
 
 #### `calculate_parity() -> int`
 
-Calculate the expected TPARITY for the current data field value. Uses per-byte **odd** parity (1 parity bit per data byte), matching the AMBA AXI5-Stream specification.
+The expected TPARITY for the current data field value: per-byte **odd** parity, one parity bit per data byte, matching the AMBA AXI5-Stream specification.
 
 **Returns**: Calculated parity value.
 
-**Algorithm**: For each byte of data, count the number of set bits. The parity bit is chosen so that the byte plus its parity bit have an odd total number of ones — i.e. the parity bit is the inverted XOR of the byte's bits (0 when the byte has an odd number of ones, 1 when it has an even number). The standalone helper `calculate_odd_parity(data_value, num_bytes)` (exported from `axis5_packet`) implements the same math and is reused by the slave and monitor.
+**Algorithm**: For each byte of data, count the set bits. The parity bit is chosen so the byte plus its parity bit carry an odd total number of ones — it is the inverted XOR of the byte's bits (0 when the byte already has an odd number of ones, 1 when it has an even number). The standalone helper `calculate_odd_parity(data_value, num_bytes)` (exported from `axis5_packet`) does the same math and is reused by the slave and monitor.
 
 #### `check_parity() -> bool`
 
-Check if the stored parity matches the calculated odd parity for the current data.
+Compares the stored parity against the calculated odd parity for the current data.
 
-**Returns**: `True` if parity is correct (or parity is disabled), `False` if mismatch.
+**Returns**: `True` if parity is correct (or parity is disabled), `False` on mismatch.
 
 #### `copy() -> AXIS5Packet`
 
-Create a copy of the packet. Unlike the base `Packet.copy()`, this override **preserves the AXIS5 constructor options** (`data_width`, `enable_wakeup`, `enable_parity`) as well as all field values and timing. This matters for parity: a copy of a packet with a deliberately corrupted parity value still reports `check_parity() == False`, because the copy keeps `enable_parity` enabled.
+Copies the packet. Unlike the base `Packet.copy()`, this override **keeps the AXIS5 constructor options** (`data_width`, `enable_wakeup`, `enable_parity`) along with all field values and timing. That matters for parity: copy a packet whose parity was deliberately corrupted and the copy still reports `check_parity() == False`, because it keeps `enable_parity` enabled.
 
 #### `set_wakeup(enable=True)`
 
-Set the wakeup signal state.
+Sets the wakeup signal state.
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
@@ -98,15 +98,13 @@ Set the wakeup signal state.
 
 #### `is_wakeup_active() -> bool`
 
-Check if the wakeup signal is active in this packet.
-
-**Returns**: `True` if wakeup is asserted.
+True if wakeup is asserted in this packet.
 
 #### `to_axis4_packet() -> AXISPacket`
 
-Convert this AXIS5 packet to an AXIS4 packet by dropping AXIS5-specific fields (wakeup, parity, parity_error).
+Converts to an AXIS4 packet by dropping the AXIS5-specific fields (wakeup, parity, parity_error).
 
-**Returns**: `AXISPacket` with core fields copied.
+**Returns**: `AXISPacket` with the core fields copied over.
 
 ## Usage Examples
 
@@ -178,7 +176,7 @@ assert not hasattr(axis4_pkt, 'wakeup')  # AXIS5 field removed
 
 ## AXIS5Transaction
 
-Transaction generator with randomization support for creating sequences of AXIS5 packets.
+A randomized generator for AXIS5 traffic — call `next()` and it hands you packets, so you don't have to hand-write each one.
 
 ### Class Signature
 
@@ -211,13 +209,13 @@ When no randomizer is provided, a default `FlexRandomizer` is created with:
 
 #### `next() -> AXIS5Packet`
 
-Generate the next random transaction packet. If parity is enabled, parity is automatically calculated.
+Generates the next random transaction packet. If parity is enabled, it's calculated automatically.
 
 **Returns**: New `AXIS5Packet` with randomized values.
 
 #### `create_packet(data, last=0, id=0, dest=0, user=0, wakeup=0, strb=None) -> AXIS5Packet`
 
-Create a packet with specific (non-random) values.
+Builds a packet with specific values instead of random ones — the directed-test counterpart to `next()`.
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
@@ -229,7 +227,7 @@ Create a packet with specific (non-random) values.
 | `wakeup` | int | Wakeup signal | `0` |
 | `strb` | int | Strobe value (full strobe if None) | `None` |
 
-**Returns**: `AXIS5Packet` with specified values and auto-calculated parity (if enabled).
+**Returns**: `AXIS5Packet` with the specified values and auto-calculated parity (if enabled).
 
 ### Usage Examples
 

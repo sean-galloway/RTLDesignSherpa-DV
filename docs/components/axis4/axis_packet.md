@@ -23,7 +23,7 @@
 
 # AXISPacket
 
-The `AXISPacket` class provides comprehensive data structure management for AXI4-Stream protocol transactions. Built on the GAXI packet infrastructure, it offers convenient field access, byte-level manipulation, and automatic data validation for stream protocol verification.
+`AXISPacket` is the transaction object for AXI4-Stream: one instance is one beat on the T channel. It inherits its machinery from `GAXIPacket` and adds the stream-flavored parts — plain properties for `data`, `strb`, `last` and the sidebands, byte-level packing and unpacking, and TLAST queries. You'll build these by hand when you drive the master, and the slave and monitor hand them back to you on the receive side.
 
 ## Class Overview
 
@@ -49,7 +49,7 @@ class AXISPacket(GAXIPacket):
 
 ### `__init__(*args, **kwargs)`
 
-Initialize an AXIS packet with optional field configuration.
+Create a packet. The `field_config` is what tells it how wide each field is — pass the same config you gave the components.
 
 **Parameters:**
 - **`field_config`** (AXISFieldConfigs) - Field configuration defining signal widths
@@ -68,13 +68,13 @@ packet = AXISPacket(field_config=config, timestamp=get_sim_time())
 
 ## Field Properties
 
-All AXIS packet fields are accessible through convenient properties with automatic type handling.
+Every field is a plain property — read it, assign it, done. The field configuration handles the typing and width behavior underneath.
 
 ### Core Data Fields
 
 #### `data` (property)
 
-Stream data payload - the primary data being transmitted.
+The payload — the TDATA value for this beat.
 
 ```python
 # Get data value
@@ -87,7 +87,7 @@ packet.data = 0xDEADBEEF
 
 #### `strb` (property)
 
-Byte strobe/enable signals indicating which data bytes are valid.
+TSTRB — one bit per byte lane, marking which bytes of `data` are valid.
 
 ```python
 # Get strobe value
@@ -101,7 +101,7 @@ packet.strb = 0xC    # Only upper 2 bytes valid
 
 #### `last` (property)
 
-End of packet/frame indicator (TLAST signal).
+TLAST. Assert it on the final beat of a frame — or let `send_stream_data` do it for you.
 
 ```python
 # Get last indicator
@@ -116,7 +116,7 @@ packet.last = 0      # More data follows
 
 #### `id` (property)
 
-Stream identifier for routing and stream demultiplexing.
+TID — which stream this beat belongs to, when the bus carries several.
 
 ```python
 # Get stream ID
@@ -129,7 +129,7 @@ packet.id = 0xAB     # Stream 0xAB
 
 #### `dest` (property)
 
-Destination identifier for packet routing.
+TDEST — where the beat is headed.
 
 ```python
 # Get destination
@@ -142,7 +142,7 @@ packet.dest = 0x1F   # Route to destination 0x1F
 
 #### `user` (property)
 
-User-defined sideband data for custom protocol extensions.
+TUSER — whatever your design decided it means. Parity, a timestamp, a checksum nibble: the packet carries it without interpreting it.
 
 ```python
 # Get user data
@@ -159,7 +159,7 @@ packet.user = 0xABCDEF   # Extended user data
 
 #### `is_last()`
 
-Check if this is the last transfer in a packet/frame.
+True when TLAST is set — i.e., this beat closes a frame.
 
 **Returns:** `bool` - True if TLAST is asserted
 
@@ -171,7 +171,7 @@ if packet.is_last():
 
 #### `is_first()`
 
-Check if this is the first transfer in a packet/frame.
+True if this beat starts a frame. Note that a single-beat packet is trivially both first and last.
 
 **Returns:** `bool` - True if this is a first transfer (always True for single-beat packets)
 
@@ -185,7 +185,7 @@ if packet.is_first():
 
 #### `get_byte_count()`
 
-Get number of valid bytes based on strobe signal.
+Counts the set bits in `strb` — how many byte lanes are actually carrying data.
 
 **Returns:** `int` - Count of asserted bits in strobe
 
@@ -203,7 +203,7 @@ print(packet.get_byte_count())  # Outputs: 2
 
 #### `get_data_bytes()`
 
-Extract data as list of valid bytes based on strobe pattern.
+Unpacks `data` into a list of bytes, keeping only the lanes `strb` says are valid. Little-endian order — byte 0 first.
 
 **Returns:** `list` - List of valid byte values
 
@@ -223,7 +223,7 @@ bytes_list = packet.get_data_bytes()
 
 #### `set_data_bytes(byte_list)`
 
-Set data and strobe from list of bytes.
+The inverse: packs a list of bytes into `data` and sets `strb` to match.
 
 **Parameters:**
 - **`byte_list`** (list) - List of byte values to pack
@@ -242,7 +242,7 @@ packet.set_data_bytes(bytes_to_pack)
 
 ### `__str__()`
 
-Concise string representation showing key fields.
+The short form — the fields you actually look at when scanning a log.
 
 ```python
 packet.data = 0x12345678
@@ -256,7 +256,7 @@ print(str(packet))
 
 ### `__repr__()`
 
-Detailed representation including timestamp and computed values.
+The longer form, with timestamp and computed byte count.
 
 ```python
 print(repr(packet))
@@ -267,7 +267,7 @@ print(repr(packet))
 
 ### `create_axis_packet(**kwargs)`
 
-Factory function for convenient packet creation with field initialization.
+The quick way to build a packet — one call instead of five assignments.
 
 **Parameters:**
 - **`data`** (int) - Stream data value (default: 0)
@@ -325,6 +325,8 @@ print(f"Byte count: {packet.get_byte_count()}")
 ```
 
 ### Byte-Level Data Handling
+
+Useful when your stimulus starts life as a byte array — a payload from a software model, say — and needs to become beats.
 
 ```python
 # Create packet from byte array
@@ -468,4 +470,6 @@ def packet_received_callback(packet):
         process_frame_data(packet.get_data_bytes())
 ```
 
-The AXISPacket class provides a complete data structure solution for AXI4-Stream verification, offering both low-level field access and high-level convenience methods for efficient packet manipulation and analysis.
+You'll touch this class more than any other in the family — every beat you send or check passes through one. The properties and byte helpers cover the common cases; when you need something stranger, the full inherited `GAXIPacket` API is underneath.
+
+---

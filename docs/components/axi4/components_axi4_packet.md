@@ -1,19 +1,19 @@
 # AXI4 Packet
 
-AXI4 packet implementation extending the base `Packet` class with AXI4-specific channel detection, protocol validation, burst information extraction, and factory methods for each AXI4 channel type.
+`AXI4Packet` extends the base `Packet` class with the AXI4-specific pieces: channel detection, protocol validation, burst decoding, and a factory method per channel. This is the object that actually travels through the channel components.
 
 ## Overview
 
 The `AXI4Packet` class provides:
 
 - **Factory methods** for creating packets on each AXI4 channel (AW, W, B, AR, R)
-- **Channel type detection** based on field presence
+- **Channel type detection** based on which fields are present
 - **Protocol validation** against AXI4 specification rules
 - **Burst information extraction** from address channel packets
-- **Response information extraction** from response channel packets
-- **Generic field naming** (id, addr, data, resp) with `pkt_prefix` handling signal mapping
+- **Response decoding** from response channel packets
+- **Generic field naming** (id, addr, data, resp), with `pkt_prefix` handling the signal-level mapping
 
-All field names use a generic naming convention (e.g., `id`, `addr`, `len`, `data`, `resp`, `last`) that matches the `FieldConfig` definitions. The AXI4 signal-level prefixes (e.g., `ar`, `aw`, `w`, `r`, `b`) are handled by the `pkt_prefix` parameter in the GAXI component layer.
+Field names are deliberately generic — `id`, `addr`, `len`, `data`, `resp`, `last` — matching the `FieldConfig` definitions. The AXI4 signal prefixes (`ar`, `aw`, `w`, `r`, `b`) get applied by the `pkt_prefix` parameter down in the GAXI component layer, so one packet class serves all five channels.
 
 ---
 
@@ -136,7 +136,7 @@ packet = AXI4Packet.create_r_packet(id=2, data=0x12345678, resp=0, last=1)
 
 ### `get_channel_type() -> str`
 
-Determine which AXI4 channel this packet belongs to based on field presence.
+Works out which AXI4 channel the packet belongs to from the fields it carries.
 
 **Returns:** One of `'AW'`, `'W'`, `'B'`, `'AR'`, `'R'`, or `'UNKNOWN'`.
 
@@ -147,7 +147,7 @@ assert packet.get_channel_type() == 'AW'
 
 ### `validate_axi4_protocol() -> Tuple[bool, str]`
 
-Validate the packet against AXI4 protocol rules.
+Checks the packet against the AXI4 rules that apply to its channel.
 
 **Returns:** Tuple of `(is_valid, error_message)`. The error message is empty when valid.
 
@@ -165,7 +165,7 @@ if not is_valid:
 
 ### `get_burst_info() -> Dict[str, Any]`
 
-Get burst information from address channel packets (AW or AR).
+Pulls burst details out of an address channel packet (AW or AR).
 
 **Returns:** Dictionary with burst details, or empty dict if not an address packet.
 
@@ -185,7 +185,7 @@ print(f"Burst: {info['burst_length']} beats, {info['total_bytes']} bytes total")
 
 ### `get_response_info() -> Dict[str, Any]`
 
-Get response information from response channel packets (B or R).
+Decodes the response fields of a response channel packet (B or R).
 
 **Returns:** Dictionary with response details, or empty dict if not a response packet.
 
@@ -206,6 +206,8 @@ if info['is_error']:
 ---
 
 ## Convenience Functions
+
+For the common case of a single-beat transfer, two helpers save you the factory calls.
 
 ### `create_simple_write_packets(id_val, addr, data, id_width=8, addr_width=32, data_width=32) -> Tuple[AXI4Packet, AXI4Packet]`
 

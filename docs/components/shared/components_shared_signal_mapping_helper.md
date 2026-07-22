@@ -23,19 +23,19 @@
 
 # signal_mapping_helper.py
 
-Simplified GAXI/FIFO Signal Mapping with pattern matching against top-level ports. This module uses pattern matching against actual DUT ports with parameter combinations to find the correct signal mappings automatically, with support for manual signal mapping override.
+Automatic signal discovery and mapping for GAXI and FIFO protocols — pattern-matches your DUT's actual port names against known conventions, and accepts a manual map when the RTL insists on being creative.
 
 ## Overview
 
-The `signal_mapping_helper.py` module provides automatic signal discovery and mapping for GAXI and FIFO protocols. It can automatically discover signals using pattern matching or accept manual signal mappings. The module handles prefix management for cocotb compatibility and provides comprehensive error reporting.
+The least glamorous part of any BFM is figuring out which DUT port is which logical signal. Naming conventions drift (`awvalid` vs `aw_valid` vs `i_aw_valid`), prefixes multiply, and hardcoding names means every new DUT is a scavenger hunt. `SignalResolver` automates the boring part: it enumerates the DUT's top-level ports, matches them against per-protocol patterns, and applies the results to your component as attributes. When automatic discovery can't cope — and there will be a design where it can't — you pass a `signal_map` and it uses exactly what you gave it, no guessing. Prefix handling for cocotb Bus compatibility is built in, and failures come with diagnostics instead of a bare exception.
 
 ### Key Features
-- **Automatic signal discovery** using pattern matching against DUT ports
-- **Manual signal mapping override** with comprehensive validation
+- **Automatic signal discovery** by pattern-matching against DUT ports
+- **Manual signal mapping override** when the RTL doesn't follow conventions
 - **Prefix handling** for cocotb Bus compatibility
 - **Protocol support** for GAXI and FIFO (master/slave variants)
 - **Multi-signal and single-signal modes** for different DUT configurations
-- **Rich error reporting** with detailed diagnostics
+- **Detailed error reporting** when resolution fails
 - **Thread-safe operation** for parallel testing environments
 
 ## Constants and Patterns
@@ -52,7 +52,7 @@ GAXI_VALID_MODES = ['skid', 'fifo_mux', 'fifo_flop']
 
 ### Signal Patterns
 
-The module includes comprehensive signal patterns for different protocols:
+The module carries pattern sets for each supported protocol and side:
 
 #### GAXI Patterns
 - **Master-side patterns**: For masters and write monitors
@@ -84,7 +84,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
 
 ### SignalResolver
 
-Signal resolver using pattern matching against actual top-level DUT ports with support for manual signal mapping.
+The resolver itself: pattern-match against the DUT's top-level ports, or use a manual map verbatim.
 
 #### Constructor
 
@@ -381,6 +381,8 @@ class MultiSignalGAXISlave:
                 self.process_transaction(transaction)
 ```
 
+Multi-signal mode is for DUTs that break the bus into one port per field instead of a single wide data signal. Pass `multi_sig=True` and a FieldConfig, and each field resolves to its own attribute (`field_addr_sig`, `field_data_sig`, ...). Single-signal mode gives you one `data_sig` and the packing is the framework's problem.
+
 ### Error Handling and Debugging
 
 ```python
@@ -669,7 +671,7 @@ class TestMaster:
 
 ### Comprehensive Error Reporting
 
-The SignalResolver provides detailed error reporting when signal mapping fails:
+When `apply_to_component()` fails, the exception tells you why — which is the difference between a five-minute fix and an afternoon of guessing:
 
 ```python
 try:
@@ -711,9 +713,13 @@ if not log:
     resolver.dump_log_messages()
 ```
 
+`super_debug=True` plus `get_stats()` is the combination to reach for first when resolution misbehaves: the stats tell you what was found and what rate it resolved at, and the debug log shows you the candidates the matcher considered and rejected.
+
 ## Best Practices
 
 ### 1. **Start with Automatic Discovery**
+Let the patterns do their job first; fall back to a manual map only when discovery genuinely can't figure it out:
+
 ```python
 # Try automatic discovery first
 try:
@@ -726,6 +732,8 @@ except RuntimeError:
 ```
 
 ### 2. **Use Manual Mapping for Non-Standard Signals**
+When the RTL names things its own way, say so explicitly rather than hoping the patterns stretch:
+
 ```python
 # For custom or non-standard signal names
 signal_map = {
@@ -737,6 +745,8 @@ resolver = SignalResolver(protocol_type, dut, bus, log, name, signal_map=signal_
 ```
 
 ### 3. **Handle Prefix Correctly**
+The prefix here must match what the cocotb Bus prepends — a mismatch is the single most common cause of "the signals exist but resolution failed":
+
 ```python
 # Prefix should match what cocotb Bus will add
 resolver = SignalResolver(
@@ -750,6 +760,8 @@ resolver = SignalResolver(
 ```
 
 ### 4. **Validate Signal Mapping**
+After `apply_to_component()`, assert the attributes your code is about to drive. Fail at setup, not mid-transaction:
+
 ```python
 # Always check mapping was successful
 resolver.apply_to_component(self)
@@ -761,6 +773,8 @@ for signal_name in required_signals:
 ```
 
 ### 5. **Use Statistics for Debugging**
+The stats distinguish "didn't find it" from "found two and couldn't pick" — very different problems:
+
 ```python
 # Check resolution statistics for debugging
 stats = resolver.get_stats()
@@ -771,4 +785,6 @@ if stats['conflicts'] > 0:
     log.error(f"Signal conflicts detected: {stats['conflict_details']}")
 ```
 
-The SignalResolver provides a robust foundation for signal mapping across different protocols, with comprehensive error handling, flexible configuration options, and extensive debugging support for verification environments.
+SignalResolver is the quiet piece that makes everything else in the framework possible: the data strategies cache the handles it finds, the BFMs drive through the attributes it applies, and the error messages it produces are written for the person debugging a bring-up at midnight. Get the mapping right once, here, and the rest of the stack never has to think about port names again.
+
+---

@@ -25,27 +25,23 @@
 
 # CocoTBFramework Overview
 
-The CocoTBFramework is a comprehensive verification framework built on top of CocoTB that provides a complete ecosystem for digital design verification. It combines protocol-specific components, advanced scoreboards, and complete testbench environments into a unified framework that scales from simple unit tests to complex system-level verification.
+The CocoTBFramework is a verification framework built on top of cocotb. It gives you protocol BFMs, transaction scoreboards, and complete testbench environments in one package — and it scales from a single FIFO test to multi-protocol system verification without changing idioms on you halfway up.
 
 ## Framework Vision and Philosophy
 
-The CocoTBFramework is designed around the vision of **unified verification excellence** - providing a single, comprehensive framework that can handle all aspects of digital design verification while maintaining consistency, performance, and ease of use. The framework embodies several key philosophical principles:
+One bet underlies the whole design: verification code is expensive to write and cheap to reuse, so the framework makes reuse the default. What that means in practice:
 
-**Unified Architecture**: All components share common infrastructure and design patterns, ensuring consistency across protocols and verification scenarios
-
-**Performance by Design**: Every component is optimized for high-performance parallel testing with thread-safe operations and efficient resource utilization
-
-**Extensible Foundation**: The framework is designed for easy extension, allowing teams to add custom protocols, verification logic, and analysis capabilities
-
-**Comprehensive Coverage**: From low-level signal manipulation to high-level system verification, the framework provides complete coverage of verification needs
-
-**Developer Experience**: Ease of use is paramount, with factory functions, sensible defaults, and comprehensive documentation making the framework accessible to both novice and expert users
+**Unified Architecture**: every component speaks the same packet and field-config idioms, so moving between protocols doesn't mean relearning the API
+**Performance by Design**: signal caching and thread safety are built in from the start — you shouldn't have to choose between thorough and fast
+**Extensible Foundation**: custom protocols and custom checking plug into the same base classes the built-in ones use
+**Comprehensive Coverage**: from signal-level pin work up through system-level scenarios
+**Developer Experience**: factories, sensible defaults, and real documentation — using the framework should be easier than writing your own BFM, or what's the point
 
 ## Architectural Foundation
 
 ### Three-Layer Architecture
 
-The CocoTBFramework follows a three-layer architecture that provides clear separation of concerns while enabling powerful integration capabilities:
+Three layers, with a strict dependency direction:
 
 ```mermaid
 block-beta
@@ -139,205 +135,195 @@ block-beta
 
 ### Cross-Layer Integration
 
-The three layers are designed to work seamlessly together while maintaining clear boundaries:
+The layers are built to compose, but the boundaries stay clean:
 
-**Orchestration → Verification**: TBClasses automatically create and configure scoreboards for comprehensive verification
-**Verification → Implementation**: Scoreboards use protocol components for transaction capture and comparison
-**Implementation → Shared**: All protocol components leverage shared infrastructure for consistency and performance
+**Orchestration → Verification**: TBClasses create and wire their own scoreboards
+**Verification → Implementation**: scoreboards consume the transactions the protocol components capture
+**Implementation → Shared**: every protocol component uses the same packets, memory model, and statistics
 
 ## Core Framework Capabilities
 
 ### 1. Protocol Coverage and Implementation
 
-The framework provides comprehensive protocol support across multiple industry-standard and custom interfaces:
+The framework covers the common industry buses plus the internal interfaces that usually get hand-rolled BFMs:
 
 #### Standard Protocol Support
-- **APB (Advanced Peripheral Bus)**: Complete ARM AMBA APB implementation with multi-slave support
-- **AXI4**: Full AXI4 protocol with ID tracking, channel separation, and out-of-order support
-- **GAXI (Generic AXI-like)**: Lightweight valid/ready protocol for validating individual FIFO-based interfaces on very small internal blocks — supports both packed field data and multi-signal interfaces
-- **FIFO**: Buffer and queue protocols with flow control and multi-field support
+- **APB (Advanced Peripheral Bus)**: complete ARM AMBA APB implementation with multi-slave support
+- **AXI4**: full AXI4 with ID tracking, channel separation, and out-of-order support
+- **GAXI (Generic AXI)**: the generic valid/ready layer the AXI-family BFMs are built on — standalone, it covers small internal blocks with packed-field or multi-signal interfaces
+- **FIFO**: buffer and queue protocols with flow control and multi-field support
 
 #### Protocol Features
-- **Signal-Level Accuracy**: Precise timing and signal relationship modeling
-- **Protocol Compliance**: Built-in checking for protocol specification adherence
-- **Error Injection**: Configurable error scenarios for robustness testing
-- **Performance Monitoring**: Real-time metrics and analysis capabilities
+- **Signal-Level Accuracy**: precise timing and signal-relationship modeling
+- **Protocol Compliance**: built-in checks against the protocol spec
+- **Error Injection**: configurable error scenarios for robustness testing
+- **Performance Monitoring**: metrics and analysis as you run
 
 #### Extensibility
-- **Custom Protocol Support**: Framework for adding proprietary protocols
-- **Protocol Variants**: Easy adaptation for custom protocol variations
-- **Bridge Verification**: Cross-protocol bridge testing and validation
-- **Multi-Protocol Systems**: Comprehensive support for mixed-protocol designs
+- **Custom Protocol Support**: a defined path for adding proprietary protocols
+- **Protocol Variants**: straightforward adaptation for protocol flavors
+- **Bridge Verification**: cross-protocol bridge testing
+- **Multi-Protocol Systems**: mixed-protocol designs without duct tape
 
-### 2. Advanced Verification Infrastructure
+### 2. Verification Infrastructure
 
-The framework provides sophisticated verification capabilities that go beyond simple transaction checking:
+The checking side goes well past "did the bytes match":
 
 #### Transaction Verification
-- **Automated Comparison**: Intelligent expected vs actual transaction matching
-- **Field-Level Analysis**: Detailed field-by-field comparison with configurable precedence
-- **Timing Verification**: Signal timing and protocol relationship checking
-- **Error Categorization**: Comprehensive error classification and analysis
+- **Automated Comparison**: expected-vs-actual transaction matching, done for you
+- **Field-Level Analysis**: field-by-field comparison with configurable precedence
+- **Timing Verification**: signal timing and protocol relationship checks
+- **Error Categorization**: classified errors, so triage starts from data
 
 #### Cross-Protocol Verification
-- **Protocol Transformation**: Automatic conversion between different protocol formats
-- **Bridge Verification**: Specialized testing for protocol bridge implementations
-- **Memory Model Integration**: Shared memory models for cross-protocol data verification
-- **System-Level Analysis**: End-to-end verification across multiple protocol domains
+- **Protocol Transformation**: automatic conversion between protocol formats
+- **Bridge Verification**: dedicated testing for bridge implementations
+- **Memory Model Integration**: shared memory models for cross-protocol data checking
+- **System-Level Analysis**: end-to-end verification across protocol domains
 
-#### Advanced Analysis
-- **Statistical Analysis**: Comprehensive performance and error trend analysis
-- **Coverage Integration**: Functional and code coverage tracking
-- **Regression Detection**: Automatic identification of performance and functional regressions
-- **Visualization**: Real-time dashboards and comprehensive reporting
+#### Analysis
+- **Statistical Analysis**: performance and error trends over time
+- **Coverage Integration**: functional and code coverage tracking
+- **Regression Detection**: flags performance and functional regressions automatically
+- **Visualization**: dashboards and reports when you need to show your work
 
 ### 3. Performance and Scalability
 
-The framework is designed for high-performance verification at scale:
+Built to stay fast when the test suite gets big:
 
 #### Performance Optimizations
 - **Signal Caching**: 40% faster data collection through cached signal references
-- **Thread-Safe Operations**: Parallel test execution with efficient synchronization
-- **Memory Efficiency**: Optimized data structures and automatic cleanup
-- **Lazy Evaluation**: Deferred computation of expensive operations
+- **Thread-Safe Operations**: parallel test execution with proper synchronization
+- **Memory Efficiency**: optimized data structures and automatic cleanup
+- **Lazy Evaluation**: expensive work deferred until someone actually needs the result
 
 #### Scalability Features
-- **Large Test Suites**: Efficient handling of thousands of test cases
-- **Memory Management**: Bounded growth with configurable limits
-- **Resource Monitoring**: Real-time tracking of CPU and memory usage
-- **Distributed Testing**: Support for distributed verification across multiple machines
+- **Large Test Suites**: thousands of test cases without falling over
+- **Memory Management**: bounded growth with configurable limits
+- **Resource Monitoring**: live tracking of CPU and memory usage
+- **Distributed Testing**: support for spreading verification across machines
 
 #### Resource Management
-- **Automatic Cleanup**: Intelligent cleanup of completed transactions and resources
-- **Configurable Limits**: Memory, time, and resource limits with graceful degradation
-- **Progress Monitoring**: Detection of hung tests and infinite loops
-- **Performance Profiling**: Detailed performance analysis and optimization guidance
+- **Automatic Cleanup**: completed transactions and resources get reaped
+- **Configurable Limits**: memory, time, and resource limits with graceful degradation
+- **Progress Monitoring**: detection of hung tests and infinite loops
+- **Performance Profiling**: data you can act on when something's slow
 
-### 4. Developer Experience and Usability
+### 4. Usability
 
-The framework prioritizes developer productivity and ease of use:
+The framework only earns its keep if it's easier than the alternative:
 
 #### Simplified APIs
-- **Factory Functions**: One-line component creation with sensible defaults
-- **Automatic Configuration**: Environment-based configuration with intelligent defaults
-- **Consistent Interfaces**: Uniform APIs across all protocols and components
-- **Rich Documentation**: Comprehensive examples and API references
+- **Factory Functions**: one-line component creation with sensible defaults
+- **Automatic Configuration**: environment-based configuration with intelligent defaults
+- **Consistent Interfaces**: the same API shape across every protocol
+- **Documentation**: examples and API references that were checked against the code
 
-#### Advanced Development Support
-- **IDE Integration**: Support for modern IDEs with code completion and debugging
-- **Comprehensive Logging**: Structured logging with configurable verbosity levels
-- **Error Reporting**: Detailed error messages with context and suggested solutions
-- **Debugging Tools**: Built-in debugging utilities and waveform integration
+#### Development Support
+- **IDE Integration**: works with modern IDEs — completion and debugging included
+- **Logging**: structured logs with configurable verbosity
+- **Error Reporting**: error messages with context, not just a stack trace
+- **Debugging Tools**: built-in utilities and waveform integration
 
 #### Configuration Management
-- **Environment Variables**: Extensive configuration through environment variables
-- **Dynamic Configuration**: Runtime configuration based on DUT capabilities
-- **Profile-Based Setup**: Predefined configuration profiles for common scenarios
-- **Custom Configuration**: Flexible configuration for specialized requirements
+- **Environment Variables**: extensive configuration through the environment
+- **Dynamic Configuration**: runtime configuration based on DUT capabilities
+- **Profile-Based Setup**: predefined profiles for common scenarios
+- **Custom Configuration**: room for specialized requirements
 
-## Shared Infrastructure Excellence
+## Shared Infrastructure
 
 ### Packet Management Framework
 
-The framework provides a sophisticated packet management system:
+One packet system for every protocol:
 
-**Generic Packet Class**: Protocol-agnostic packet handling with field validation
-**Field Configuration**: Rich field definition system with encoding and validation
-**Packet Factory**: Factory pattern for consistent packet creation across protocols
-**Data Strategies**: High-performance data collection and driving optimizations
+**Generic Packet Class**: protocol-agnostic packets with per-field validation
+**Field Configuration**: rich field definitions with encoding and validation
+**Packet Factory**: consistent packet construction across protocols
+**Data Strategies**: optimized data collection and drive paths
 
-### Advanced Randomization
+### Randomization
 
-Comprehensive randomization capabilities for thorough verification:
-
-**FlexRandomizer**: Multi-mode randomization engine with constrained, sequence, and custom modes
-**FlexConfigGen**: Profile-based randomization configuration with weighted constraints
-**Pattern Generation**: Specialized patterns for burst, stress, corner case, and custom testing
-**Dependency Management**: Field dependencies and cross-field constraint handling
+**FlexRandomizer**: one engine with constrained, sequence, and custom modes
+**FlexConfigGen**: builds weighted randomization profiles
+**Pattern Generation**: burst, stress, corner-case, and custom patterns
+**Dependency Management**: field dependencies and cross-field constraints
 
 ### Memory Modeling
 
-High-performance memory simulation with comprehensive features:
-
-**NumPy Backend**: High-performance NumPy-based memory for efficient large-scale testing
-**Access Tracking**: Comprehensive monitoring of memory access patterns
-**Region Management**: Logical memory organization with boundary checking
-**Coverage Analysis**: Memory access coverage reporting and analysis
+**NumPy Backend**: stays fast with large maps and long runs
+**Access Tracking**: every read and write recorded
+**Region Management**: logical regions with boundary checking
+**Coverage Analysis**: memory access coverage reporting
 
 ### Statistics and Monitoring
 
-Real-time performance monitoring and analysis:
-
-**Performance Metrics**: Transaction rates, latency distribution, throughput analysis
-**Error Tracking**: Comprehensive error categorization and trend analysis
+**Performance Metrics**: transaction rates, latency distribution, throughput
+**Error Tracking**: categorized errors and their trends
 **Resource Monitoring**: CPU, memory, and simulation resource tracking
-**Trend Analysis**: Performance regression detection and comparative analysis
+**Trend Analysis**: regression detection across runs
 
 ## Integration and Ecosystem
 
 ### Tool Integration
 
-The framework integrates with the broader EDA ecosystem:
+Plays well with the rest of the flow:
 
-**Simulator Support**: Compatible with major simulators (VCS, Questa, Xcelium)
-**Waveform Viewers**: Integrated support for GTKWave, Verdi, and other viewers
-**Build Systems**: Integration with Make, CMake, and custom build flows
-**CI/CD Integration**: Support for continuous integration and automated testing
+**Simulator Support**: works with the major simulators (VCS, Questa, Xcelium)
+**Waveform Viewers**: GTKWave, Verdi, and the usual suspects
+**Build Systems**: Make, CMake, or your own flow
+**CI/CD Integration**: slots into continuous-integration testing
 
 ### Development Workflow
 
-The framework supports modern development practices:
-
 **Version Control**: Git-based project structure discovery and management
-**Collaborative Development**: Shared configuration and result management
-**Documentation Generation**: Automatic documentation from code and configuration
-**Test Management**: Comprehensive test case management and execution tracking
+**Collaborative Development**: shared configuration and result management
+**Documentation Generation**: docs derived from code and configuration
+**Test Management**: test case management and execution tracking
 
 ### Custom Extensions
 
-The framework is designed for extensive customization:
-
-**Plugin Architecture**: Support for custom verification logic and analysis
-**Protocol Extensions**: Framework for adding proprietary protocols
-**Custom Analysis**: Integration points for specialized analysis tools
-**Third-Party Integration**: APIs for integrating external verification tools
+**Plugin Architecture**: custom verification logic and analysis hooks
+**Protocol Extensions**: a defined path for proprietary protocols
+**Custom Analysis**: integration points for specialized analysis tools
+**Third-Party Integration**: APIs for external verification tools
 
 ## Real-World Applications
 
 ### Unit Testing
-- **Component Verification**: Individual IP block testing with protocol compliance
-- **Interface Testing**: Signal-level verification with timing analysis
-- **Error Scenario Testing**: Comprehensive error injection and recovery testing
+- **Component Verification**: single-IP testing with protocol compliance checks
+- **Interface Testing**: signal-level verification with timing analysis
+- **Error Scenario Testing**: error injection and recovery
 
 ### Integration Testing
-- **Multi-Component Systems**: Verification of component interactions
-- **Protocol Bridge Testing**: Cross-protocol communication verification
-- **System-Level Scenarios**: End-to-end verification across multiple components
+- **Multi-Component Systems**: verifying how components interact
+- **Protocol Bridge Testing**: cross-protocol communication
+- **System-Level Scenarios**: end-to-end verification across components
 
 ### System Verification
-- **Complete SoC Testing**: Full system-on-chip verification environments
-- **Performance Verification**: System-level performance analysis and optimization
-- **Power Management**: Power-aware verification with clock gating and power domains
+- **Complete SoC Testing**: full system-on-chip environments
+- **Performance Verification**: system-level performance analysis
+- **Power Management**: power-aware verification with clock gating and power domains
 
 ### Regression Testing
-- **Automated Test Suites**: Comprehensive regression testing with result comparison
-- **Performance Regression**: Automated detection of performance degradation
-- **Coverage Tracking**: Continuous monitoring of verification coverage metrics
+- **Automated Test Suites**: regression runs with result comparison
+- **Performance Regression**: automatic detection of performance degradation
+- **Coverage Tracking**: continuous monitoring of verification coverage
 
 ## Future Evolution
 
-The CocoTBFramework is designed for continuous evolution and improvement:
-
 ### Planned Enhancements
-- **Machine Learning Integration**: AI-powered test generation and analysis
-- **Formal Verification**: Integration with formal verification tools and methodologies
-- **Cloud Verification**: Cloud-based verification with automatic scaling
-- **Advanced Visualization**: Real-time visualization and interactive analysis tools
+- **Machine Learning Integration**: ML-assisted test generation and analysis
+- **Formal Verification**: hooks into formal tools and methodologies
+- **Cloud Verification**: cloud-based runs with automatic scaling
+- **Advanced Visualization**: interactive analysis tooling
 
 ### Community and Ecosystem
-- **Open Source Components**: Core framework available for community contribution
-- **Plugin Ecosystem**: Support for third-party plugins and extensions
-- **Industry Collaboration**: Integration with industry standards and best practices
-- **Educational Support**: Resources for academic use and verification education
+- **Open Source Components**: the core framework is open for community contribution
+- **Plugin Ecosystem**: third-party plugins and extensions
+- **Industry Collaboration**: alignment with standards and common practice
+- **Educational Support**: resources for academic use
 
-The CocoTBFramework represents a comprehensive solution for modern verification challenges, providing the tools, infrastructure, and capabilities needed to verify today's complex digital designs while preparing for the verification challenges of tomorrow.
+That's the shape of it. The component docs go deep on each protocol, the scoreboard docs cover the checking side — pick whichever matches the problem in front of you.
+
+---

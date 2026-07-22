@@ -23,17 +23,17 @@
 
 # fifo_packet.py
 
-FIFO Packet class providing minimal protocol-specific extensions to the base Packet class for FIFO protocol transactions.
+FIFOPacket is deliberately boring. It's the base Packet class with exactly one addition: a pair of timing randomizers, one for the write side and one for the read side. Everything else — fields, masking, pack/unpack, formatting — is inherited.
 
 ## Overview
 
-The `FIFOPacket` class is a lightweight extension of the base Packet class that adds FIFO-specific randomizer handling for timing control. It inherits all field management, masking, pack/unpack, and formatting functionality from the base Packet class while adding support for master and slave interface timing randomization.
+FIFOPacket adds master and slave randomizer slots to Packet so that timing policy can travel with the transaction it belongs to. A packet rolls its delay once and caches it, so the master, the slave, and any monitor that inspects the packet all see the same number. Field management, validation, `pack_for_fifo()`, `formatted()`, comparison, copying — all of that is Packet behavior, and it all works here.
 
 ### Key Features
-- **Minimal Extension**: Only adds FIFO-specific functionality to base Packet
-- **Randomizer Integration**: Support for separate master and slave randomizers
-- **Timing Control**: Configurable delays for read and write operations
-- **Full Inheritance**: All base Packet functionality available (formatting, validation, etc.)
+- **Minimal by design**: the only new surface is timing — everything else is Packet
+- **Two randomizers**: master (write) and slave (read) delays ride along with the packet
+- **Cached delays**: call the getter twice, get the same value; no randomizer means 0
+- **Full Packet API**: formatting, validation, FIFO pack/unpack, the works
 
 ## Core Class
 
@@ -78,7 +78,7 @@ packet = FIFOPacket(
 
 #### `set_master_randomizer(randomizer)`
 
-Set the master randomizer for write timing control.
+Attach the randomizer that shapes this packet's write-side gaps.
 
 **Parameters:**
 - `randomizer`: FlexRandomizer instance for master interface
@@ -93,7 +93,7 @@ packet.set_master_randomizer(write_randomizer)
 
 #### `set_slave_randomizer(randomizer)`
 
-Set the slave randomizer for read timing control.
+Same, for the read side.
 
 **Parameters:**
 - `randomizer`: FlexRandomizer instance for slave interface
@@ -110,7 +110,7 @@ packet.set_slave_randomizer(read_randomizer)
 
 #### `get_master_delay()`
 
-Get the delay for the master interface (write delay).
+The write-side delay in cycles. Rolled once per packet and cached — call it twice and you get the same value, which is what lets multiple components agree on the packet's timing.
 
 **Returns:** Delay in cycles (0 if no randomizer)
 
@@ -126,7 +126,7 @@ for _ in range(write_delay):
 
 #### `get_slave_delay()`
 
-Get the delay for the slave interface (read delay).
+The read-side delay in cycles, same caching behavior.
 
 **Returns:** Delay in cycles (0 if no randomizer)
 
@@ -142,7 +142,7 @@ for _ in range(read_delay):
 
 ## Inherited Functionality
 
-FIFOPacket inherits all functionality from the base Packet class:
+Everything below is Packet behavior. It's listed here so you remember it's there — none of it needed FIFO-specific changes.
 
 ### Field Access
 ```python
@@ -192,6 +192,8 @@ packet_copy = packet.copy()
 
 ### Basic Packet Creation and Usage
 
+Nothing FIFO-specific here yet — that's the point.
+
 ```python
 # Define field configuration
 field_config = FieldConfig()
@@ -207,6 +209,8 @@ print(f"Command: {packet.cmd}, Address: 0x{packet.addr:X}, Data: 0x{packet.data:
 ```
 
 ### Timing-Controlled Packets
+
+Randomizers ride along with the packet, so the components don't each need their own copy:
 
 ```python
 # Create randomizers for timing control
@@ -252,6 +256,8 @@ class TimingSlave:
 
 ### Packet Factory Integration
 
+The factory builds packets; you attach timing after creation, or fold it into your sequence:
+
 ```python
 # Use with PacketFactory for consistent creation
 factory = PacketFactory(FIFOPacket, field_config)
@@ -272,6 +278,8 @@ timed_packet = factory.create_timed_packet(
 ```
 
 ### Sequence Integration
+
+A sequence that carries its own timing makes total-delay questions answerable:
 
 ```python
 class TimedFIFOSequence:
@@ -320,6 +328,8 @@ print(f"Total read delay: {sequence.get_total_delay('slave')} cycles")
 ```
 
 ### Advanced Timing Control
+
+Because the randomizer is per-packet, you can swap it in response to conditions. Congestion-adaptive pacing in about twenty lines:
 
 ```python
 class AdaptiveTimingPacket:
@@ -383,6 +393,8 @@ print(f"Adaptive delay for high congestion: {delay} cycles")
 ```
 
 ### Performance Analysis with Timing
+
+Since delays are queryable, you can characterize a whole sequence's timing before you run it:
 
 ```python
 class TimingAnalyzer:
@@ -455,6 +467,8 @@ print(f"Timing analysis: {analysis}")
 
 ### Validation and Testing
 
+A sanity checker for packets — handy when you're debugging a custom randomizer:
+
 ```python
 def validate_fifo_packet(packet):
     """Validate FIFO packet integrity"""
@@ -514,6 +528,7 @@ def test_fifo_packet_creation():
 ## Best Practices
 
 ### 1. **Use Factory Functions for Creation**
+The factory keeps field handling consistent across your testbench:
 ```python
 # Recommended
 factory = PacketFactory(FIFOPacket, field_config)
@@ -523,6 +538,7 @@ packet = factory.create_packet(data=0x12345678)
 ```
 
 ### 2. **Set Randomizers Early**
+Attach them right after creation. A packet without randomizers has zero delays, which is rarely the test you meant to write:
 ```python
 # Set randomizers immediately after creation
 packet = FIFOPacket(field_config, data=0x1000)
@@ -531,6 +547,7 @@ packet.set_slave_randomizer(read_randomizer)
 ```
 
 ### 3. **Cache Delay Values**
+Delays are rolled once per packet. If you want a fresh roll, set the randomizer again:
 ```python
 # Delays are cached within a packet instance
 delay = packet.get_master_delay()  # Calculated once
@@ -539,6 +556,7 @@ assert delay == same_delay
 ```
 
 ### 4. **Use Appropriate Randomizers**
+Keep separate, named randomizers per scenario instead of rebuilding them inline:
 ```python
 # Different randomizers for different scenarios
 fast_randomizer = FlexRandomizer({'write_delay': [(0, 1)]})  # Fast
@@ -546,6 +564,7 @@ stress_randomizer = FlexRandomizer({'write_delay': [(0, 50)]})  # Stress
 ```
 
 ### 5. **Leverage Inherited Functionality**
+`formatted()` alone will save you from writing a dozen print statements:
 ```python
 # Use all base Packet capabilities
 packet.formatted()  # Rich formatting
@@ -554,4 +573,4 @@ packet == other_packet  # Comparison
 packet.copy()  # Copying
 ```
 
-The FIFOPacket provides FIFO-specific timing control while maintaining all the rich functionality of the base Packet class, making it ideal for complex FIFO protocol verification scenarios.
+The packet stays dumb on purpose. Timing policy lives in the randomizers, sequencing lives in FIFOSequence — the packet just carries both.

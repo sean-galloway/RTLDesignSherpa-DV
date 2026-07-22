@@ -23,29 +23,29 @@
 
 # AXI4 Components Overview
 
-The CocoTBFramework AXI4 components provide comprehensive support for AXI4-Full protocol verification and transaction generation. Built on the proven GAXI infrastructure, these components offer a consistent and powerful interface for memory-mapped protocol testing with advanced features for burst transactions, outstanding operations, and protocol compliance verification.
+The AXI4 components are the full-weight members of the family: five channels, bursts up to 256 beats, outstanding transactions, QoS — everything AXI4-Full carries. They sit on the GAXI infrastructure, so field configuration, memory models, statistics, and signal resolution all behave the same way they do in the other protocol BFMs. Learn one and the rest feel familiar.
 
 ## Framework Integration
 
 ### GAXI Infrastructure Foundation
 
-The AXI4 components inherit from the robust GAXI framework, providing:
+AXI4 is built on GAXI, the generic AXI layer every protocol component in this framework shares. That buys you:
 
-**Unified Field Configuration**: Complete integration with the CocoTBFramework field configuration system for flexible transaction structures
-**Memory Model Support**: Seamless integration with memory models for data verification and complex test scenarios
-**Statistics Integration**: Comprehensive performance metrics and transaction tracking
+**Unified Field Configuration**: Transaction structures come from the same field configuration system the rest of the framework uses
+**Memory Model Support**: Slaves can be backed by a real memory model, so write-then-read checking just works
+**Statistics Integration**: Per-channel transaction and performance metrics, collected as the test runs
 **Signal Resolution**: Automatic signal detection and mapping across different naming conventions
-**Advanced Debugging**: Multi-level debugging capabilities with detailed transaction logging
+**Advanced Debugging**: Multi-level debug with transaction-level logging when you need to see the traffic
 
 ### Memory-Mapped Protocol Specialization
 
-While inheriting GAXI's power, AXI4 components are specifically optimized for memory-mapped protocols:
+What the AXI4 layer adds on top of GAXI:
 
-**Five Channel Architecture**: Complete support for AR, R, AW, W, and B channels
+**Five Channel Architecture**: Dedicated components for the AR, R, AW, W, and B channels
 **Burst Transaction Management**: Native support for INCR, FIXED, and WRAP burst types
-**Outstanding Transaction Support**: Advanced management of multiple concurrent transactions
-**Address and Data Decoupling**: Independent address and data phases for maximum throughput
-**Protocol Compliance**: Integrated compliance checking for AXI4 specification adherence
+**Outstanding Transaction Support**: Multiple concurrent transactions, tracked per ID
+**Address and Data Decoupling**: Independent address and data phases, overlapped for throughput
+**Protocol Compliance**: An integrated checker that watches for spec violations while your test runs
 
 ## Core Components Architecture
 
@@ -95,75 +95,75 @@ graph TB
 
 ### AXI4MasterRead - Memory Read Operations
 
-The `AXI4MasterRead` component drives AXI4 read transactions as a master:
+The read master drives AXI4 read transactions:
 
 **Address Request Management**:
 - **AR Channel Control**: Complete ARADDR, ARLEN, ARSIZE, ARBURST, ARID management
-- **Outstanding Transactions**: Support for multiple concurrent read requests
+- **Outstanding Transactions**: Multiple concurrent read requests in flight
 - **Address Alignment**: Automatic address alignment and burst boundary checking
 - **QoS and Caching**: Complete ARQOS, ARCACHE, ARPROT, ARREGION support
 
 **Read Data Reception**:
-- **R Channel Monitoring**: Automatic RDATA, RRESP, RID, RLAST processing
-- **Burst Assembly**: Automatic assembly of multi-beat read bursts
-- **Error Handling**: Complete RRESP error detection and reporting
-- **Flow Control**: Intelligent RREADY backpressure management
+- **R Channel Monitoring**: RDATA, RRESP, RID, RLAST processed for you
+- **Burst Assembly**: Multi-beat read bursts reassembled into a single result
+- **Error Handling**: RRESP errors detected and surfaced, not silently passed through
+- **Flow Control**: RREADY backpressure managed by the channel component
 
 **Performance Features**:
 - **Pipeline Optimization**: Overlapped address and data phases
-- **Memory Integration**: Direct memory model integration for verification
-- **Statistics Tracking**: Real-time performance monitoring and analysis
+- **Memory Integration**: Direct memory model hooks for read data verification
+- **Statistics Tracking**: Real-time performance monitoring as the test runs
 
 ### AXI4MasterWrite - Memory Write Operations
 
-The `AXI4MasterWrite` component drives AXI4 write transactions as a master:
+The write master drives AXI4 write transactions:
 
 **Address and Data Management**:
 - **AW Channel Control**: Complete AWADDR, AWLEN, AWSIZE, AWBURST management
 - **W Channel Control**: WDATA, WSTRB, WLAST coordination
-- **Address/Data Synchronization**: Proper ordering of address and data phases
+- **Address/Data Synchronization**: Address and data phases kept in the right order
 - **Write Strobes**: Byte-level write enable control
 
 **Write Response Handling**:
-- **B Channel Processing**: Automatic BRESP, BID response verification
-- **Error Detection**: Complete write response error handling
-- **Transaction Completion**: Proper write transaction lifecycle management
+- **B Channel Processing**: BRESP, BID responses verified automatically
+- **Error Detection**: Write response errors caught and reported
+- **Transaction Completion**: Full write lifecycle — address, data, response — tied together
 
 **Advanced Write Features**:
 - **Partial Writes**: WSTRB-based partial word writing
 - **Write Ordering**: Support for write ordering requirements
-- **Outstanding Management**: Multiple concurrent write transaction support
+- **Outstanding Management**: Multiple concurrent write transactions
 
 ### AXI4SlaveRead - Memory Read Response
 
-The `AXI4SlaveRead` component responds to AXI4 read transactions as a slave:
+The read slave answers AXI4 read transactions:
 
 **Address Processing**:
-- **AR Channel Monitoring**: Automatic read address request detection
+- **AR Channel Monitoring**: Watches AR for incoming read requests
 - **Address Decode**: Configurable address range checking and routing
-- **Burst Analysis**: ARLEN, ARSIZE, ARBURST parameter processing
-- **QoS Processing**: ARQOS, ARCACHE, ARPROT parameter handling
+- **Burst Analysis**: ARLEN, ARSIZE, ARBURST parameters decoded for you
+- **QoS Processing**: ARQOS, ARCACHE, ARPROT parameters handled
 
 **Data Response Generation**:
 - **R Channel Control**: RDATA, RRESP, RID, RLAST generation
-- **Memory Interface**: Direct memory model integration for data sourcing
+- **Memory Interface**: Data sourced straight from a memory model
 - **Error Injection**: Configurable SLVERR, DECERR response generation
 - **Timing Control**: Configurable RVALID timing and latency
 
 **Slave-Specific Features**:
 - **Address Range Configuration**: Flexible address space definition
 - **Response Randomization**: Realistic slave timing behavior
-- **Protocol Compliance**: Automatic AXI4 slave protocol adherence
+- **Protocol Compliance**: Protocol-legal slave responses by construction
 
 ### AXI4SlaveWrite - Memory Write Response
 
-The `AXI4SlaveWrite` component responds to AXI4 write transactions as a slave:
+The write slave answers AXI4 write transactions:
 
 **Write Transaction Processing**:
-- **AW/W Channel Coordination**: Proper address and data phase synchronization
-- **Write Data Assembly**: Multi-beat burst data collection and assembly
-- **Strobe Processing**: WSTRB-based byte-level write processing
-- **Write Ordering**: Support for write ordering and hazard detection
+- **AW/W Channel Coordination**: Address and data phases synchronized, including legal W-before-AW arrivals
+- **Write Data Assembly**: Multi-beat bursts collected and reassembled
+- **Strobe Processing**: WSTRB byte enables applied per beat
+- **Write Ordering**: Write ordering and hazard detection support
 
 **Write Response Generation**:
 - **B Channel Control**: BRESP, BID response generation
@@ -171,15 +171,15 @@ The `AXI4SlaveWrite` component responds to AXI4 write transactions as a slave:
 - **Response Timing**: Realistic write response latency modeling
 
 **Memory Integration Features**:
-- **Write-Through**: Direct memory model updates
-- **Write Verification**: Automatic write data validation
+- **Write-Through**: Writes land directly in the memory model
+- **Write Verification**: Written data validated automatically
 - **Conflict Detection**: Write hazard and ordering conflict detection
 
 ## Field Configuration System
 
 ### AXI4FieldConfigs - Channel-Specific Configuration
 
-The field configuration system enables flexible AXI4 parameter adaptation:
+Field configs are how the framework adapts to your bus widths. Each channel gets its own, and a helper builds them:
 
 **Channel-Specific Configurations**:
 ```python
@@ -210,15 +210,15 @@ b_config = AXI4FieldConfigHelper.create_b_field_config(
 ```
 
 **Flexible Parameter Support**:
-- **Variable Widths**: Support for different data, address, and ID widths
-- **Optional Signals**: Proper handling of zero-width USER, QOS, REGION signals
-- **Custom Extensions**: Support for proprietary sideband signals
+- **Variable Widths**: Different data, address, and ID widths per design
+- **Optional Signals**: Zero-width USER, QOS, REGION signals handled cleanly
+- **Custom Extensions**: Proprietary sideband signals can be added
 
 ## Advanced Features
 
 ### AXI4ComplianceChecker - Protocol Verification
 
-The integrated compliance checker provides comprehensive AXI4 specification verification:
+The integrated checker watches live traffic and holds it against the spec:
 
 **Transaction-Level Checking**:
 - **Handshake Protocol**: VALID/READY signal timing verification
@@ -234,7 +234,7 @@ The integrated compliance checker provides comprehensive AXI4 specification veri
 
 ### AXI4Randomization - Realistic Test Scenarios
 
-The randomization system provides comprehensive parameter variation:
+The randomization layer varies what you send and when you send it. Pick a profile, then tighten the constraints you care about:
 
 **Transaction Randomization**:
 ```python
@@ -338,7 +338,7 @@ read_data = await master_read.read_transaction(0x1000, burst_len=1)
 assert read_data[0] == 0x12345678
 ```
 
-### Pipelined Transactions with AXI4Sequence
+### Burst Sequences with AXI4Sequence
 
 ```python
 from CocoTBFramework.components.axi4 import AXI4Sequence, run_axi4_sequence
@@ -358,38 +358,40 @@ read_results = await run_axi4_sequence(seq, master_rd=master_read, raise_on_erro
 **Address/Data Overlap**:
 - **Write Channel Coordination**: AW and W channel timing optimization
 - **Read Pipeline**: AR and R channel pipeline management
-- **Outstanding Balance**: Optimal outstanding transaction configuration
+- **Outstanding Balance**: Tune the outstanding count to what the DUT can actually absorb
 
 **Flow Control Optimization**:
 - **Backpressure Management**: Intelligent READY signal timing
-- **Throughput Maximization**: Minimal bubble insertion strategies
+- **Throughput Maximization**: Keep bubbles out of the data phase
 - **Latency Minimization**: Optimized handshake timing
 
 ### Memory Efficiency
 
 **Transaction Batching**:
-- **Burst Optimization**: Automatic burst size and alignment optimization
+- **Burst Optimization**: Burst size and alignment chosen for the transfer
 - **Outstanding Queuing**: Efficient outstanding transaction queue management
 - **Data Caching**: Smart data caching for repetitive patterns
 
 ## Debug and Analysis
 
-### Comprehensive Logging
+### Logging and Tracing
 
 **Transaction Tracing**:
-- **Channel-Level Logging**: Detailed per-channel transaction logging
+- **Channel-Level Logging**: Detailed per-channel transaction logs
 - **Timing Analysis**: Handshake timing and pipeline analysis
-- **Protocol Compliance**: Real-time compliance violation reporting
+- **Protocol Compliance**: Compliance violations reported as they happen
 - **Performance Metrics**: Throughput and latency measurement
 
 **Integration Tools**:
 - **Waveform Annotation**: Automatic transaction marker generation
-- **Coverage Integration**: Direct integration with functional coverage
+- **Coverage Integration**: Hooks into functional coverage
 - **Debug Interfaces**: Integration with external debug tools
 
 ## Configuration Examples
 
 ### Hardware Parameter Matching
+
+Match the widths on your RTL interface and the BFM lines up with it:
 
 ```python
 # Match SystemVerilog AXI4 interface parameters
@@ -410,6 +412,8 @@ master_read = AXI4MasterRead(
 ```
 
 ### Protocol Variant Support
+
+The same parameters scale down toward AXI4-Lite or up to a wide custom interconnect:
 
 ```python
 # AXI4-Lite configuration (single transaction, no bursts)
@@ -433,4 +437,4 @@ custom_config = {
 }
 ```
 
-The AXI4 components provide a comprehensive, high-performance, and flexible solution for AXI4-Full protocol verification, combining the power of the GAXI infrastructure with AXI4-specific optimizations and advanced features for complete memory-mapped interface testing.
+That's the shape of the AXI4 support: GAXI underneath doing the heavy lifting, AXI4-specific pieces on top for bursts, IDs, ordering, and compliance. If you've driven another BFM in this framework, you already know most of the API.

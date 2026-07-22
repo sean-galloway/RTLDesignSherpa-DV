@@ -23,25 +23,25 @@
 
 # fifo_sequence.py
 
-Simplified FIFO sequence generator focused on core pattern generation functionality. This module provides a clean approach to creating test sequences by removing complex dependency tracking and FIFO modeling, instead focusing on pattern generation and leveraging existing infrastructure.
+A sequence is just a list of transactions waiting to be turned into packets. FIFOSequence builds those lists — bursts, walking patterns, corner cases — so you don't hand-write every field value.
 
 ## Overview
 
-The `fifo_sequence.py` module provides the `FIFOSequence` class for generating test patterns and transaction sequences. It emphasizes simplicity and maintainability by:
+The design here is deliberately simple. An earlier incarnation of this module tracked dependencies between transactions and tried to model FIFO state internally. Both are gone, on purpose: sequences generate traffic patterns. Whether that traffic was *correct* is the scoreboard's job, and the scoreboard already does it. What's left is the part that was actually useful:
 
-- Using simple transaction lists instead of complex dependency graphs
-- Focusing on pattern generation (incremental, walking bits, random, etc.)
-- Leveraging existing PacketFactory and FieldConfig infrastructure
-- Providing clean factory methods for common test patterns
-- Eliminating unnecessary complexity while keeping useful features
+- A plain list of transactions instead of a dependency graph
+- Built-in pattern generation (incremental, walking bits, random, corner cases)
+- PacketFactory and FieldConfig doing the packet work, as they do everywhere else
+- Factory methods for the test batteries everyone ends up writing
+- FIFO-flavored knobs (capacity, back-pressure) to shape realistic traffic
 
 ### Key Features
-- **Simple transaction management**: List-based transaction storage
-- **Pattern generation**: Built-in methods for common test patterns
-- **Factory methods**: Pre-configured sequences for typical test scenarios
-- **Randomization support**: Integration with FlexRandomizer for timing control
-- **Field configuration**: Full support for multi-field packets
-- **FIFO-specific optimizations**: Capacity and back-pressure considerations
+- **Simple transaction management**: a list, not a graph
+- **Pattern generation**: the classic FIFO patterns are one method call each
+- **Factory methods**: prebuilt sequences for burst, stress, capacity, and corner-case testing
+- **Randomization support**: master/slave FlexRandomizers applied to every generated packet
+- **Multi-field aware**: the sequence carries the FieldConfig, so packets come out fully structured
+- **FIFO parameters**: capacity and back-pressure shape the traffic
 
 ## Core Class
 
@@ -70,6 +70,8 @@ FIFOSequence(name="basic", field_config=None, packet_class=FIFOPacket, log=None)
 - `master_randomizer`: Optional randomizer for master interface timing
 - `slave_randomizer`: Optional randomizer for slave interface timing
 
+A sequence with no `field_config` generates data-only packets. Give it a FieldConfig and every generated packet carries the full field structure.
+
 ```python
 from .fifo_sequence import FIFOSequence
 from ..shared.field_config import FieldConfig
@@ -86,7 +88,7 @@ sequence = FIFOSequence("multi_field", field_config=field_config, log=log)
 
 ### `add_transaction(field_values=None, delay=0)`
 
-Add a transaction to the sequence.
+Append one transaction. `delay` is in cycles, applied before the transaction goes out.
 
 **Parameters:**
 - `field_values`: Dictionary of field values (default: empty dict)
@@ -108,7 +110,7 @@ sequence.add_transaction({
 
 ### `add_data_value(data, delay=0)`
 
-Add a transaction with a data value (convenience method).
+Shortcut for the common case — a data-only packet.
 
 **Parameters:**
 - `data`: Data value
@@ -126,7 +128,7 @@ sequence.add_data_value(0xCAFEBABE, delay=3)
 
 ### `set_randomizers(master_randomizer=None, slave_randomizer=None)`
 
-Set randomizers for timing control.
+Randomizers set here get attached to every packet the sequence generates.
 
 **Parameters:**
 - `master_randomizer`: FlexRandomizer for master interface
@@ -147,7 +149,7 @@ sequence.set_randomizers(master_randomizer=master_rand, slave_randomizer=slave_r
 
 ### `set_random_selection(enable=True)`
 
-Enable/disable random selection from sequences.
+Pick transactions at random instead of in order.
 
 ```python
 sequence.set_random_selection(True)  # Enable random selection
@@ -155,7 +157,7 @@ sequence.set_random_selection(True)  # Enable random selection
 
 ### `set_fifo_parameters(capacity=8, back_pressure=0.0)`
 
-Set FIFO-specific parameters for realistic sequence generation.
+Tell the sequence about the FIFO it's targeting so the traffic looks like something a real FIFO would see.
 
 **Parameters:**
 - `capacity`: FIFO capacity in entries
@@ -171,7 +173,7 @@ sequence.set_fifo_parameters(capacity=16, back_pressure=0.1)
 
 ### `add_data_incrementing(count, start=0, step=1, delay=0)`
 
-Add incrementing data pattern.
+The bread-and-butter pattern: `count` values starting at `start`, stepping by `step`.
 
 ```python
 # Add 10 incrementing values starting from 0x1000
@@ -180,7 +182,7 @@ sequence.add_data_incrementing(count=10, start=0x1000, step=1)
 
 ### `add_walking_ones(data_width=32, delay=0)`
 
-Add walking ones pattern.
+A single 1 walks across the bus. The classic stuck-bit check.
 
 ```python
 # Add walking ones for 16-bit data
@@ -189,7 +191,7 @@ sequence.add_walking_ones(data_width=16)
 
 ### `add_walking_zeros(data_width=32, delay=0)`
 
-Add walking zeros pattern.
+Same idea inverted: a single 0 in a sea of 1s.
 
 ```python
 # Add walking zeros for 32-bit data
@@ -198,7 +200,7 @@ sequence.add_walking_zeros(data_width=32)
 
 ### `add_random_data(count, delay=0)`
 
-Add random data pattern.
+What it says.
 
 ```python
 # Add 20 random data values
@@ -207,7 +209,7 @@ sequence.add_random_data(count=20)
 
 ### `add_corner_cases(delay=0)`
 
-Add common corner case values.
+The usual suspects: all-zeros, all-ones, alternating 5s, alternating As.
 
 ```python
 # Add standard corner cases: 0x00000000, 0xFFFFFFFF, 0x55555555, 0xAAAAAAAA
@@ -218,7 +220,7 @@ sequence.add_corner_cases()
 
 ### `generate_packets(count=None, apply_fifo_metadata=True)`
 
-Generate packets from the sequence.
+Turn the transaction list into FIFOPackets. Randomizers and FIFO metadata get applied here.
 
 **Parameters:**
 - `count`: Number of packets to generate (None = all transactions)
@@ -242,7 +244,7 @@ for packet in packets:
 
 ### `create_burst(name="burst", count=10, start=0x1000, log=None)`
 
-Create a simple burst sequence.
+A run of incrementing data, back to back.
 
 ```python
 burst_seq = FIFOSequence.create_burst(
@@ -255,7 +257,7 @@ burst_seq = FIFOSequence.create_burst(
 
 ### `create_pattern_test(name="patterns", data_width=32, log=None)`
 
-Create a sequence with common test patterns.
+A prebuilt mix of the common patterns.
 
 ```python
 pattern_seq = FIFOSequence.create_pattern_test(
@@ -267,7 +269,7 @@ pattern_seq = FIFOSequence.create_pattern_test(
 
 ### `create_stress_test(name="stress", count=50, burst_size=10, log=None)`
 
-Create a stress test with bursts and gaps.
+Bursts with gaps between them — exercises fill/drain behavior instead of steady-state flow.
 
 ```python
 stress_seq = FIFOSequence.create_stress_test(
@@ -280,7 +282,7 @@ stress_seq = FIFOSequence.create_stress_test(
 
 ### `create_data_stress_test(name="data_stress", data_width=32, delay=1, log=None)`
 
-Create a comprehensive data stress test sequence.
+Every data pattern the module knows, in one sequence.
 
 ```python
 data_stress = FIFOSequence.create_data_stress_test(
@@ -293,7 +295,7 @@ data_stress = FIFOSequence.create_data_stress_test(
 
 ### `create_comprehensive_test(name="comprehensive", field_config=None, packets_per_pattern=10, data_width=32, capacity=None, include_dependencies=True, log=None)`
 
-Create a comprehensive test sequence with multiple patterns.
+The everything-bagel: multiple pattern families with knobs for pattern count, data width, and capacity.
 
 ```python
 comprehensive_seq = FIFOSequence.create_comprehensive_test(
@@ -309,7 +311,7 @@ comprehensive_seq = FIFOSequence.create_comprehensive_test(
 
 ### `create_capacity_test(name="capacity_test", capacity=8, log=None)`
 
-Create a test sequence designed to test FIFO capacity limits.
+Sized to push the FIFO right up against its capacity limits — watermark and full-boundary bugs live here.
 
 ```python
 capacity_seq = FIFOSequence.create_capacity_test(
@@ -321,7 +323,7 @@ capacity_seq = FIFOSequence.create_capacity_test(
 
 ### `create_corner_case_test(name="corner_cases", field_config=None, log=None)`
 
-Create a sequence focused on corner case testing.
+Just the ugly values.
 
 ```python
 corner_seq = FIFOSequence.create_corner_case_test(
@@ -333,7 +335,7 @@ corner_seq = FIFOSequence.create_corner_case_test(
 
 ### `create_dependency_chain(name="dependency_chain", count=5, data_start=0, data_step=1, delay=0, log=None)`
 
-Create a sequence with simple dependency chain (simplified version).
+A simplified dependency chain — kept for tests written against the old API.
 
 ```python
 dep_seq = FIFOSequence.create_dependency_chain(
@@ -350,7 +352,7 @@ dep_seq = FIFOSequence.create_dependency_chain(
 
 ### `clear()`
 
-Clear the sequence.
+Drop all transactions so the sequence can be rebuilt.
 
 ```python
 sequence.clear()  # Remove all transactions
@@ -358,7 +360,7 @@ sequence.clear()  # Remove all transactions
 
 ### `get_stats()`
 
-Get simple statistics.
+Name and transaction count — sequences deliberately don't know more than that.
 
 **Returns:** Dictionary with sequence statistics
 
@@ -369,7 +371,7 @@ print(f"Sequence '{stats['sequence_name']}' has {stats['transaction_count']} tra
 
 ### `get_dependency_graph()`
 
-Get a simple representation of transaction dependencies (backward compatibility).
+A stub kept for backward compatibility with code that asks for one. There is no graph anymore.
 
 **Returns:** Minimal dependency graph structure
 
@@ -381,6 +383,8 @@ print(f"Transaction count: {dep_graph['transaction_count']}")
 ## Usage Patterns
 
 ### Basic Sequence Creation and Usage
+
+Build a pattern mix, generate, send:
 
 ```python
 # Create sequence with basic patterns
@@ -399,6 +403,8 @@ for packet in packets:
 ```
 
 ### Multi-Field Sequence Testing
+
+With a FieldConfig, `add_transaction` takes full field dictionaries:
 
 ```python
 # Create field configuration
@@ -428,6 +434,8 @@ packets = sequence.generate_packets()
 ```
 
 ### Factory-Based Test Generation
+
+A test suite is mostly a loop over factory-built sequences:
 
 ```python
 class FIFOTestSuite:
@@ -466,6 +474,8 @@ class FIFOTestSuite:
 
 ### Randomized Sequence Testing
 
+Randomizers plus FIFO parameters make the same patterns hit differently every run:
+
 ```python
 # Create randomizers
 master_randomizer = FlexRandomizer({
@@ -490,6 +500,8 @@ packets = sequence.generate_packets()
 ```
 
 ### Custom Pattern Creation
+
+When the factories don't fit, compose your own phases. This one alternates bursts with idle gaps — the shape that finds watermark bugs:
 
 ```python
 def create_custom_test_sequence(name, field_config, log):
@@ -524,6 +536,8 @@ packets = custom_seq.generate_packets()
 
 ## Integration with Command Handler
 
+Sequences don't drive anything themselves — the command handler runs them:
+
 ```python
 # Create sequence
 sequence = FIFOSequence.create_comprehensive_test("full_test", log=log)
@@ -540,23 +554,27 @@ for packet in packets:
 ## Best Practices
 
 ### 1. **Use Factory Methods for Common Patterns**
+They're the patterns everyone ends up writing anyway. Hand-build only when they don't fit:
 ```python
 # Prefer factory methods over manual construction
 burst_seq = FIFOSequence.create_burst("burst", count=20)  # Good
 ```
 
 ### 2. **Set Meaningful Sequence Names**
+The name shows up in logs and stats. "seq2" helps nobody at 2 AM:
 ```python
 # Use descriptive names for debugging
 sequence = FIFOSequence("write_burst_test_phase1", log=log)
 ```
 
 ### 3. **Configure FIFO Parameters for Realistic Testing**
+A capacity-16 sequence running against a capacity-256 FIFO won't stress what you think it stresses:
 ```python
 sequence.set_fifo_parameters(capacity=actual_fifo_capacity, back_pressure=0.1)
 ```
 
 ### 4. **Use Appropriate Delays**
+Bursts, then gaps, then bursts. Steady-state traffic finds steady-state bugs; the gaps find the rest:
 ```python
 # Add delays between transaction groups
 sequence.add_data_incrementing(10, start=0x1000, delay=0)  # Burst
@@ -565,6 +583,7 @@ sequence.add_data_incrementing(10, start=0x2000, delay=0)  # Next burst
 ```
 
 ### 5. **Leverage Randomization for Comprehensive Testing**
+Directed patterns find the bugs you suspected. Randomized timing finds the ones you didn't:
 ```python
 sequence.set_randomizers(master_randomizer=master_rand, slave_randomizer=slave_rand)
 ```
@@ -574,4 +593,4 @@ sequence.set_randomizers(master_randomizer=master_rand, slave_randomizer=slave_r
 sequence.clear()  # Clear before adding new patterns
 ```
 
-The FIFOSequence class provides a clean, maintainable approach to test pattern generation while preserving the essential functionality needed for comprehensive FIFO testing. Its simplified design eliminates complexity while maintaining all the features needed for effective verification.
+Keep sequences dumb: they generate traffic, not verdicts. That split is what makes them easy to write, easy to read, and easy to throw away.

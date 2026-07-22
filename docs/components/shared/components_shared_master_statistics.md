@@ -23,22 +23,22 @@
 
 # master_statistics.py
 
-Statistics tracking classes for Master and Slave components that provide comprehensive performance monitoring, error tracking, and throughput analysis for BFM (Bus Functional Model) components.
+Statistics tracking for master and slave BFM components — latency, throughput, error counts, and the moving averages that tell you whether the test you just ran was actually exercising anything.
 
 ## Overview
 
-The `master_statistics.py` module provides three main classes:
+"The test passed" is only half the story. The other half is whether the DUT saw the traffic you meant to send: how many transactions completed, how long they took, how often the pipeline stalled. The `master_statistics.py` module provides three classes for that:
 - **MasterStatistics**: For master components (writers/drivers)
 - **SlaveStatistics**: For slave components (readers/responders)  
 - **ComponentStatistics**: Backward compatibility alias for MasterStatistics
 
-These classes track performance metrics, error conditions, and provide detailed statistics for analysis and debugging.
+They count transactions, time them, categorize the failures, and keep a moving window so recent behavior doesn't drown in the total.
 
 ## Classes
 
 ### MasterStatistics
 
-Statistics tracking for Master components that initiate transactions.
+Statistics for components that initiate transactions.
 
 #### Constructor
 
@@ -207,7 +207,7 @@ print(stats)
 
 ### SlaveStatistics
 
-Statistics tracking for Slave components that respond to transactions.
+Statistics for components that respond to transactions.
 
 #### Constructor
 
@@ -580,6 +580,8 @@ def test_with_automatic_stats(dut):
     assert master_stats['average_latency_ms'] <= 10, "Master latency too high"
 ```
 
+Note the asserts at the end — that's the real payoff. A test that only checks "did the data match" can pass while running at a tenth of the intended rate. Asserting on the statistics is how you catch "the test passed but the traffic was wrong."
+
 ## Best Practices
 
 ### 1. **Choose Appropriate Window Sizes**
@@ -588,6 +590,8 @@ def test_with_automatic_stats(dut):
 - Very large windows for long-term trend analysis
 
 ### 2. **Update Throughput Regularly**
+Throughput is computed when you ask for it, so ask for it on a cadence:
+
 ```python
 # In main test loop
 if cycle % 1000 == 0:  # Every 1000 cycles
@@ -596,6 +600,8 @@ if cycle % 1000 == 0:  # Every 1000 cycles
 ```
 
 ### 3. **Use Meaningful Error Categories**
+You'll thank yourself when you're grepping a log at hour six of a debug session:
+
 ```python
 # Good - specific error types
 stats.record_transaction_failed("address_decode_error", "Invalid address range")
@@ -606,6 +612,8 @@ stats.record_transaction_failed("error", "Something went wrong")
 ```
 
 ### 4. **Reset Statistics for Test Phases**
+A multi-phase test should report per-phase numbers, not one soup of an average:
+
 ```python
 def run_test_phase(phase_name, master, slave):
     # Reset statistics for this phase
@@ -625,6 +633,6 @@ def run_test_phase(phase_name, master, slave):
 ```
 
 ### 5. **Monitor Performance Continuously**
-Use the statistics classes to detect performance degradation and protocol issues in real-time during long-running tests.
+On long-running tests, watch the moving averages as the test runs. A throughput that sags halfway through, or an error count that ticks up only under backpressure, is usually the first visible symptom of a real bug — and it's a lot easier to catch live than to reconstruct from a waveform afterward.
 
-The statistics classes provide essential visibility into component performance and behavior, enabling effective debugging, optimization, and verification of protocol implementations.
+---

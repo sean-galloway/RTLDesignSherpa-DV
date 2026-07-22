@@ -23,19 +23,19 @@
 
 # fifo_master.py
 
-FIFO Master component for driving write transactions into FIFO interfaces. Inherits from FIFOComponentBase for unified functionality while preserving exact API and timing behavior.
+The write side of a FIFO testbench. FIFOMaster takes the packets you hand it and pushes them into the DUT, backing off when `full` asserts so you never write into a FIFO that can't take it. It inherits the shared plumbing from FIFOComponentBase while keeping the original component's API and timing.
 
 ## Overview
 
-The `FIFOMaster` class is a high-performance transaction driver that writes data to FIFO interfaces. It combines cocotb's BusDriver functionality with the shared infrastructure from FIFOComponentBase to provide optimized signal handling, memory integration, and comprehensive statistics.
+Under the hood it's a cocotb BusDriver plus the FIFO base. You create packets, call `send()`, and the master handles queuing, `full`-signal flow control, and — if you want — randomized gaps between writes. Statistics accumulate the whole time, so when the test ends you already know your throughput, latency, and stall count.
 
 ### Key Features
-- **High-Performance Writing**: Optimized transaction queuing and pipeline management
-- **Flow Control**: Automatic handling of FIFO full conditions with backpressure support
-- **Timing Control**: Configurable write delays with randomization support
-- **Memory Integration**: Built-in memory model support for data verification
-- **Rich Statistics**: Comprehensive performance tracking and error detection
-- **Flexible Configuration**: Support for both single-signal and multi-signal modes
+- **Transaction queuing**: `send()` queues and pipelines writes; you don't touch the handshakes
+- **Flow control built in**: `full` is watched every cycle — writes pause and resume automatically, and stalls are counted
+- **Randomized timing**: attach a FlexRandomizer to vary write delays from back-to-back to long gaps
+- **Memory integration**: writes can be mirrored into a MemoryModel for later checking
+- **Real statistics**: transactions sent, success rate, average latency, throughput, timeouts, protocol violations
+- **Both signal modes**: packed data bus or one signal per field
 
 ## Core Class
 
@@ -61,7 +61,7 @@ FIFOMaster(dut, title, prefix, clock, field_config,
 - `prefix`: Bus prefix for signal naming
 - `clock`: Clock signal
 - `field_config`: Field configuration (FieldConfig object or dict)
-- `timeout_cycles`: Timeout for waiting for FIFO not full (default: 1000)
+- `timeout_cycles`: Cycles to wait for `full` to clear before giving up (default: 1000)
 - `mode`: FIFO mode ('fifo_mux', 'fifo_flop')
 - `bus_name`: Bus/channel name
 - `pkt_prefix`: Packet field prefix
@@ -71,6 +71,8 @@ FIFOMaster(dut, title, prefix, clock, field_config,
 - `super_debug`: Enable detailed debugging
 - `signal_map`: Optional manual signal mapping
 - `**kwargs`: Additional arguments for BusDriver
+
+The defaults are sane for a simple data-only FIFO. The knobs you'll actually reach for are `timeout_cycles`, `mode`, `multi_sig`, and `randomizer`.
 
 **Example:**
 ```python
@@ -104,7 +106,7 @@ master = FIFOMaster(
 
 #### `async send(packet)`
 
-Modern send interface for sending a single packet.
+The interface you want. Queue one packet; returns when the transfer completes.
 
 **Parameters:**
 - `packet`: FIFOPacket to send
@@ -119,7 +121,7 @@ await master.send(packet)
 
 #### `async busy_send(transaction)`
 
-Send a transaction and wait for completion.
+Send a transaction and wait for completion — the older entry point, kept alongside `send()`.
 
 **Parameters:**
 - `transaction`: Transaction packet to send
@@ -132,7 +134,7 @@ await master.busy_send(packet)
 
 #### `create_packet(**field_values)`
 
-Create a packet with specified field values.
+Build a FIFOPacket from keyword field values. Fields you don't set take their defaults.
 
 **Parameters:**
 - `**field_values`: Field values to set in packet
@@ -155,7 +157,7 @@ packet = master.create_packet(data=0x12345678)
 
 #### `async reset_bus()`
 
-Reset the bus to a known state.
+Drop queued transactions and return the interface to idle.
 
 ```python
 # Reset master and clear queues
@@ -164,7 +166,7 @@ await master.reset_bus()
 
 #### `async wait_cycles(cycles)`
 
-Wait for specified number of clock cycles.
+Exactly what it says — an idle helper for pacing tests.
 
 **Parameters:**
 - `cycles`: Number of cycles to wait
@@ -178,12 +180,12 @@ await master.wait_cycles(10)
 
 #### `async write_to_memory(packet)`
 
-Write packet to memory using integrated memory model.
+Mirror a packet into the attached MemoryModel.
 
 **Parameters:**
 - `packet`: Packet to write to memory
 
-**Returns:** True if successful, False otherwise
+**Returns:** True if successful, False otherwise — failures here are usually an address-range problem.
 
 ```python
 # Write to memory
@@ -195,7 +197,7 @@ if success:
 
 #### `async read_from_memory(packet)`
 
-Read data from memory using integrated memory model.
+Read the MemoryModel at the packet's address.
 
 **Parameters:**
 - `packet`: Packet with address to read from
@@ -214,7 +216,7 @@ if success:
 
 #### `get_stats()`
 
-Get comprehensive statistics including master-specific and base statistics.
+The full picture. Master counters live under `'master_stats'`; the FIFO base's counters are merged in alongside.
 
 **Returns:** Dictionary containing all statistics
 
@@ -241,6 +243,8 @@ print(f"Signal mapping: {stats['signal_mapping_source']}")
 
 ### Basic Write Operations
 
+The smallest useful master test:
+
 ```python
 # Set up master
 field_config = FieldConfig.create_data_only(32)
@@ -257,6 +261,8 @@ for i in range(10):
 ```
 
 ### Multi-Field Transactions
+
+With `multi_sig=True` each field gets its own DUT signal. The packet API doesn't change.
 
 ```python
 # Configure multi-field packets
@@ -286,6 +292,8 @@ await master.send(packet)
 
 ### Randomized Timing
 
+The randomizer shapes the gaps between writes — mostly back-to-back for throughput, long tails for stress:
+
 ```python
 # Create randomizer for write delays
 write_randomizer = FlexRandomizer({
@@ -309,6 +317,8 @@ for i in range(50):
 ```
 
 ### Memory-Integrated Testing
+
+Attach a MemoryModel and every write can be checked against it later. It's the poor man's scoreboard, and often it's all you need:
 
 ```python
 # Set up memory model
@@ -341,6 +351,8 @@ for addr in range(0x1000, 0x1100, 4):
 ```
 
 ### High-Performance Batch Operations
+
+For long runs, keep an eye on the stall counter — it tells you whether the DUT or the testbench is the bottleneck:
 
 ```python
 class BatchMaster:
@@ -384,6 +396,8 @@ class BatchMaster:
 ```
 
 ### Error Handling and Recovery
+
+Timeouts and retries: this pattern resets the bus between attempts so a wedged interface doesn't poison the next try.
 
 ```python
 class RobustMaster:
@@ -446,6 +460,8 @@ class RobustMaster:
 
 ### Custom Signal Mapping
 
+If the DUT names its signals `wr_en` / `almost_full` / `din`, don't rename the RTL — map them:
+
 ```python
 # For non-standard FIFO interfaces
 def create_custom_master(dut, clock, custom_signals):
@@ -486,6 +502,8 @@ master = create_custom_master(dut, clock, custom_signals)
 ## Performance Analysis
 
 ### Monitoring Performance
+
+The stats are cumulative, so rates come from differences. Take snapshots during the run and diff them:
 
 ```python
 class PerformanceAnalyzer:
@@ -551,7 +569,7 @@ print(f"Test performance: {performance}")
 
 ### Flow Control Handling
 
-The master automatically handles FIFO full conditions:
+The master handles `full` itself: it drops `write`, waits for `full` to clear, and resumes where it left off. Every stall is counted, so a DUT that starves the master shows up in the numbers even when the test passes.
 
 ```python
 # Master will:
@@ -568,6 +586,8 @@ if stats['master_stats']['flow_control_stalls'] > expected_threshold:
 ```
 
 ### Timeout Protection
+
+If `full` never clears, the master gives up after `timeout_cycles` and records a timeout event:
 
 ```python
 # Configure timeout for problematic interfaces
@@ -588,6 +608,7 @@ timeout_count = stats['master_stats']['timeout_events']
 ## Best Practices
 
 ### 1. **Use Factory Functions**
+`create_fifo_master` wires up the boilerplate the same way every time:
 ```python
 # Recommended - use factory for setup
 master = create_fifo_master(dut, "Master", clock, field_config)
@@ -596,6 +617,7 @@ master = create_fifo_master(dut, "Master", clock, field_config)
 ```
 
 ### 2. **Monitor Statistics Regularly**
+Watch the success rate, not just pass/fail. A master limping along at 90% is telling you something:
 ```python
 # Check performance periodically
 if cycle % 1000 == 0:
@@ -605,6 +627,7 @@ if cycle % 1000 == 0:
 ```
 
 ### 3. **Use Appropriate Randomizers**
+Match the randomizer to the purpose of the test. Throughput runs want mostly zero-delay writes; stress runs want ugly gaps:
 ```python
 # For high-throughput testing
 fast_randomizer = FlexRandomizer({
@@ -618,6 +641,7 @@ stress_randomizer = FlexRandomizer({
 ```
 
 ### 4. **Handle Memory Integration**
+If you attached a model, check the results:
 ```python
 # Always check memory operations
 if master.memory_model:
@@ -627,9 +651,10 @@ if master.memory_model:
 ```
 
 ### 5. **Reset Between Test Phases**
+Stale queue state is a classic source of "passes alone, fails in the suite":
 ```python
 # Reset master state between test phases
 await master.reset_bus()
 ```
 
-The FIFOMaster provides a high-performance, feature-rich interface for writing transactions to FIFO interfaces with comprehensive error handling, performance monitoring, and integration capabilities.
+That's the master: hand it packets, let it deal with `full`, and read the stats when the dust settles.

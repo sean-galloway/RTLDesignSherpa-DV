@@ -23,27 +23,27 @@
 
 # memory_model.py
 
-High-performance memory model with integrated diagnostics and access tracking for hardware verification. Provides comprehensive memory operations using NumPy with debugging capabilities, boundary checking, and memory organization features.
+A NumPy-backed memory model for verification, with access tracking, named regions, and boundary checking built in — the thing your slave BFM talks to instead of a bare Python dict.
 
 ## Overview
 
-The `memory_model.py` module provides a sophisticated memory modeling system designed for verification environments. It uses NumPy for high-performance operations while providing extensive diagnostics, access tracking, and memory organization features.
+A Python `dict` works as a memory model until you care about speed, coverage, or strobe semantics — then you're writing a memory model anyway, badly, inside your testbench. This module is the real version: NumPy storage for fast bulk operations, per-address read/write counters so you can answer "did the test actually touch this region," named regions for organizing the address map, and bounds checking that fails loudly instead of silently wrapping. Transaction-based helpers let BFMs read and write it directly with packet objects.
 
 ### Key Features
-- High-performance NumPy backend for memory operations
-- Comprehensive access tracking (read/write operations per address)
-- Memory region management for logical organization
+- NumPy backend for memory operations
+- Per-address access tracking (reads and writes)
+- Named memory regions for logical organization
 - Boundary checking and validation
 - Coverage analysis and statistics
 - Transaction-based read/write operations
 - Detailed memory dumps with access information
-- Integration with packet-based protocols
+- Works directly with packet-based protocols
 
 ## Core Class
 
 ### MemoryModel
 
-High-performance memory model with integrated diagnostics, access tracking, and region management.
+The memory model itself. One instance is one address space.
 
 #### Constructor
 
@@ -504,7 +504,7 @@ def benchmark_memory_performance():
 
 ## Error Handling
 
-The MemoryModel includes comprehensive error handling:
+The model fails loudly on the mistakes that matter:
 
 ### Boundary Checking
 ```python
@@ -531,6 +531,8 @@ if not success:
     print(f"Transaction failed: {error}")
     # Handle error gracefully
 ```
+
+The transaction helpers return `(success, error)` tuples instead of raising, which is deliberate — a slave BFM wants to turn a bad access into a protocol error response, not into a Python exception that kills the test.
 
 ## Integration with Protocols
 
@@ -590,6 +592,8 @@ class FIFOMemoryBuffer:
 ## Best Practices
 
 ### 1. **Choose Appropriate Memory Sizes**
+Size the model to what the test needs — big enough to cover the address space, small enough to stay fast:
+
 ```python
 # For small tests
 memory = MemoryModel(256, 4)  # 1KB
@@ -602,6 +606,8 @@ memory = MemoryModel(262144, 4)  # 1MB
 ```
 
 ### 2. **Use Memory Regions for Organization**
+Regions turn a flat address space into a map you can reason about, and the per-region stats tell you which part of the map the test actually visited:
+
 ```python
 # Define logical memory layout
 memory.define_region("boot", 0x0000, 0x0FFF)
@@ -611,6 +617,8 @@ memory.define_region("regs", 0xF000, 0xFFFF)
 ```
 
 ### 3. **Monitor Memory Coverage**
+Coverage is how you catch "the address generator never left the first page":
+
 ```python
 # Regular coverage analysis
 def check_coverage():
@@ -620,6 +628,8 @@ def check_coverage():
 ```
 
 ### 4. **Handle Errors Gracefully**
+Check the transaction return values and map failures onto protocol responses, the way real hardware would:
+
 ```python
 # Always check transaction results
 success, error = memory.write_transaction(packet)
@@ -630,6 +640,8 @@ if not success:
 ```
 
 ### 5. **Use Debug Mode During Development**
+Debug logging is verbose enough to slow a big regression. On while bringing the test up, off for the nightly:
+
 ```python
 # Enable debug for development
 memory = MemoryModel(1024, 4, debug=True, log=log)
@@ -638,4 +650,6 @@ memory = MemoryModel(1024, 4, debug=True, log=log)
 memory = MemoryModel(1024, 4, debug=False)
 ```
 
-The MemoryModel provides a robust foundation for memory-centric verification, combining high performance with comprehensive diagnostics and analysis capabilities.
+The MemoryModel is the piece that makes the rest of the memory-centric workflow — scoreboards, region coverage, error injection — practical. Fast enough to stay out of the way, honest enough to tell you when the test didn't go where you thought it did.
+
+---

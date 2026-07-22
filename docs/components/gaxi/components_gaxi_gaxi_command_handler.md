@@ -23,26 +23,27 @@
 
 # gaxi_command_handler.py
 
-Enhanced GAXI command handler for transaction processing with sequential data generation and improved field extraction. This module provides a comprehensive command handler that bridges master and slave components, supporting both forwarding mode and response generation mode.
+The piece that connects a GAXI master to a GAXI slave inside the testbench. It runs one of two ways: forwarding mode pushes the master's transactions down to the slave, and response-generation mode answers from the slave side — inventing sequential read data when the memory model has nothing for that address, so the test stays predictable either way.
 
 ## Overview
 
-The `gaxi_command_handler.py` module provides the `GAXICommandHandler` class, which manages transaction processing between GAXI masters and slaves. It offers two operational modes: forwarding mode (master→slave) and response generation mode (slave→master), with enhanced sequential data generation for predictable testing.
+`GAXICommandHandler` owns a processing task that moves transactions between one master and one slave. In forwarding mode it watches the master's outbound traffic, resolves dependencies between transactions, and hands each one to the slave in an order that respects those dependencies. In response-generation mode it works the other direction: it watches the slave's receive queue and builds responses — writes land in the memory model, reads come back out of it, and a read that hits an address the model has never seen gets made-up sequential data instead of an error.
+
+That fallback is the feature you'll lean on most. Tests get deterministic read data without anyone preloading memory, and the stats tell you afterwards how much of the traffic was real versus invented.
 
 ### Key Features
-- **Dual operational modes**: Forwarding and response generation
-- **Sequential data generation** for predictable read responses
-- **Enhanced field extraction** supporting both APB and GAXI style packets
-- **Memory model integration** with automatic fallback to sequential data
-- **Comprehensive error handling** and recovery
-- **Transaction dependency tracking** and ordering
-- **Performance statistics** and latency measurement
+- **Two modes**: forward master→slave traffic, or generate slave→master responses
+- **Sequential read data**: predictable values for addresses the memory model doesn't cover
+- **Format-tolerant field extraction**: reads both GAXI-style field dictionaries and APB-style attribute packets
+- **Memory model with fallback**: unmapped reads produce generated data, not failures
+- **Dependency tracking**: transactions declare what they wait on, and the handler enforces it
+- **Statistics**: transaction counts, latency, memory operations, sequential-read totals
 
 ## Core Class
 
 ### GAXICommandHandler
 
-Enhanced command handler for GAXI transactions with comprehensive transaction processing capabilities.
+One handler per master/slave pair. It owns the background processing task and all the bookkeeping — pending, completed, and generated transactions — in whichever direction the mode selects.
 
 #### Constructor
 
@@ -95,7 +96,7 @@ handler = GAXICommandHandler(
 
 ### `async start()`
 
-Start the command handler processing task.
+Start the command handler processing task. Nothing moves until this runs.
 
 **Returns:** Self for chaining
 
@@ -119,13 +120,13 @@ await handler.stop()
 
 ### `async _forward_transactions()`
 
-Forward transactions from master to slave with dependency tracking.
+Walk the master's outbound transactions and send each one to the slave once its dependencies have cleared.
 
 **Internal method** - called automatically in forwarding mode
 
 ### `_is_dependency_satisfied(txn_id)`
 
-Check if a transaction's dependencies are satisfied.
+Check whether everything a transaction waits on has completed.
 
 **Parameters:**
 - `txn_id`: Transaction ID to check
@@ -134,7 +135,7 @@ Check if a transaction's dependencies are satisfied.
 
 ### `async _send_to_slave(txn_id)`
 
-Send a transaction to the slave component.
+Hand a single transaction to the slave. Assumes dependencies were already checked.
 
 **Parameters:**
 - `txn_id`: Transaction ID to send
@@ -143,16 +144,16 @@ Send a transaction to the slave component.
 
 ### `async _generate_response_for_transaction(cmd_transaction)`
 
-Generate a response for a received command transaction with sequential data generation.
+Build a response for a command the slave received.
 
 **Parameters:**
 - `cmd_transaction`: Command transaction to respond to
 
-**Features:**
-- **Sequential data generation** for reads when memory is empty
-- **Memory integration** with automatic fallback
-- **Field extraction** supporting multiple packet formats
-- **Error handling** with comprehensive logging
+**What it does:**
+- Reads pull from the memory model when the model has data for that address
+- Otherwise the value comes from the sequential generator, so the test still knows what to expect
+- Field extraction copes with both packet formats (see below)
+- Failures get logged and counted rather than propagated — one malformed transaction doesn't stall the queue
 
 ```python
 # This method is called automatically in response generation mode
@@ -161,7 +162,7 @@ Generate a response for a received command transaction with sequential data gene
 
 ### `_generate_sequential_data(address)`
 
-Generate sequential data based on address for predictable testing.
+Produce the invented read value for an address the memory model doesn't cover.
 
 **Parameters:**
 - `address`: Address being read
@@ -169,10 +170,9 @@ Generate sequential data based on address for predictable testing.
 **Returns:** Sequential data value
 
 **Algorithm:**
-- Combines sequential counter with address for predictability
-- Uses word-aligned addressing (address >> 2)
-- Maintains 32-bit data range
-- Increments counter for each generation
+- Combines a per-generation counter with the word-aligned address (`address >> 2`)
+- Keeps results inside the 32-bit data range
+- Deterministic, so the test can compute what it expects
 
 ```python
 # Generates predictable data patterns:
@@ -182,6 +182,8 @@ Generate sequential data based on address for predictable testing.
 ```
 
 ## Field Extraction and Response Handling
+
+Packets arrive in two shapes in this framework: GAXI packets carry their fields in a dictionary, APB-style packets carry them as plain attributes. These two helpers hide that difference — they try the primary name, an alternate name, lowercase variants, and finally a default. You write the handler-facing code once and stop caring which side produced the packet.
 
 ### `_extract_field_value(transaction, field_name, alt_field_name=None, default=0)`
 
@@ -228,7 +230,7 @@ handler._set_response_field(response_packet, 'pslverr', 'rsp_pslverr', 0)
 
 ### `async _handle_memory_write(address, data, strobe)`
 
-Handle memory write operation with error handling.
+Write into the memory model with error handling.
 
 **Parameters:**
 - `address`: Target address
@@ -244,7 +246,7 @@ success = await handler._handle_memory_write(0x1000, 0xDEADBEEF, 0xF)
 
 ### `async _handle_memory_read(address)`
 
-Handle memory read operation with error handling.
+Read from the memory model with error handling.
 
 **Parameters:**
 - `address`: Address to read from
@@ -263,17 +265,17 @@ if not success:
 
 ### `async process_sequence(sequence)`
 
-Process a GAXI sequence through the master-slave connection.
+Run a whole GAXISequence through the master/slave pair.
 
 **Parameters:**
 - `sequence`: GAXISequence to process
 
 **Returns:** Dictionary of responses by transaction index
 
-**Features:**
-- **Dependency tracking**: Handles transaction dependencies
-- **Completion monitoring**: Waits for transaction completion
-- **Response mapping**: Maps responses to sequence indexes
+**What it does:**
+- Waits on each transaction's dependencies before issuing it
+- Blocks until the sequence completes
+- Keys the response map by sequence index, so `response_map[i]` lines up with the i-th transaction you added
 
 ```python
 # Process sequence with dependencies
@@ -290,7 +292,7 @@ print(f"Response 1: {response_map[1]}")
 
 ### `get_stats()`
 
-Get comprehensive handler statistics.
+Everything the handler has been counting.
 
 **Returns:** Dictionary with statistics including:
 - Transaction counts and timing
@@ -309,7 +311,7 @@ print(f"Average latency: {stats['avg_latency']} ns")
 
 ### `get_transaction_status(txn_id=None)`
 
-Get status of specific transaction or all transactions.
+Status of one transaction, or of all of them.
 
 **Parameters:**
 - `txn_id`: Transaction ID to check (None for all)
@@ -380,6 +382,8 @@ async def test_forwarding():
 ```
 
 ### Response Generation Setup
+
+Preload the memory with what you care about; the sequential generator covers everything else.
 
 ```python
 async def setup_response_handler():
@@ -467,6 +471,8 @@ async def test_dependency_handling():
 ```
 
 ### Memory Integration Testing
+
+Mapped reads come from memory, unmapped reads come from the generator — this test exercises both paths and then checks the stats to confirm which is which.
 
 ```python
 async def test_memory_integration():
@@ -558,6 +564,8 @@ async def test_with_monitoring():
 
 ### Automatic Error Recovery
 
+Response generation catches its own exceptions: the error gets logged with context, the error counters tick up, and the handler moves on to the next transaction. One bad packet doesn't take the queue down with it.
+
 ```python
 try:
     # Process transaction with automatic error handling
@@ -572,6 +580,8 @@ except Exception as e:
 ```
 
 ### Field Extraction Fallbacks
+
+The extraction helpers walk a fixed search order, so a packet from either side of the family works without special-casing.
 
 ```python
 # Handler automatically tries multiple field extraction methods:
@@ -608,6 +618,8 @@ if not success:
 
 ### Master Integration
 
+Give the handler a master and it takes it from there — transactions the master sends are picked up and forwarded without further involvement from the test.
+
 ```python
 # Handler integrates seamlessly with GAXIMaster
 master = GAXIMaster(dut, "TestMaster", "", clock, field_config)
@@ -619,6 +631,8 @@ await master.send(packet)
 
 ### Slave Integration
 
+In response mode the handler lives on the slave's receive queue: whatever shows up there gets a response.
+
 ```python
 # Handler monitors slave receive queue for transactions
 slave = GAXISlave(dut, "TestSlave", "", clock, field_config)
@@ -628,6 +642,8 @@ handler = GAXICommandHandler(master, slave, response_generation_mode=True)
 ```
 
 ### Memory Model Integration
+
+The plain base MemoryModel, used directly — no wrapper, no adapter. Pass one in or the handler works without memory at all (every read becomes sequential data).
 
 ```python
 # Uses base MemoryModel directly for maximum compatibility
@@ -639,7 +655,7 @@ handler = GAXICommandHandler(master, slave, memory_model=memory)
 
 ## Best Practices
 
-### 1. **Choose Appropriate Mode**
+### 1. **Pick the Right Mode**
 ```python
 # Use forwarding mode for master→slave testing
 handler = GAXICommandHandler(master, slave, response_generation_mode=False)
@@ -648,14 +664,17 @@ handler = GAXICommandHandler(master, slave, response_generation_mode=False)
 handler = GAXICommandHandler(master, slave, response_generation_mode=True)
 ```
 
-### 2. **Initialize Memory Model**
+### 2. **Give It a Memory Model**
+
+Without one, every read returns invented data. That's fine for smoke tests; it's not fine for anything that checks read-after-write.
+
 ```python
 # Always provide memory model for realistic testing
 memory = MemoryModel(num_lines=1024, bytes_per_line=4, log=log)
 handler = GAXICommandHandler(master, slave, memory_model=memory)
 ```
 
-### 3. **Monitor Statistics**
+### 3. **Watch the Statistics**
 ```python
 # Regular statistics monitoring
 async def monitor_handler():
@@ -666,14 +685,20 @@ async def monitor_handler():
             log.warning(f"Errors detected: {stats}")
 ```
 
-### 4. **Handle Dependencies Properly**
+### 4. **Validate Dependencies Up Front**
+
+Cheaper to catch a broken dependency graph before the simulation runs than to debug a hung one.
+
 ```python
 # Always validate dependencies in sequences
 sequence.validate_dependencies()
 response_map = await handler.process_sequence(sequence)
 ```
 
-### 5. **Use Sequential Data for Testing**
+### 5. **Let Sequential Data Work for You**
+
+Invented read data is a feature, not a wart: it's address-based and counter-based, so different addresses give different patterns and repeated reads keep moving. When a read value looks made up, check `sequential_reads` in the stats before blaming the DUT.
+
 ```python
 # Sequential data generation provides predictable test patterns
 # Address-based: Different addresses generate different patterns
@@ -681,4 +706,4 @@ response_map = await handler.process_sequence(sequence)
 # Useful for debugging and verification
 ```
 
-The GAXICommandHandler provides a comprehensive solution for GAXI transaction processing with enhanced data generation, robust error handling, and flexible operational modes for comprehensive verification scenarios.
+That covers the handler. Day to day you'll call `start()`, `process_sequence()`, and `get_stats()`; the underscore-prefixed machinery exists so the two modes can share one implementation, and most tests never touch it directly.

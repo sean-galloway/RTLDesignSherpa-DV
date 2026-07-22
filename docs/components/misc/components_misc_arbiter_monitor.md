@@ -23,22 +23,22 @@
 
 # arbiter_monitor.py
 
-Enhanced Generic Arbiter Monitor Component for observing various types of arbiter interfaces including round-robin and weighted round-robin arbiters. This module provides comprehensive monitoring capabilities with improved signal sampling timing, proper grant validation, and robust transaction tracking.
+A monitor for arbiter interfaces — round-robin and weighted round-robin — that watches the request/grant handshake, validates every grant, and records each transaction with its timing. Arbiters tend to fail quietly rather than loudly: a starved client looks a lot like a slow one until you add up the numbers. This module exists to make that visible.
 
 **Module location:** `src/CocoTBFramework/components/shared/arbiter_monitor.py` (import from `CocoTBFramework.components.shared.arbiter_monitor`).
 
 ## Overview
 
-The `arbiter_monitor.py` module provides sophisticated arbiter monitoring capabilities for verification environments. It includes transaction tracking, fairness analysis, pattern compliance verification, and real-time statistics collection.
+The `arbiter_monitor.py` module gives you a passive observer for arbitration logic inside the DUT. It tracks the full life of every transaction — who asked, who won, how long they waited — and layers fairness scoring, pattern compliance checks, and live statistics on top.
 
 ### Key Features
-- **Multiple arbiter types**: Support for round-robin and weighted round-robin arbiters
-- **Transaction tracking**: Complete transaction records with timing information
-- **Fairness analysis**: Jain's fairness index calculation and compliance checking
-- **Pattern verification**: Grant sequence analysis and compliance validation
-- **Real-time statistics**: Live performance metrics and behavioral analysis
-- **Flexible callbacks**: Event-driven architecture for integration
-- **Robust signal handling**: Proper timing and X/Z state management
+- **Round-robin and weighted round-robin**: one base monitor, plus subclasses that understand each scheme's rules
+- **Transaction tracking**: every grant recorded with request vector, grant ID, wait cycles, and timestamp
+- **Fairness analysis**: Jain's fairness index over the observed grant distribution
+- **Pattern verification**: observed grant order checked against round-robin rotation or configured weights
+- **Real-time statistics**: per-client grant counts, wait times, and percentages, queryable mid-test
+- **Callbacks**: transaction and reset events you can wire into scoreboards and coverage
+- **Signal handling**: clean sampling with X/Z tolerance, so reset transients don't turn into phantom transactions
 
 ## Data Structures
 
@@ -59,19 +59,19 @@ ArbiterTransaction = namedtuple('ArbiterTransaction', [
 ```
 
 **Fields:**
-- `req_vector`: Binary representation of all active requests
-- `gnt_vector`: Binary representation of the grant (usually one-hot)
-- `gnt_id`: Integer ID of the client that received the grant
-- `cycle_count`: Number of clock cycles from request to grant
-- `timestamp`: Simulation timestamp when grant was issued
-- `weights`: Weight values for weighted arbiters (optional)
-- `metadata`: Additional information (blocked state, thresholds, etc.)
+- `req_vector`: The full request vector as sampled — every client that was asking
+- `gnt_vector`: The grant vector, one bit per client (one-hot in a healthy design)
+- `gnt_id`: Integer index of the client that received the grant
+- `cycle_count`: Clock cycles from request assertion to grant
+- `timestamp`: Simulation time when the grant was issued
+- `weights`: Per-client weight values, when monitoring a weighted arbiter
+- `metadata`: Anything else worth carrying along (blocked state, threshold values, and so on)
 
 ## Core Classes
 
 ### ArbiterMonitor
 
-Enhanced generic arbiter monitor component that observes arbiter transactions with comprehensive analysis capabilities.
+The base monitor. It watches the arbiter interface, builds `ArbiterTransaction` records, and maintains the statistics everything else derives from. You can drive it directly, but most of the time you'll want one of the specialized subclasses further down.
 
 #### Constructor
 
@@ -86,27 +86,29 @@ ArbiterMonitor(entity, name, clock, reset_n,
 - `name`: Component name (used for bus signal resolution and logging)
 - `clock`: Clock signal
 - `reset_n`: Reset signal (active low)
-- `clients`: Number of clients (derived from signal width if None)
+- `clients`: Number of clients; derived from the signal width if you don't pass it
 - `is_weighted`: True if monitoring a weighted arbiter
 - `ack_mode`: True if the arbiter uses an ACK protocol
 - `log`: Logger instance (creates new if None)
-- `clock_period_ns`: Clock period in nanoseconds for timing calculations
+- `clock_period_ns`: Clock period in nanoseconds — this is what turns cycle counts into time in the statistics
 - `callback`: Callback invoked with each transaction (cocotb pattern)
 - `event`: Event fired when a transaction is received (cocotb pattern)
 
 The base class resolves `request`/`grant_valid`/`grant`/`grant_id` (plus optional
-`grant_ack`, `block_arb`, `max_thresh`) signals via the cocotb `BusMonitor` bus.
-The specialized subclasses below accept explicit per-signal handles
-(`req_signal`, `gnt_valid_signal`, ...) and are the recommended entry points.
+`grant_ack`, `block_arb`, `max_thresh`) signals via the cocotb `BusMonitor` bus,
+keyed off `name`. The specialized subclasses below take explicit per-signal
+handles (`req_signal`, `gnt_valid_signal`, ...) instead — pass your handles
+directly and skip the bus-naming exercise. The subclasses are the recommended
+entry points.
 
 #### Core Properties
 
 - `clients`: Number of clients being arbitrated
-- `transactions`: Deque of recent transactions (bounded for memory efficiency)
-- `pending_requests`: Dictionary mapping client index to request timestamp
-- `stats`: Comprehensive statistics dictionary
-- `monitoring_enabled`: Global enable/disable flag
-- `debug_enabled`: Debug logging control
+- `transactions`: Bounded deque of recent transactions
+- `pending_requests`: Maps client index to request timestamp, for requests still waiting on a grant
+- `stats`: The running statistics dictionary
+- `monitoring_enabled`: Master enable/disable flag
+- `debug_enabled`: Debug logging switch
 
 ## Monitoring Control
 
@@ -118,7 +120,7 @@ Start all monitoring coroutines.
 arbiter_monitor.start_monitoring()
 ```
 
-This method starts the following coroutines:
+That brings up one coroutine per concern:
 - Request monitoring (`_monitor_requests`)
 - Grant monitoring (`_monitor_grants`)
 - Reset monitoring (`_monitor_reset`)
@@ -127,7 +129,7 @@ This method starts the following coroutines:
 
 ### `enable_monitoring(enable=True)`
 
-Enable or disable monitoring.
+Enable or disable monitoring without tearing anything down — handy when a phase of the test shouldn't count toward the statistics.
 
 ```python
 arbiter_monitor.enable_monitoring(True)   # Enable monitoring
@@ -136,7 +138,7 @@ arbiter_monitor.enable_monitoring(False)  # Disable monitoring
 
 ### `enable_debug(enable=True)`
 
-Enable or disable debug logging.
+Enable or disable debug logging. It's noisy by design — reach for it when the monitor's view of the world doesn't match yours.
 
 ```python
 arbiter_monitor.enable_debug(True)   # Enable debug logging
@@ -147,7 +149,7 @@ arbiter_monitor.enable_debug(False)  # Disable debug logging
 
 ### `add_transaction_callback(callback)`
 
-Register a callback function for completed transactions.
+Register a function to be called with each completed transaction. This is the standard way to feed a scoreboard or coverage model.
 
 **Parameters:**
 - `callback`: Function that accepts an ArbiterTransaction object
@@ -161,7 +163,7 @@ arbiter_monitor.add_transaction_callback(transaction_handler)
 
 ### `add_reset_callback(callback)`
 
-Register a callback function for reset events.
+Register a function to be called when the monitor detects reset. Flush your scoreboard state there, so pre-reset traffic doesn't leak into the check.
 
 **Parameters:**
 - `callback`: Function called when reset is detected
@@ -177,7 +179,7 @@ arbiter_monitor.add_reset_callback(reset_handler)
 
 ### `get_transaction_count()`
 
-Get the total number of observed transactions.
+How many completed transactions the monitor has seen.
 
 **Returns:** Integer count of completed transactions
 
@@ -187,7 +189,7 @@ total_transactions = arbiter_monitor.get_transaction_count()
 
 ### `get_client_stats(client_id)`
 
-Get statistics for a specific client.
+Statistics for one client — grants, wait time, share of the total.
 
 **Parameters:**
 - `client_id`: Client identifier (0 to clients-1)
@@ -202,7 +204,7 @@ if client_stats:
 
 ### `get_fairness_index()`
 
-Calculate Jain's fairness index for the arbiter.
+Jain's fairness index across all clients. 1.0 means everyone got an exactly even share; the closer to 0.0, the more the arbiter is playing favorites.
 
 **Returns:** Float between 0.0 (completely unfair) and 1.0 (perfectly fair)
 
@@ -216,7 +218,7 @@ elif fairness < 0.5:
 
 ### `get_stats_summary()`
 
-Get a comprehensive statistics summary.
+The whole picture in one dictionary — totals, fairness, and per-client breakdowns. This is the call you want at end-of-test.
 
 **Returns:** Dictionary with complete statistics including per-client data
 
@@ -233,7 +235,7 @@ for client_stat in summary['client_stats']:
 
 ### RoundRobinArbiterMonitor
 
-Monitor specifically tailored for Round Robin Arbiters with pattern compliance analysis.
+A monitor that knows what round-robin is supposed to look like. Beyond recording grants, it can check that the grant order actually rotates the way the name promises.
 
 #### Constructor
 
@@ -244,13 +246,13 @@ RoundRobinArbiterMonitor(dut, title, clock, reset_n, req_signal, gnt_valid_signa
                         log=None, clock_period_ns=10)
 ```
 
-Inherits all parameters from ArbiterMonitor (automatically sets `is_weighted=False`).
+Same parameters as ArbiterMonitor (automatically sets `is_weighted=False`), with explicit handles for each signal.
 
 #### Additional Methods
 
 ##### `analyze_round_robin_pattern()`
 
-Analyze if the grant pattern follows round-robin behavior.
+Walks the recorded grant sequence and checks it against legal round-robin rotation, reporting any violations it finds.
 
 **Returns:** Dictionary with pattern analysis results
 
@@ -265,7 +267,7 @@ else:
 
 ### WeightedRoundRobinArbiterMonitor
 
-Monitor specifically tailored for Weighted Round Robin Arbiters with weight compliance analysis.
+The weighted variant. Same monitoring core, plus analysis of whether the grant distribution matches the weights you programmed.
 
 #### Constructor
 
@@ -276,13 +278,13 @@ WeightedRoundRobinArbiterMonitor(dut, title, clock, reset_n, req_signal, gnt_val
                                 clients=None, ack_mode=False, log=None, clock_period_ns=10)
 ```
 
-Inherits all parameters from ArbiterMonitor (automatically sets `is_weighted=True`).
+Same parameters as ArbiterMonitor (automatically sets `is_weighted=True`), with explicit handles for each signal.
 
 #### Additional Methods
 
 ##### `analyze_weight_compliance(expected_weights=None)`
 
-Analyze if grant distribution matches expected weights.
+Compares the observed grant share per client against the expected weights, and reports per-client and overall compliance.
 
 **Parameters:**
 - `expected_weights`: List of expected weights for each client
@@ -590,6 +592,8 @@ class ArbiterTestBench:
 
 ### Signal Resolution Issues
 
+Most "the monitor sees nothing" bugs are signal problems — a wrong handle, a grant that arrives malformed, an ID that disagrees with its vector. Turn debug logging on and the monitor will tell you what it's unhappy about:
+
 ```python
 # Enable debug logging for signal issues
 arbiter_monitor.enable_debug(True)
@@ -602,6 +606,8 @@ arbiter_monitor.enable_debug(True)
 ```
 
 ### Performance Considerations
+
+A few knobs for keeping long tests cheap:
 
 ```python
 # Limit transaction history for memory efficiency
@@ -619,6 +625,9 @@ arbiter_monitor.enable_monitoring(True)
 ## Best Practices
 
 ### 1. **Proper Signal Connections**
+
+Assert that the DUT actually has the signals you need before building stimulus on top of them:
+
 ```python
 # Ensure all required signals are connected
 assert hasattr(dut, 'req'), "Request signal missing"
@@ -628,6 +637,9 @@ assert hasattr(dut, 'gnt_id'), "Grant ID signal missing"
 ```
 
 ### 2. **Clock Period Configuration**
+
+`clock_period_ns` is what turns cycle counts into nanoseconds in the statistics. Pass the real period, or your timing numbers are fiction:
+
 ```python
 # Set accurate clock period for timing analysis
 clock_period_ns = 10  # 100MHz clock
@@ -635,6 +647,9 @@ arbiter_monitor = ArbiterMonitor(..., clock_period_ns=clock_period_ns)
 ```
 
 ### 3. **Use Appropriate Monitor Type**
+
+The base monitor records; the specialized ones analyze. Pick the one that matches your RTL, so the pattern checks are there when you need them:
+
 ```python
 # Use specialized monitors for better analysis
 if arbiter_type == "round_robin":
@@ -646,6 +661,9 @@ else:
 ```
 
 ### 4. **Regular Statistics Checking**
+
+On long runs, poll fairness as you go. Discovering starvation at minute forty of a forty-five minute test is a special kind of annoying:
+
 ```python
 # Check statistics periodically during long tests
 async def periodic_stats_check():
@@ -658,7 +676,10 @@ async def periodic_stats_check():
                 print(f"WARNING: Low fairness detected: {fairness:.3f}")
 ```
 
-### 5. **Comprehensive Final Analysis**
+### 5. **Final Analysis**
+
+Whatever else the test checks, close out with the full pass — statistics, fairness, and pattern compliance:
+
 ```python
 # Always perform final analysis
 def final_analysis(arbiter_monitor):
@@ -676,4 +697,4 @@ def final_analysis(arbiter_monitor):
     assert stats['total_transactions'] > 100, "Insufficient test coverage"
 ```
 
-The arbiter monitoring components provide comprehensive verification capabilities for arbitration logic, enabling thorough analysis of fairness, timing, and behavioral compliance in complex multi-master systems.
+Arbiters are small blocks with an outsized blast radius: a fairness bug in one shows up three modules away as a throughput problem nobody can explain. These monitors let you catch it at the source, with a transaction record to point at.

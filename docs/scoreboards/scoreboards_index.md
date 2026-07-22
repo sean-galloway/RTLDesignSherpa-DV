@@ -23,25 +23,25 @@
 
 # Scoreboards Index
 
-This directory contains scoreboard implementations for verifying transactions across different protocols in the CocoTBFramework. Scoreboards provide automated comparison between expected and actual transactions, protocol compliance checking, and comprehensive reporting.
+Scoreboards are where checking happens: expected versus actual, matched as transactions arrive, with the accounting at the end. This directory holds one scoreboard per protocol family plus the pieces that make cross-protocol verification possible.
 
 ## Overview
-- [**Overview**](scoreboards_overview.md) - Complete overview of the scoreboards directory and verification architecture
+- [**Overview**](scoreboards_overview.md) - the directory tour: what lives here and how the pieces fit together
 
 ## Core Documentation
 
 ### Base Framework
-- [**base_scoreboard.py**](scoreboards_base_scoreboard.md) - Base scoreboard class and protocol transformer framework providing common functionality for all scoreboards
+- [**base_scoreboard.py**](scoreboards_base_scoreboard.md) - the queue-and-compare machinery every scoreboard inherits, plus the protocol transformer base class
 
 ### Protocol-Specific Scoreboards
-- [**apb_scoreboard.py**](scoreboards_apb_scoreboard.md) - APB (Advanced Peripheral Bus) transaction verification with multi-slave support
-- [**axi4_scoreboard.py**](scoreboards_axi4_scoreboard.md) - AXI4 protocol transaction verification with ID tracking and channel separation
-- [**fifo_scoreboard.py**](scoreboards_fifo_scoreboard.md) - FIFO protocol transaction verification with memory integration
-- [**gaxi_scoreboard.py**](scoreboards_gaxi_scoreboard.md) - GAXI (Generic AXI) protocol transaction verification with field-based comparison
+- [**apb_scoreboard.py**](scoreboards_apb_scoreboard.md) - APB verification, from a single slave up to a full crossbar
+- [**axi4_scoreboard.py**](scoreboards_axi4_scoreboard.md) - AXI4 verification with per-ID tracking and read/write channel separation
+- [**fifo_scoreboard.py**](scoreboards_fifo_scoreboard.md) - FIFO verification with memory-model integration
+- [**gaxi_scoreboard.py**](scoreboards_gaxi_scoreboard.md) - GAXI verification built on FieldConfig—the one most protocol checks funnel through
 
 ### Cross-Protocol Verification
-- [**apb_gaxi_scoreboard.py**](scoreboards_apb_gaxi_scoreboard.md) - APB-GAXI protocol bridge verification with three-phase matching
-- [**apb_gaxi_transformer.py**](scoreboards_apb_gaxi_transformer.md) - Bidirectional protocol transformation between APB and GAXI
+- [**apb_gaxi_scoreboard.py**](scoreboards_apb_gaxi_scoreboard.md) - APB-GAXI bridge checking with three-phase matching
+- [**apb_gaxi_transformer.py**](scoreboards_apb_gaxi_transformer.md) - bidirectional conversion between APB and GAXI
 
 ### Additional Scoreboards (source only, docs pending)
 - **dfi_scoreboard.py** - DFI semantic-shift event counting and assertion (`DFIScoreboard`)
@@ -50,6 +50,9 @@ This directory contains scoreboard implementations for verifying transactions ac
 ## Quick Start
 
 ### Basic Scoreboard Usage
+
+The minimal loop, GAXI flavor:
+
 ```python
 from CocoTBFramework.scoreboards.gaxi_scoreboard import GAXIScoreboard
 
@@ -66,6 +69,9 @@ success_rate = scoreboard.result()
 ```
 
 ### Cross-Protocol Verification
+
+Bridge checking—note the single GAXI entry point for both commands and responses:
+
 ```python
 from CocoTBFramework.scoreboards.apb_gaxi_scoreboard import APBGAXIScoreboard
 
@@ -84,6 +90,9 @@ stats = scoreboard.get_stats()
 ```
 
 ### Multi-Slave APB Verification
+
+Address routing you configure once and forget:
+
 ```python
 from CocoTBFramework.scoreboards.apb_scoreboard import APBCrossbarScoreboard
 
@@ -137,44 +146,47 @@ graph TB
 ## Key Features
 
 ### Base Scoreboard Framework
-- **Transaction Queuing**: Automatic queueing and matching of expected vs actual transactions
-- **Error Tracking**: Comprehensive error counting and mismatch logging
-- **Protocol Transformers**: Support for cross-protocol transaction conversion
-- **Statistics Reporting**: Pass/fail rates and detailed transaction statistics
+- **Transaction Queuing**: expected and actual matched automatically as they arrive
+- **Error Tracking**: counts, plus the failing pairs themselves for inspection
+- **Protocol Transformers**: hooks for cross-protocol conversion
+- **Statistics Reporting**: pass/fail rates and the numbers behind them
 
 ### Protocol-Specific Features
 
 #### APB Scoreboard
-- **Multi-slave Support**: Route transactions to correct slave scoreboards based on address ranges
-- **Address Mapping**: Configurable address ranges for automatic slave selection
-- **Direction Handling**: Separate processing for read and write transactions
-- **Enhanced Logging**: Detailed field-by-field mismatch reporting
+- **Multi-slave Support**: transactions routed to per-slave scoreboards by address range
+- **Address Mapping**: configurable ranges drive slave selection
+- **Direction Handling**: reads and writes processed separately
+- **Enhanced Logging**: field-by-field mismatch detail
 
 #### AXI4 Scoreboard
-- **ID-based Tracking**: Track transactions by AXI4 ID fields with separate queues per ID
-- **Read/Write Separation**: Independent queues for read and write channels
-- **Protocol Compliance**: Check for AXI4 protocol violations and timing constraints
-- **Monitor Integration**: Direct connection to AXI4 monitor components
+- **ID-based Tracking**: a queue per AXI4 ID
+- **Read/Write Separation**: channels tracked independently
+- **Protocol Compliance**: AXI4 rule and timing checks
+- **Monitor Integration**: connects straight to AXI4 monitor components
 
 #### FIFO Scoreboard
-- **Memory Integration**: Built-in memory model adapter for data verification
-- **Field Configuration**: Flexible field mapping and comparison using FieldConfig
-- **Packet Format Support**: Native support for FIFO packet classes
+- **Memory Integration**: built-in memory model adapter for data verification
+- **Field Configuration**: comparison driven by FieldConfig
+- **Packet Format Support**: native FIFO packet handling
 
 #### GAXI Scoreboard
-- **Field-based Comparison**: Uses FieldConfig for flexible packet structure comparison
-- **Memory Adaptation**: Integration with memory models for transaction verification
-- **Transform Support**: Cross-protocol transformation capabilities
+- **Field-based Comparison**: FieldConfig defines the packet structure
+- **Memory Adaptation**: memory models in the verification loop
+- **Transform Support**: cross-protocol conversion capabilities
 
 ### Cross-Protocol Support
-- **APB-GAXI Bridge**: Specialized scoreboard for verifying protocol bridges with three-phase matching
-- **Bidirectional Transformation**: Convert between APB and GAXI formats with timing preservation
-- **Timing Analysis**: Track transformation latency and performance metrics
-- **Response Matching**: Proper handling of both read and write responses
+- **APB-GAXI Bridge**: three-phase matching purpose-built for protocol bridges
+- **Bidirectional Transformation**: APB ↔ GAXI with timing preserved
+- **Timing Analysis**: transformation latency tracked
+- **Response Matching**: read and write responses both handled
 
 ## Advanced Usage
 
 ### Custom Protocol Transformers
+
+One method to implement, and the scoreboard does the rest:
+
 ```python
 from CocoTBFramework.scoreboards.base_scoreboard import ProtocolTransformer
 
@@ -191,6 +203,9 @@ scoreboard.set_transformer(CustomTransformer("Protocol1", "Protocol2"))
 ```
 
 ### Memory Model Integration
+
+Mirror packets into a memory model and check against it:
+
 ```python
 from CocoTBFramework.scoreboards.fifo_scoreboard import MemoryAdapter
 from CocoTBFramework.components.shared.memory_model import MemoryModel
@@ -205,6 +220,7 @@ read_data = adapter.read_from_memory(read_packet)
 ```
 
 ### Statistics and Reporting
+
 ```python
 # APBGAXIScoreboard statistics
 stats = scoreboard.get_stats()
@@ -220,6 +236,9 @@ print(report)
 ## Integration Patterns
 
 ### With Monitor Components
+
+Wire monitor callbacks straight into the scoreboard and checking happens as traffic flows:
+
 ```python
 # Connect monitors to scoreboards automatically
 master_monitor.add_callback(scoreboard.add_expected)
@@ -234,6 +253,7 @@ for packet in slave_responses:
 ```
 
 ### With Test Frameworks
+
 ```python
 @cocotb.test()
 async def test_with_scoreboard(dut):
@@ -255,28 +275,28 @@ async def test_with_scoreboard(dut):
 ## Best Practices
 
 ### Scoreboard Setup
-1. **Choose appropriate scoreboard type** based on protocol being verified
-2. **Configure field mappings** for packet comparison
-3. **Set up memory adapters** when verifying memory-mapped interfaces
-4. **Configure timeout values** for transaction matching
+1. **Pick the scoreboard that matches your protocol**—the protocol-specific ones know things the base never will
+2. **Configure field mappings** so comparison knows the packet shape
+3. **Set up memory adapters** when the interface is memory-mapped
+4. **Configure timeout values** that reflect real latency, not wishful thinking
 
 ### Error Handling
-- Always provide logger instances for detailed error reporting
-- Use `clear()` method to reset scoreboards between test phases
-- Check both `report()` and `result()` methods for comprehensive analysis
-- Review field-by-field mismatch reports for debugging
+- Always pass a logger; a silent scoreboard debugs poorly
+- Use `clear()` to reset scoreboards between test phases
+- Read both `report()` and `result()`—one tells you what failed, the other how much
+- Start debugging at the field-by-field mismatch output
 
 ### Performance Optimization
-- Use appropriate transformer configurations for cross-protocol verification
-- Clear transaction queues periodically in long-running tests
-- Monitor memory usage with large transaction volumes
-- Configure appropriate matching timeout values
+- Configure transformers properly for cross-protocol work
+- Retire transaction queues periodically in long-running tests
+- Watch memory usage at high transaction volume
+- Timeouts: tight enough to fail fast, loose enough for real latency
 
 ### Debugging Support
-- Enable detailed logging for mismatch analysis
-- Use formatted output methods for transaction comparison
-- Leverage built-in statistics for performance analysis
-- Generate HTML reports for comprehensive analysis
+- Detailed logging on while chasing mismatches
+- Formatted packet output beats raw reprs
+- The built-in statistics are your performance baseline
+- Generate HTML reports when you need the long-form view
 
 ## Navigation
 - [**Back to CocoTBFramework**](../index.md) - Return to main framework index

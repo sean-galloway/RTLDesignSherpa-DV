@@ -23,22 +23,21 @@
 
 # gaxi_scoreboard.py
 
-GAXI (Generic AXI) protocol scoreboard implementation for verifying GAXI transactions with modern field configuration support and protocol transformation capabilities. This module provides comprehensive verification for GAXI-based communication systems.
+GAXI is the framework's generic AXI substrate—the layer the AXI4/AXI5/AXI-Lite pieces are built on—so this scoreboard ends up seeing more traffic than any other. It's built around the modern `FieldConfig`/`Packet` architecture, and it ships with two extras that matter in practice: a transform scoreboard for cross-protocol checks and a memory adapter for data-consistency checks.
 
 ## Overview
 
-The GAXI scoreboard system provides:
-- **Modern Field Configuration**: Full integration with updated FieldConfig and Packet classes
-- **Flexible Packet Handling**: Support for both legacy and modern packet formats
-- **Protocol Transformation**: Enhanced cross-protocol verification capabilities
-- **Memory Model Integration**: Built-in memory adapter for data consistency checking
-- **Transform Scoreboards**: Specialized scoreboards for protocol conversion verification
+- **Modern Field Configuration**: native `FieldConfig` and `Packet` integration
+- **Flexible Packet Handling**: legacy and modern packet formats both accepted
+- **Protocol Transformation**: cross-protocol verification through transformers
+- **Memory Model Integration**: adapter included
+- **Transform Scoreboards**: verification in the target protocol's domain
 
 ## Classes
 
 ### GAXIScoreboard
 
-Core GAXI transaction verification with modern architecture support.
+GAXI verification on the modern architecture.
 
 ```python
 class GAXIScoreboard(BaseScoreboard):
@@ -46,19 +45,19 @@ class GAXIScoreboard(BaseScoreboard):
 ```
 
 **Parameters:**
-- `name`: Scoreboard name for identification
-- `field_config`: Field configuration (FieldConfig object or dictionary)
-- `log`: Logger instance for detailed reporting
+- `name`: scoreboard name; shows up in reports
+- `field_config`: field configuration (FieldConfig object or plain dictionary)
+- `log`: logger for the detail
 
 **Modern Features:**
-- Automatic FieldConfig validation and conversion
-- Support for updated Packet class with fields dictionary
-- Enhanced field-by-field comparison logging
-- Backward compatibility with legacy packet formats
+- FieldConfig validation and conversion handled for you
+- Works with the updated Packet class and its fields dictionary
+- Field-by-field comparison logging
+- Legacy packet formats still accepted
 
 ### Field Configuration Handling
 
-The scoreboard automatically handles different field configuration formats:
+Hand it a plain dictionary and it gets validated into a `FieldConfig` for you; hand it a `FieldConfig` and it's used as-is. Either way you end up in the same place.
 
 ```python
 # Dictionary format (automatically converted)
@@ -75,19 +74,19 @@ scoreboard = GAXIScoreboard("Test", field_config, log=logger)
 ### Transaction Comparison
 
 #### `_compare_transactions(expected, actual)`
-Compare GAXI packets using modern packet equality methods.
+Comparison goes through the `Packet` class `__eq__`, which skips timing fields automatically. That's the part that saves you a debugging session: `start_time`/`end_time` are excluded, so two functionally identical packets captured at different sim times still match.
 
 **Parameters:**
-- `expected`: Expected GAXI transaction (GAXIPacket)
-- `actual`: Actual GAXI transaction (GAXIPacket)
+- `expected`: expected GAXI transaction (GAXIPacket)
+- `actual`: actual GAXI transaction (GAXIPacket)
 
 **Returns:**
-- `bool`: True if packets match, False otherwise
+- `bool`: True on match, False otherwise
 
 **Modern Comparison Logic:**
-- Validates transaction types (must be GAXIPacket instances)
-- Uses Packet class `__eq__` method which automatically skips timing fields
-- Compares all configured fields using field_config
+- Both transactions must be GAXIPacket instances
+- Uses the Packet class `__eq__` method, which skips timing fields on its own
+- Compares every configured field using field_config
 - Handles both legacy and modern packet formats
 
 ```python
@@ -97,17 +96,17 @@ scoreboard.add_actual(actual_packet)      # Only functional fields compared
 ```
 
 #### `_log_mismatch(expected, actual)`
-Enhanced mismatch logging with modern packet format support.
+Compact packet dumps, then the field-by-field walk in hex. The logger detects which packet format it's holding—modern or legacy—and formats accordingly.
 
 **Parameters:**
-- `expected`: Expected GAXI packet
-- `actual`: Actual GAXI packet
+- `expected`: expected GAXI packet
+- `actual`: actual GAXI packet
 
 **Enhanced Logging Features:**
-- Uses packet's `formatted(compact=True)` method for readable output
-- Automatic detection of packet format (modern vs legacy)
+- Uses the packet's `formatted(compact=True)` method for readable output
+- Automatic packet-format detection (modern vs legacy)
 - Field-by-field comparison using FieldConfig
-- Hexadecimal display for clear value comparison
+- Hex display so values compare at a glance
 
 ```python
 # Example modern mismatch log output:
@@ -121,7 +120,7 @@ Enhanced mismatch logging with modern packet format support.
 
 ### TransformScoreboard
 
-Specialized scoreboard for protocol transformation verification.
+When the two sides of your DUT speak different protocols, verify in the target protocol's domain. Source transactions arrive as expecteds, get transformed, and are forwarded to the target scoreboard; actuals are already in the target protocol and go straight there.
 
 ```python
 class TransformScoreboard(BaseScoreboard):
@@ -129,17 +128,17 @@ class TransformScoreboard(BaseScoreboard):
 ```
 
 **Parameters:**
-- `name`: Scoreboard name
-- `transformer`: Protocol transformer instance
-- `target_scoreboard`: Target scoreboard for verification
-- `log`: Logger instance
+- `name`: scoreboard name
+- `transformer`: protocol transformer instance
+- `target_scoreboard`: the scoreboard that does the final comparison
+- `log`: logger instance
 
 **Transform Workflow:**
-1. Source transactions added via `add_expected()`
-2. Transformer converts source to target protocol
-3. Converted transactions forwarded to target scoreboard
-4. Actual transactions added directly to target scoreboard
-5. Verification performed in target protocol domain
+1. Source transactions arrive via `add_expected()`
+2. The transformer converts them to the target protocol
+3. Converted transactions are forwarded to the target scoreboard
+4. Actual transactions go straight to the target scoreboard
+5. Comparison happens in the target domain
 
 ```python
 # Cross-protocol verification setup
@@ -156,7 +155,7 @@ transform_scoreboard.add_actual(gaxi_packet)        # Direct comparison
 
 ### GAXItoMemoryAdapter
 
-Adapter for memory model integration with GAXI packets.
+The memory adapter, GAXI-flavored. Writes honor the strobe field when one's configured.
 
 ```python
 class GAXItoMemoryAdapter:
@@ -164,28 +163,28 @@ class GAXItoMemoryAdapter:
 ```
 
 **Parameters:**
-- `memory_model`: Memory model instance for data storage
-- `field_map`: Field mapping configuration for memory operations
-- `log`: Logger instance
+- `memory_model`: memory model instance for data storage
+- `field_map`: field mapping for memory operations
+- `log`: logger instance
 
 **Default Field Mapping:**
-- `'addr'`: Address field for memory operations
-- `'data'`: Data field for read/write operations
-- `'strb'`: Strobe field for byte enable operations
+- `'addr'`: address field for memory operations
+- `'data'`: data field for read/write operations
+- `'strb'`: strobe field for byte enables
 
 #### Memory Operations
 
 ##### `write_to_memory(packet)`
-Write GAXI packet data to memory model.
+Write a GAXI packet's data into the memory model.
 
 **Parameters:**
-- `packet`: GAXI packet containing write data
+- `packet`: GAXI packet carrying the write data
 
 **Behavior:**
-- Extracts address and data from packet fields
-- Handles strobe-based byte enables if present
-- Updates memory model with packet data
-- Logs write operation for debugging
+- Pulls address and data out of the packet fields
+- Applies strobe-based byte enables when present
+- Updates the memory model
+- Logs the write for debugging
 
 ```python
 # Memory write with strobe support
@@ -195,19 +194,19 @@ adapter.write_to_memory(write_packet)
 ```
 
 ##### `read_from_memory(packet)`
-Verify read packet data against memory contents.
+Check a read packet's data against memory contents.
 
 **Parameters:**
-- `packet`: GAXI packet containing expected read data
+- `packet`: GAXI packet carrying the expected read data
 
 **Returns:**
-- `bool`: True if packet data matches memory contents
+- `bool`: True when packet data matches memory
 
 **Verification Process:**
-- Extracts address from packet
-- Reads current memory contents at address
-- Compares memory data with packet data field
-- Returns match status for verification
+- Pulls the address out of the packet
+- Reads current memory contents at that address
+- Compares against the packet's data field
+- Returns the verdict
 
 ```python
 # Memory read verification
@@ -220,6 +219,8 @@ if not match:
 ## Usage Examples
 
 ### Basic GAXI Verification
+
+The standard loop, with the timing-field exclusion doing quiet work in the background.
 
 ```python
 from CocoTBFramework.scoreboards.gaxi_scoreboard import GAXIScoreboard
@@ -262,6 +263,8 @@ print(f"GAXI Verification: {'PASS' if error_count == 0 else 'FAIL'} ({pass_rate:
 
 ### Cross-Protocol Transformation Verification
 
+APB in, GAXI out, compared in the GAXI domain—the transform scoreboard ties it together.
+
 ```python
 from CocoTBFramework.scoreboards.gaxi_scoreboard import TransformScoreboard
 from CocoTBFramework.scoreboards.apb_gaxi_transformer import APBtoGAXITransformer
@@ -299,6 +302,8 @@ else:
 ```
 
 ### Memory-Backed GAXI System Verification
+
+Writes update the model, reads check against it. The subclass below wires that in.
 
 ```python
 from CocoTBFramework.scoreboards.gaxi_scoreboard import GAXItoMemoryAdapter
@@ -352,6 +357,8 @@ memory_scoreboard.add_expected(read_packet)   # Verified against memory
 ```
 
 ### Advanced Multi-Channel Verification
+
+Sixteen channels routed by a packet field—one scoreboard each, one router in front.
 
 ```python
 # Multi-channel GAXI verification system
@@ -433,6 +440,8 @@ async def test_multi_channel_gaxi():
 ```
 
 ### Performance and Coverage Analysis
+
+Subclass to collect field coverage and error patterns while the comparisons run.
 
 ```python
 # Enhanced GAXI scoreboard with analytics
@@ -524,24 +533,24 @@ for pattern, count in report['error_patterns'].items():
 ## Best Practices
 
 ### Modern Architecture Usage
-- Use FieldConfig objects for consistent field definitions
-- Leverage modern Packet class with fields dictionary
-- Take advantage of automatic timing field exclusion
+- Use `FieldConfig` objects everywhere; the dict form works, but the object keeps everyone honest
+- Use the fields dictionary on packets rather than loose attributes
+- Let the timing-field exclusion do its job—don't scrub timestamps by hand
 
 ### Protocol Transformation
-- Use TransformScoreboard for cross-protocol verification
-- Implement custom transformers for domain-specific conversions
-- Validate transformation correctness with known test patterns
+- `TransformScoreboard` for cross-protocol checks
+- Custom transformers for domain-specific conversions
+- Sanity-check a new transformer on known patterns before trusting it in a regression
 
 ### Memory Integration
-- Configure appropriate field mappings for memory operations
-- Use memory adapters for data consistency verification
-- Clear memory state between test phases when appropriate
+- Get the field mapping right first; everything downstream depends on it
+- Memory adapters for data-consistency questions
+- Clear memory between phases when stale contents would mislead the check
 
 ### Performance Optimization
-- Use efficient field comparison methods
-- Monitor memory usage in high-throughput scenarios
-- Consider batch operations for large test sets
+- Efficient comparison paths matter at high throughput
+- Watch memory usage in long, high-volume runs
+- Batch operations for large test sets
 
 ## Integration Points
 
@@ -586,4 +595,4 @@ class GAXITestEnvironment:
         }
 ```
 
-The GAXI scoreboard provides comprehensive verification capabilities with modern architecture support, flexible transformation capabilities, and extensive integration options for complex GAXI-based verification environments.
+Since everything AXI-family in the framework bottoms out in GAXI, this scoreboard is the one worth knowing well—the transform and memory pieces included, because bridges and memory-mapped DUTs are where the interesting bugs live.

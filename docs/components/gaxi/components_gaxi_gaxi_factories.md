@@ -23,25 +23,24 @@
 
 # gaxi_factories.py
 
-Updated GAXI factories with fixed parameter handling to match TB instantiation patterns. This module provides simplified factory functions for creating GAXI components with proper defaults and consistent parameter handling across all factory methods.
+Factory functions for creating GAXI components without the constructor boilerplate. They pass your parameters straight through — what they add is sensible defaults (empty prefixes work for most DUTs), a standard field configuration when you don't supply one, and one-call creation of a whole master/slave/monitor/scoreboard environment.
 
 ## Overview
 
-The `gaxi_factories.py` module provides factory functions for creating GAXI components (Master, Slave, Monitor, Scoreboard) with simplified configuration and proper parameter defaults. All existing APIs are preserved and parameters are passed through exactly as before, with enhanced defaults for signal prefixes and naming.
+Every factory here builds the components documented on their own pages, with the same parameters, in the same order, meaning the same things. Old testbenches keep working: legacy parameter names are still accepted, even the ones that are now ignored (they say so). The factories also create a shared MemoryModel for you when you don't supply one, which is what you want more often than not.
 
 ### Key Features
-- **Simplified component creation** with sensible defaults
-- **Consistent parameter handling** across all factories
-- **Backward compatibility** - all existing parameters preserved
-- **Enhanced defaults** for signal prefixes (empty strings work for most cases)
-- **Memory model integration** using base MemoryModel directly
-- **Complete system creation** with factory methods for full environments
+- **Sensible defaults** — empty string prefixes cover most DUTs
+- **Same parameter handling** in every factory
+- **Backward compatible** — every old parameter still accepted, a few of them ignored and documented as such
+- **Memory model auto-created** when you don't pass one
+- **Whole-system factories** that return every component in a dict, ready to wire up
 
 ## Field Configuration
 
 ### `get_default_field_config(data_width=32)`
 
-Get standard field configuration for GAXI protocol.
+The standard GAXI field config: one data field of the given width. Most smoke tests never need more.
 
 **Parameters:**
 - `data_width`: Data width in bits (default: 32)
@@ -60,7 +59,7 @@ config_64 = get_default_field_config(data_width=64)
 
 ### `create_gaxi_master()`
 
-Create a GAXI Master component with simplified configuration.
+Build a GAXIMaster with defaults filled in.
 
 ```python
 create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_class=None,
@@ -117,7 +116,7 @@ master = create_gaxi_master(
 
 ### `create_gaxi_slave()`
 
-Create a GAXI Slave component with simplified configuration.
+Build a GAXISlave with defaults filled in.
 
 ```python
 create_gaxi_slave(dut, title, prefix, clock, field_config=None, field_mode=False,
@@ -153,7 +152,7 @@ slave = create_gaxi_slave(
 
 ### `create_gaxi_monitor()`
 
-Create a GAXI Monitor component with simplified configuration.
+Build a GAXIMonitor watching either side of the interface.
 
 ```python
 create_gaxi_monitor(dut, title, prefix, clock, field_config=None, is_slave=False,
@@ -226,12 +225,12 @@ your packet needs additional constructor arguments, subclass the component
 and override `_build_packet()` instead — see the
 [component base docs](components_gaxi_gaxi_component_base.md#overriding-the-hook).
 
-Omitting `packet_class` is fully backward compatible: components keep
-producing plain `GAXIPacket` instances.
+Leave `packet_class` out and nothing changes: components produce plain
+`GAXIPacket` instances, as they always have.
 
 ### `create_gaxi_scoreboard()`
 
-Create a GAXI Scoreboard with simplified configuration.
+Build a GAXIScoreboard.
 
 ```python
 create_gaxi_scoreboard(name, field_config=None, log=None)
@@ -260,7 +259,7 @@ scoreboard = create_gaxi_scoreboard(
 
 ### `create_gaxi_components()`
 
-Create a complete set of GAXI components (master, slave, monitors, scoreboard).
+Build the whole bench in one call: master, slave, a monitor for each side, a scoreboard, and a shared memory model.
 
 ```python
 create_gaxi_components(dut, clock, title_prefix="", field_config=None,
@@ -308,7 +307,7 @@ memory_model = components['memory_model']
 
 ### `create_gaxi_system()`
 
-Create a complete GAXI system with all components - alias for `create_gaxi_components()`.
+Alias for `create_gaxi_components()` with a trimmed parameter list.
 
 ```python
 create_gaxi_system(dut, clock, title_prefix="", field_config=None,
@@ -332,7 +331,7 @@ system = create_gaxi_system(
 
 ### `create_gaxi_test_environment()`
 
-Create a complete GAXI test environment ready for immediate use.
+The everything-included option: all components plus a few convenience functions (`send_data`, `read_memory`, `write_memory`, `get_all_stats`) so a simple test never touches the components directly.
 
 ```python
 create_gaxi_test_environment(dut, clock, bus_name='', pkt_prefix='', **kwargs)
@@ -580,6 +579,8 @@ async def create_advanced_gaxi_system(dut, clock):
 
 ### Multi-Instance Systems
 
+Several masters, one slave, one shared memory — the factories make the wiring tedious rather than hard, so it helps to wrap it in a function you'll reuse.
+
 ```python
 async def create_multi_master_system(dut, clock):
     """Create system with multiple masters and one slave"""
@@ -648,6 +649,8 @@ async def create_multi_master_system(dut, clock):
 ```
 
 ### Factory Pattern Integration
+
+If your project spins up the same few configurations in every test, put a factory class in front of the factories. Boring, but it pays for itself by the third testbench.
 
 ```python
 class GAXITestFactory:
@@ -720,6 +723,8 @@ async def test_with_factory(dut):
 
 ### Parameter Validation
 
+The factories don't hide component validation from you — if a parameter is wrong, the component raises at construction, same as if you'd built it by hand.
+
 ```python
 # Factories automatically handle parameter validation
 try:
@@ -735,6 +740,8 @@ except Exception as e:
 ```
 
 ### Default Fallbacks
+
+Anything you don't pass gets the boring, usually-right default: standard field config, the DUT's logger, empty prefixes.
 
 ```python
 # Factories provide sensible defaults for all parameters
@@ -765,6 +772,9 @@ env = create_gaxi_test_environment(dut, dut.clk)
 ```
 
 ### 3. **Share Memory Models Across Components**
+
+One memory, many components — otherwise your master and slave disagree about what's stored where.
+
 ```python
 # Share memory for consistent state
 memory = MemoryModel(1024, 4, log=log)
@@ -778,7 +788,7 @@ slave = create_gaxi_slave(dut, "Slave", "", dut.clk, memory_model=memory)
 components = create_gaxi_components(dut, dut.clk, multi_sig=True)
 ```
 
-### 5. **Leverage Factory Patterns for Complex Tests**
+### 5. **Use Factory Classes for Complex Testbenches**
 ```python
 # Create factory class for standardized test setups
 factory = GAXITestFactory(dut, dut.clk)
@@ -787,13 +797,12 @@ system = factory.create_protocol_test_system()
 
 ## Backward Compatibility
 
-All factory functions maintain complete backward compatibility:
+The factories keep full backward compatibility:
 
-- **All existing parameters are preserved** and passed through exactly as before
-- **Parameter order is maintained** for positional arguments
-- **Default values are enhanced** but don't break existing code
-- **New parameters have sensible defaults** that work with existing configurations
-- **Legacy parameter names are supported** (e.g., `field_mode`, `optional_signal_map`) even when unused; `signal_map` is forwarded
+- **Every parameter that used to exist still exists**, in the same position, meaning the same thing
+- **Defaults improved only where old code didn't depend on them**
+- **New options default to the old behavior**
+- **Legacy names are still accepted** (`field_mode`, `optional_signal_map`) even when they're ignored; `signal_map` is forwarded to the component
 
 ```python
 # Legacy code continues to work unchanged
@@ -803,4 +812,4 @@ components = create_gaxi_components(
 )
 ```
 
-The GAXI factories provide a robust, simplified interface for creating GAXI components while maintaining full backward compatibility and supporting advanced configuration scenarios.
+Use the factories unless you have a reason not to. Everything they do is documented on the component pages, and you can always do it by hand — but for the common case of "give me a working GAXI environment", one call beats five.

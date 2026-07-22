@@ -23,19 +23,19 @@
 
 # packet.py
 
-Generic packet class for protocol testing with thread-safe performance optimizations. This module provides an optimized base Packet class that can be used across different protocols (GAXI, APB, etc.) to handle common packet operations like field management, formatting, and comparisons.
+The base packet class used across all protocols (GAXI, APB, FIFO, AXI4) — field management, validation, formatting, comparison, and FIFO packing, with a thread-safe cache behind the hot operations.
 
 ## Overview
 
-The `packet.py` module provides a comprehensive packet handling system designed for verification environments. It features thread-safe caching, automatic field validation, and rich formatting capabilities while maintaining protocol independence.
+A packet in this framework is a bag of named fields whose widths, formats, and encodings come from a FieldConfig. The Packet class handles the work every protocol test needs: masking values to field width on assignment (so a 33-bit write to a 32-bit field is an accident you catch, not one you ship), translating between full field values and their FIFO representations when `active_bits` says only part of the field crosses the wire, and comparing packets while ignoring fields you don't care about. The expensive bits — masks, formatters, encodings — are cached behind a thread-safe lock, because packets get touched constantly and from everywhere.
 
 ### Key Features
-- **Thread-safe performance optimizations** with field caching
-- **Automatic field validation and masking** to prevent overflow
-- **Protocol-agnostic design** for use across GAXI, FIFO, APB, AXI4, etc.
-- **FIFO packing/unpacking support** for signal-level operations
-- **Rich formatting and comparison** capabilities
-- **Timing information tracking** for performance analysis
+- **Thread-safe caching** behind field operations
+- **Automatic field validation and masking** on assignment
+- **Protocol-agnostic** — same class serves GAXI, FIFO, APB, AXI4
+- **FIFO packing/unpacking** for signal-level interfaces
+- **Formatting and comparison** built in
+- **Timing fields** for latency analysis
 
 ## Thread-Safe Caching System
 
@@ -118,7 +118,7 @@ packet = Packet(field_dict, addr=0x2000, data=0x12345678)
 
 ### Direct Attribute Access
 
-Fields can be accessed directly as attributes with automatic validation:
+Fields read and write as ordinary attributes. Assignment goes through validation and masking — this is the part that saves you from yourself:
 
 ```python
 packet.addr = 0x1000      # Sets addr field
@@ -145,6 +145,8 @@ masked_value = packet.mask_field_value(0x1FF, "status")  # Returns 0xFF
 ```
 
 ## FIFO Operations
+
+These four methods handle the mismatch between "the field as the packet sees it" and "the bits that actually cross the FIFO interface" when a field has `active_bits` set. If a 32-bit address field only brings bits [31:5] across the wire, `shift_for_fifo` drops the low 5 bits on the way out and `expand_from_fifo` puts them back on the way in.
 
 ### `shift_for_fifo(value, field_name)`
 
@@ -268,6 +270,8 @@ packet3.fields['data'] = -1
 assert packet1 != packet3  # True - undefined data
 ```
 
+The undefined-value rule deserves a second read: if any compared field holds -1 (the framework's marker for X/Z), equality is False. That's intentional — "this field was floating" is not the same as "this field matched," and scoreboard checks that treat them the same pass tests that should fail.
+
 ### `copy()`
 
 Create a copy of this packet.
@@ -363,6 +367,8 @@ gaxi_packet = GAXIWritePacket(
 print(f"Burst type: {gaxi_packet.formatted()}")
 print(f"Address range: 0x{gaxi_packet.calculate_address_range()[0]:X} - 0x{gaxi_packet.calculate_address_range()[1]:X}")
 ```
+
+Subclassing Packet per protocol, as above, is the intended pattern: the base class handles field plumbing, your subclass adds the protocol semantics (`awlen + 1` beats, address-range math) that the raw fields don't know about.
 
 ### FIFO Interface Usage
 
@@ -505,6 +511,8 @@ class HighPerformancePacketProcessor:
         pass
 ```
 
+Packet pooling is worth the trouble only when you're allocating thousands of packets per test — which, if you're running long constrained-random tests, you are. Allocation churn in the monitor path shows up in wall-clock time faster than you'd expect.
+
 ### Test Framework Integration
 
 ```python
@@ -590,7 +598,7 @@ def cleanup_between_tests():
 
 ### Thread-Safe Usage
 
-The packet system is designed for thread-safe operation:
+The caching layer is lock-protected, so packets can be built and inspected from multiple threads without corrupting shared state:
 
 ```python
 import threading
@@ -621,6 +629,8 @@ for thread in threads:
 ## Best Practices
 
 ### 1. **Use Appropriate Field Configurations**
+The packet is only as good as its FieldConfig — give fields real formats and descriptions so the dumps are readable:
+
 ```python
 # Define meaningful field configurations
 config = FieldConfig()
@@ -629,6 +639,8 @@ config.add_field(FieldDefinition("data", 32, format="hex", description="Data pay
 ```
 
 ### 2. **Handle Undefined Values**
+-1 means X/Z. Check for it before you do arithmetic you can't undo:
+
 ```python
 # Check for undefined values before processing
 if packet.data != -1:  # -1 indicates X/Z value
@@ -638,6 +650,8 @@ else:
 ```
 
 ### 3. **Use FIFO Operations for Signal Interface**
+Don't hand-roll the shifting. If `active_bits` is set anywhere in the config, `pack_for_fifo()`/`unpack_from_fifo()` are the only correct way across the signal boundary:
+
 ```python
 # Convert to FIFO format for signal driving
 fifo_data = packet.pack_for_fifo()
@@ -648,12 +662,16 @@ packet.unpack_from_fifo(captured_fifo_data)
 ```
 
 ### 4. **Leverage Packet Comparison for Validation**
+`__eq__` already skips your `skip_compare_fields` and refuses to match on X/Z. Use it instead of field-by-field asserts:
+
 ```python
 # Use packet equality for test validation
 assert expected_packet == actual_packet
 ```
 
 ### 5. **Monitor Cache Performance**
+A low hit rate usually means you're constructing one-off FieldConfigs instead of reusing them:
+
 ```python
 # Check cache performance periodically
 if test_count % 1000 == 0:
@@ -662,4 +680,6 @@ if test_count % 1000 == 0:
         log.warning(f"Low cache hit rate: {stats['hit_rate']:.1f}%")
 ```
 
-The Packet class provides a robust, high-performance foundation for protocol verification with thread-safe operation, rich formatting, and comprehensive field management capabilities.
+Packet is the data structure everything else in the framework touches — scoreboards, monitors, memory models, randomizers. The masking on assignment and the FIFO translation are the two features that will save you the most debugging time; the cache is what makes using them on every transaction affordable.
+
+---

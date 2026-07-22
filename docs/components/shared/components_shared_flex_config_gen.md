@@ -23,17 +23,17 @@
 
 # flex_config_gen.py
 
-Helper class for creating FlexRandomizer configurations with weighted bins. This module simplifies the creation of FlexRandomizer constraint dictionaries by providing a clean API for building weighted bin configurations and common shortcuts.
+A builder for FlexRandomizer configurations with weighted bins — because handwriting `([(0, 0), (1, 8), (9, 20)], [5, 2, 1])` for the fortieth time gets old, and getting the weights wrong gets you a distribution you didn't ask for.
 
 ## Overview
 
-The `flex_config_gen.py` module provides an intuitive way to build complex randomization configurations for FlexRandomizer. It includes pre-defined timing patterns and a fluent API for creating custom configurations.
+`flex_config_gen.py` gives you a fluent API for building FlexRandomizer constraint dictionaries: pick named timing profiles, tweak them per field with chained calls, and build the randomizers. It ships with a set of pre-defined timing profiles that cover the usual suspects (back-to-back, bursty, stress), and lets you define your own.
 
 ## Pre-defined Profiles
 
 ### DEFAULT_PROFILES
 
-A collection of commonly used timing patterns:
+The canned timing patterns:
 
 ```python
 DEFAULT_PROFILES = {
@@ -197,7 +197,7 @@ ProfileConfig(profile_name: str, field_names: List[str], prefix: str = "")
 
 #### Attribute Access
 
-Fields can be accessed as attributes:
+Fields are attributes of the profile, which is what makes the chained style read well:
 
 ```python
 profile.psel.add_bin((0, 0), 8)
@@ -206,7 +206,7 @@ profile.penable.mostly_zero()
 
 ### FlexConfigGen
 
-Main helper class for generating FlexRandomizer configurations with weighted bins.
+The main builder. Give it profile names and field names; it wires up the attribute hierarchy and hands you back randomizers or raw constraints.
 
 #### Constructor
 
@@ -265,7 +265,7 @@ print(preview)  # "fast: (bins=[(0, 0), (1, 2)], weights=[8, 1])"
 
 #### Profile Access
 
-Profiles can be accessed as attributes:
+Profiles are attributes too, so the whole builder reads as a path: profile, field, tweak.
 
 ```python
 config.fast.psel.mostly_zero(zero_weight=10)
@@ -398,6 +398,8 @@ class ProtocolMaster:
         return self.current_randomizer.next()
 ```
 
+Switching profiles mid-test is the pattern I keep coming back to: run `fast` while you fill the pipe, flip to `stress` when you want the DUT to earn its keep, and drop to `slow` to walk through a failure. Same fields, different temperament.
+
 ### Advanced Configuration Patterns
 
 ```python
@@ -468,7 +470,7 @@ for profile in ['fast', 'constrained', 'stress']:
 ## Best Practices
 
 ### 1. **Start with Canned Profiles**
-Use pre-defined profiles as starting points and customize as needed:
+The pre-defined profiles cover most of what you need day to day. Start there, tweak what doesn't fit:
 
 ```python
 config = quick_config(['fast', 'constrained'], ['delay'])
@@ -477,7 +479,7 @@ config.fast.delay.mostly_zero(zero_weight=12)
 ```
 
 ### 2. **Use Meaningful Profile Names**
-Create profiles that describe their intended use:
+Name profiles after what they're for, not what they contain:
 
 ```python
 custom_profiles = {
@@ -488,7 +490,7 @@ custom_profiles = {
 ```
 
 ### 3. **Validate Profile Behavior**
-Test profiles to ensure they behave as expected:
+Trust, but sample. A profile that says "90% zero" should measure close to 90% zero:
 
 ```python
 def validate_profile(randomizer, field_name, expected_zero_percent):
@@ -499,7 +501,7 @@ def validate_profile(randomizer, field_name, expected_zero_percent):
 ```
 
 ### 4. **Use Method Chaining**
-Take advantage of fluent interface for cleaner code:
+The fluent interface exists so configs stay readable — chain the calls:
 
 ```python
 (config.fast.delay
@@ -509,7 +511,7 @@ Take advantage of fluent interface for cleaner code:
 ```
 
 ### 5. **Document Profile Intent**
-Comment your profile configurations:
+A one-line comment per profile saves the next person a distribution analysis:
 
 ```python
 # Fast profile: optimized for maximum throughput testing
@@ -523,4 +525,6 @@ config.stress.delay.weighted_ranges([
 ])
 ```
 
-The FlexConfigGen provides a powerful and intuitive way to create complex randomization patterns while maintaining readability and flexibility for verification environments.
+FlexConfigGen turns "write me a weighted-bin dictionary" into "describe the timing you want." That's a trade worth making every time — the constraint tuples are still there underneath if you need them.
+
+---

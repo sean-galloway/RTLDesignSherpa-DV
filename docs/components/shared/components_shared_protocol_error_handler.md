@@ -23,17 +23,17 @@
 
 # protocol_error_handler.py
 
-Generic error handler that can be used with various protocol implementations to inject errors at specific addresses or address ranges. This module provides fine-grained control over error injection for testing error handling capabilities.
+Error injection for protocol testing — register address ranges or specific address/ID pairs that should return errors, and let the handler decide per transaction which response code to produce.
 
 ## Overview
 
-The `protocol_error_handler.py` module provides the `ErrorHandler` class, which manages error responses for specific addresses, ID values, or address ranges. This allows comprehensive testing of error handling in verification environments by simulating various error conditions that may occur in real systems.
+Error paths are the least-tested code in any design, mostly because making them happen is a pain. `ErrorHandler` makes them a configuration problem instead: mark regions of the address map as DECERR, mark specific addresses (optionally pinned to a transaction ID) as SLVERR, and your slave BFM asks the handler before responding. Clearing the config between test phases is one call, so you can run clean traffic, then poison the map, then run clean again, all in one test.
 
 ## Core Class
 
 ### ErrorHandler
 
-Error response handler for protocol transactions that manages error regions and individual error transactions.
+Manages error regions and individual error transactions for protocol components.
 
 #### Constructor
 
@@ -171,6 +171,8 @@ print(f"Error regions registered: {stats['error_regions_registered']}")
 print(f"Error transactions registered: {stats['error_transactions_registered']}")
 print(f"Errors triggered: {stats['errors_triggered']}")
 ```
+
+The `errors_triggered` count is the one to watch — it tells you whether your error-injection test actually injected any errors. A "tests SLVERR handling" test with zero triggered errors is testing nothing.
 
 ## Usage Patterns
 
@@ -380,6 +382,8 @@ class AXIErrorHandler:
             del self.outstanding_errors[transaction_id]
 ```
 
+The AXI wrapper shows the pattern that matters: the address channel decides the error, but the response comes later — possibly many beats later — so the error code has to be stashed by ID until the response channel needs it. Getting that association wrong is how you end up flagging SLVERR on the wrong transaction, which is a nasty thing to debug.
+
 ### Test Framework Integration
 
 ```python
@@ -480,6 +484,8 @@ def capture_response(dut):
     
     return response
 ```
+
+Note the two-sided check in the test loop: it asserts that poisoned addresses produce the configured error *and* that clean addresses produce OKAY. Only checking the first half is a classic way to pass a test where the DUT errors on everything.
 
 ### Advanced Error Patterns
 
@@ -614,6 +620,8 @@ class ErrorAnalyzer:
 ## Best Practices
 
 ### 1. **Organize Errors by Test Phase**
+Clear and rebuild the error config at phase boundaries, so each phase's report means something:
+
 ```python
 def setup_test_phase_errors(error_handler, phase):
     error_handler.clear_all_errors()
@@ -630,6 +638,8 @@ def setup_test_phase_errors(error_handler, phase):
 ```
 
 ### 2. **Use Appropriate Error Types**
+Match the code to the cause: DECERR means "nothing lives at that address," SLVERR means "something lives there and it's unhappy." Tests that conflate them will pass RTL that confuses them:
+
 ```python
 # Decode errors for unmapped addresses
 error_handler.register_error_region(0xF000, 0xFFFF, response_code=3)  # DECERR
@@ -639,6 +649,8 @@ error_handler.register_error_region(0xE000, 0xEFFF, response_code=2)  # SLVERR
 ```
 
 ### 3. **Test Both Region and Transaction Errors**
+Regions and point errors exercise different lookup paths in both the handler and (often) the DUT:
+
 ```python
 # Test broad regions
 error_handler.register_error_region(0x8000, 0x8FFF, response_code=2)
@@ -648,6 +660,8 @@ error_handler.register_error_transaction(0x1000, response_code=3)
 ```
 
 ### 4. **Monitor Error Statistics**
+Assert `errors_triggered > 0` in error-injection tests. Otherwise a misconfigured test passes while injecting nothing:
+
 ```python
 # Regular statistics monitoring
 def check_error_coverage():
@@ -657,10 +671,14 @@ def check_error_coverage():
 ```
 
 ### 5. **Clear Errors Between Test Phases**
+Leftover error config from the previous phase is a wonderful source of "impossible" failures:
+
 ```python
 # Always clear errors when changing test scenarios
 error_handler.clear_all_errors()
 setup_new_test_errors()
 ```
 
-The ErrorHandler provides a comprehensive framework for testing error handling capabilities across different protocols, enabling thorough validation of error response mechanisms in verification environments.
+The ErrorHandler is deliberately protocol-neutral — it deals in addresses, IDs, and response codes, and the protocol BFMs map those onto their own response signaling. Keep the error policy here and the signaling in the BFM, and you can reuse the same error scenarios across every protocol you verify.
+
+---

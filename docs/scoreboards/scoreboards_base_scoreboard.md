@@ -23,22 +23,21 @@
 
 # base_scoreboard.py
 
-Base scoreboard framework providing transaction verification infrastructure for all protocol scoreboards. This module defines the core `BaseScoreboard` class and `ProtocolTransformer` framework used throughout the CocoTBFramework.
+Every protocol scoreboard in the framework descends from `BaseScoreboard`. It owns the two queues—expected and actual—the compare-on-arrival machinery, error counting, and reporting. Subclasses only have to answer one question: do these two transactions match? The other half of this file, `ProtocolTransformer`, covers the case where expected and actual don't even speak the same protocol.
 
 ## Overview
 
-The base scoreboard system provides:
-- **Transaction Queue Management**: Automatic handling of expected vs actual transactions
-- **Comparison Framework**: Extensible transaction matching and validation
-- **Error Tracking**: Comprehensive error counting and mismatch logging
-- **Protocol Transformation**: Framework for cross-protocol transaction conversion
-- **Statistics Generation**: Pass/fail rates and performance reporting
+- **Transaction Queue Management**: expected vs. actual, matched automatically
+- **Comparison Framework**: the matching machinery; you supply the comparison
+- **Error Tracking**: counts, mismatch pairs, logging
+- **Protocol Transformation**: the hook for cross-protocol checking
+- **Statistics Generation**: pass/fail rates and reporting
 
 ## Classes
 
 ### BaseScoreboard
 
-Base class for all protocol scoreboards with core verification functionality.
+The base class for every protocol scoreboard in the framework.
 
 ```python
 class BaseScoreboard:
@@ -46,31 +45,31 @@ class BaseScoreboard:
 ```
 
 **Parameters:**
-- `name`: Scoreboard name for identification and logging
-- `log`: Logger instance for detailed reporting
+- `name`: shows up in logs and report headers
+- `log`: where the detail goes
 
 **Core Attributes:**
-- `expected_queue`: Deque of expected transactions
-- `actual_queue`: Deque of actual transactions  
-- `error_count`: Number of transaction mismatches
-- `transaction_count`: Total transactions processed
-- `mismatched`: List of (expected, actual) mismatch pairs
-- `transformer`: Optional protocol transformer
+- `expected_queue`: deque of transactions you're waiting for
+- `actual_queue`: deque of transactions the DUT produced  
+- `error_count`: mismatches so far
+- `transaction_count`: everything processed
+- `mismatched`: the (expected, actual) pairs that failed, kept for inspection
+- `transformer`: optional protocol converter
 
 ## Core Methods
 
 ### Transaction Management
 
 #### `add_expected(transaction)`
-Add transaction to expected queue with optional transformation.
+Queue a transaction you expect the DUT to produce. If a transformer is installed, the conversion happens here—that's the whole cross-protocol trick.
 
 **Parameters:**
-- `transaction`: Expected transaction to queue
+- `transaction`: the expected transaction
 
 **Behavior:**
-- If transformer is set, transforms transaction before queuing
-- Stores transformed transactions in expected queue
-- Multiple transformed transactions supported
+- With a transformer set, the transaction is converted before queueing
+- Transformed results land in the expected queue
+- One source transaction can produce several queued expectations
 
 ```python
 # Basic usage
@@ -82,15 +81,15 @@ scoreboard.add_expected(apb_transaction)  # Automatically transformed to GAXI
 ```
 
 #### `add_actual(transaction)`
-Add actual transaction and trigger automatic comparison.
+Queue something the DUT actually did. If an expected transaction is waiting, the comparison runs immediately—failures surface at the moment of mismatch, not at end of test.
 
 **Parameters:**
-- `transaction`: Actual transaction received
+- `transaction`: the transaction that arrived
 
 **Behavior:**
-- Adds transaction to actual queue
-- Increments transaction counter
-- Automatically calls `_compare_next()` if both queues have items
+- Added to the actual queue
+- Transaction counter bumped
+- `_compare_next()` fires as soon as both queues have something to compare
 
 ```python
 # Automatic comparison triggered
@@ -100,24 +99,17 @@ scoreboard.add_actual(actual_packet)
 ### Comparison Framework
 
 #### `_compare_next()`
-Internal method that compares next available transactions.
-
-**Behavior:**
-- Pops one transaction from each queue
-- Calls `_compare_transactions()` for validation
-- Increments error count on mismatch
-- Stores mismatched pairs for analysis
-- Calls `_log_mismatch()` on failure
+The engine room. Pops one transaction from each queue, calls your `_compare_transactions()`, and on failure bumps the error count, saves the pair in `mismatched`, and calls `_log_mismatch()`.
 
 #### `_compare_transactions(expected, actual)` *(Abstract)*
-Protocol-specific transaction comparison - must be overridden.
+The one method you must write. Return True if the two transactions agree.
 
 **Parameters:**
-- `expected`: Expected transaction
-- `actual`: Actual transaction
+- `expected`: expected transaction
+- `actual`: actual transaction
 
 **Returns:**
-- `bool`: True if transactions match, False otherwise
+- `bool`: True on match, False otherwise
 
 **Implementation Example:**
 ```python
@@ -130,27 +122,27 @@ def _compare_transactions(self, expected, actual):
 ```
 
 #### `_log_mismatch(expected, actual)`
-Log detailed mismatch information - can be overridden for enhanced logging.
+Override this. The default logs the two transactions; a good override tells you which field broke.
 
 **Parameters:**
-- `expected`: Expected transaction
-- `actual`: Actual transaction
+- `expected`: expected transaction
+- `actual`: actual transaction
 
 **Default Behavior:**
-- Logs basic mismatch with transaction strings
-- Protocol-specific implementations provide detailed field comparison
+- Logs a basic mismatch with the transaction strings
+- Protocol-specific subclasses usually do field-by-field comparison
 
 ### Reporting and Statistics
 
 #### `report()`
-Generate comprehensive scoreboard report.
+End-of-test accounting. Leftover expecteds are failures (something you predicted never happened); leftover actuals are failures too (the DUT did something you didn't predict). Both land in the count.
 
 **Returns:**
-- `int`: Total error count (mismatches + leftover transactions)
+- `int`: total errors—mismatches plus leftovers
 
 **Report Contents:**
-- Leftover expected transactions (not received)
-- Leftover actual transactions (without matching expected)
+- Leftover expected transactions (never received)
+- Leftover actual transactions (nothing expected them)
 - Total transaction count and error summary
 
 ```python
@@ -160,10 +152,10 @@ if error_count == 0:
 ```
 
 #### `result()`
-Calculate pass rate as success ratio.
+Pass rate as a ratio.
 
 **Returns:**
-- `float`: Pass rate from 0.0 to 1.0
+- `float`: pass rate from 0.0 to 1.0
 
 **Calculation:**
 - Total = transaction_count + len(expected_queue)
@@ -178,7 +170,7 @@ print(f"Verification pass rate: {pass_rate:.2%}")
 ### Utility Methods
 
 #### `set_transformer(transformer)`
-Set protocol transformer for expected transactions.
+Install the converter. From here on, expected transactions are transformed before queueing.
 
 **Parameters:**
 - `transformer`: ProtocolTransformer instance
@@ -189,12 +181,7 @@ scoreboard.set_transformer(transformer)
 ```
 
 #### `clear()`
-Reset scoreboard state for new test phase.
-
-**Behavior:**
-- Clears all transaction queues
-- Resets error and transaction counters
-- Preserves transformer configuration
+Queues emptied, counters zeroed, transformer kept. Use between test phases.
 
 ```python
 # Reset between test phases
@@ -205,7 +192,7 @@ scoreboard.clear()
 
 ### ProtocolTransformer
 
-Base class for converting transactions between different protocols.
+The base class for protocol converters. Note that `transform()` returns a *list*: one source transaction can legitimately become zero target transactions (the conversion failed) or several.
 
 ```python
 class ProtocolTransformer:
@@ -213,24 +200,24 @@ class ProtocolTransformer:
 ```
 
 **Parameters:**
-- `source_type`: Source protocol name (e.g., "APB")
-- `target_type`: Target protocol name (e.g., "GAXI")
-- `log`: Logger instance
+- `source_type`: source protocol name (e.g., "APB")
+- `target_type`: target protocol name (e.g., "GAXI")
+- `log`: logger instance
 
 **Statistics:**
-- `num_transformations`: Successful transformation count
-- `num_failures`: Failed transformation count
+- `num_transformations`: conversions that worked
+- `num_failures`: conversions that didn't
 
 ### Core Methods
 
 #### `transform(transaction)` *(Abstract)*
-Transform transaction from source to target protocol.
+Do the conversion. Return a list of target transactions—empty if it can't be done.
 
 **Parameters:**
-- `transaction`: Source transaction to transform
+- `transaction`: source transaction to transform
 
 **Returns:**
-- `List`: Target transactions (can be empty if transformation fails)
+- `List`: target transactions (empty if the conversion failed)
 
 **Implementation Example:**
 ```python
@@ -247,13 +234,13 @@ def transform(self, apb_transaction):
 ```
 
 #### `try_transform(transaction)`
-Safe transformation with error handling.
+`transform()` wrapped in exception handling, so one malformed packet doesn't take the whole test down. Failures get counted and logged; you get an empty list back.
 
 **Parameters:**
-- `transaction`: Source transaction to transform
+- `transaction`: source transaction to transform
 
 **Returns:**
-- `List`: Target transactions (empty if transformation fails)
+- `List`: target transactions (empty on failure)
 
 **Behavior:**
 - Wraps `transform()` with exception handling
@@ -268,10 +255,10 @@ if results:
 ```
 
 #### `report()`
-Generate transformer statistics report.
+Conversion statistics as a string.
 
 **Returns:**
-- `str`: Report with transformation statistics
+- `str`: report with transformation statistics
 
 ```python
 print(transformer.report())
@@ -284,6 +271,8 @@ print(transformer.report())
 ## Usage Patterns
 
 ### Basic Scoreboard Usage
+
+The minimal custom scoreboard: inherit, implement two methods, done.
 
 ```python
 from CocoTBFramework.scoreboards.base_scoreboard import BaseScoreboard
@@ -308,6 +297,8 @@ error_count = scoreboard.report()
 ```
 
 ### Protocol Transformation
+
+A transformer in the wild: APB in, GAXI out.
 
 ```python
 from CocoTBFramework.scoreboards.base_scoreboard import ProtocolTransformer
@@ -343,6 +334,8 @@ scoreboard.add_actual(gaxi_packet)        # Direct GAXI comparison
 
 ### Multi-Protocol Verification
 
+Wire the transformer into the scoreboard and the cross-protocol comparison writes itself.
+
 ```python
 # Create cross-protocol verification system
 apb_to_gaxi = APBtoGAXITransformer(gaxi_config, log=logger)
@@ -361,19 +354,19 @@ pass_rate = gaxi_scoreboard.result()
 ## Best Practices
 
 ### Error Handling
-- Always provide logger instances for detailed debugging
+- Always pass a logger—you'll want the detail eventually, usually at the worst time
 - Override `_log_mismatch()` for protocol-specific error analysis
-- Use `try_transform()` for robust transformation
+- Use `try_transform()` unless you enjoy exceptions mid-test
 
 ### Performance Optimization
-- Clear scoreboards between test phases to manage memory
-- Use deque operations for efficient queue management
-- Monitor transaction counts in long-running tests
+- `clear()` between test phases to keep memory in check
+- The queues are deques for a reason; don't rebuild them as lists
+- Watch transaction counts in long-running tests
 
 ### Extensibility
-- Inherit from `BaseScoreboard` for protocol-specific implementations
-- Create custom transformers for complex protocol conversions
-- Use composition pattern for multi-stage transformation pipelines
+- Inherit from `BaseScoreboard` for protocol-specific scoreboards
+- Write custom transformers for exotic conversions
+- Compose transformers when one hop isn't enough
 
 ## Integration Points
 
@@ -387,6 +380,9 @@ monitor.add_callback(on_transaction_received)
 ```
 
 ### Memory Model Integration
+
+Scoreboards can also check against a memory model instead of queued expectations:
+
 ```python
 # Memory-backed verification
 class MemoryScoreboard(BaseScoreboard):
@@ -400,4 +396,4 @@ class MemoryScoreboard(BaseScoreboard):
         return stored_data == actual.data
 ```
 
-The base scoreboard framework provides a robust foundation for verification across all protocols in the CocoTBFramework, enabling both simple transaction checking and complex cross-protocol verification scenarios.
+Two classes, and everything else in this directory is a specialization of them.

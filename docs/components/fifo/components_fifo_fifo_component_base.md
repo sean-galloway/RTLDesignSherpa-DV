@@ -23,7 +23,7 @@
 
 # fifo_component_base.py
 
-Unified base class for all FIFO components that consolidates common functionality across FIFOMaster, FIFOMonitor, and FIFOSlave, eliminating code duplication while preserving exact APIs and timing.
+Shared base class for FIFOMaster, FIFOMonitor, and FIFOSlave. Signal resolution, data handling, memory access, and statistics all live here so the three components only implement them once — and so a fix lands in all three at the same time.
 
 > **Deprecation note:** `FIFOComponentBase` is now a thin compatibility shim over
 > [`GAXIComponentBase`](../gaxi/components_gaxi_gaxi_component_base.md) (see issue #6).
@@ -36,20 +36,20 @@ Unified base class for all FIFO components that consolidates common functionalit
 
 ## Overview
 
-The `FIFOComponentBase` class provides shared infrastructure for all FIFO protocol components, including signal resolution, data handling strategies, memory integration, and statistics collection. It leverages the shared framework components for maximum performance and consistency.
+Everything a FIFO component needs that isn't specific to writing or reading lives in this class: finding the DUT's signals, packing and unpacking fields, moving data to and from a MemoryModel, and keeping statistics. It sits on the shared framework pieces rather than re-implementing them, which is exactly why the deprecation note above points you at GAXIComponentBase — that's where all of this actually lives now.
 
 ### Key Features
-- **Unified Signal Resolution**: Automatic signal discovery with manual override support
-- **Performance Optimized**: 40% faster data collection and 30% faster driving through caching
-- **Memory Integration**: Built-in MemoryModel support for transaction verification
-- **Flexible Configuration**: Support for both single-signal and multi-signal modes
-- **Rich Statistics**: Comprehensive performance and error tracking
+- **Unified signal resolution**: automatic discovery against the DUT, with a manual `signal_map` override for interfaces that don't follow the expected naming
+- **Cached for speed**: signal handles are resolved once and reused, which is where the 40% faster data collection and 30% faster driving come from
+- **Memory integration**: attach a MemoryModel and transactions can be checked against expected data as they move
+- **Single- or multi-signal modes**: pack every field into one data bus, or give each field its own signal
+- **Statistics included**: performance and error counters collected by the base, available to every subclass
 
 ## Core Class
 
 ### FIFOComponentBase
 
-Unified base class providing common functionality for all FIFO components.
+The base class all three FIFO components are built on.
 
 #### Constructor
 
@@ -74,7 +74,7 @@ FIFOComponentBase(dut, title, prefix, clock, field_config,
 - `prefix`: Bus prefix for signal naming
 - `clock`: Clock signal
 - `field_config`: Field configuration (FieldConfig object or dict)
-- `protocol_type`: Protocol type ('fifo_master' or 'fifo_slave') - set by subclass
+- `protocol_type`: Protocol type ('fifo_master' or 'fifo_slave') — the subclass sets this, you don't
 - `mode`: FIFO mode ('fifo_mux', 'fifo_flop')
 - `bus_name`: Bus/channel name
 - `pkt_prefix`: Packet field prefix
@@ -88,7 +88,7 @@ FIFOComponentBase(dut, title, prefix, clock, field_config,
 
 #### Signal Map Format
 
-When using manual `signal_map`, provide a dictionary mapping logical signal names to DUT signal names:
+When the DUT's signal names don't match what discovery expects, pass a `signal_map` that translates logical names to real ones:
 
 **FIFO Master:**
 ```python
@@ -118,7 +118,7 @@ signal_map = {
 
 #### `complete_base_initialization(bus=None)`
 
-Complete initialization after cocotb parent class setup. This must be called by subclasses after their cocotb parent class initialization.
+Call this from your subclass *after* the cocotb parent (BusDriver or BusMonitor) has been initialized. The order matters — the base needs the bus handle, and that only exists once the cocotb side is up.
 
 ```python
 # Subclass usage pattern
@@ -137,7 +137,7 @@ def __init__(self, ...):
 
 #### `get_data_dict_unified()`
 
-Get current data from signals with automatic field unpacking using unified DataCollectionStrategy.
+Read the current signal values and unpack them into fields. One call, no conditionals — the multi-signal vs. packed-data difference is handled inside the strategy.
 
 **Returns:** Dictionary of field values, properly unpacked
 
@@ -149,12 +149,12 @@ print(data_dict)  # {'addr': 0x1000, 'data': 0xDEADBEEF, 'cmd': 0x2}
 
 #### `drive_transaction_unified(transaction)`
 
-Drive transaction data using unified DataDrivingStrategy.
+Pack a transaction and drive it onto the signals.
 
 **Parameters:**
 - `transaction`: Transaction packet to drive
 
-**Returns:** True if successful, False otherwise
+**Returns:** True if successful, False otherwise — check it. A drive that silently failed looks exactly like a DUT bug until you burn an afternoon figuring out it isn't.
 
 ```python
 # Drive transaction to signals
@@ -166,7 +166,7 @@ if not success:
 
 #### `clear_signals_unified()`
 
-Clear all data signals to safe values using unified strategy.
+Drive every data signal back to a safe value.
 
 ```python
 # Clear all signals
@@ -177,12 +177,12 @@ component.clear_signals_unified()
 
 #### `write_to_memory_unified(transaction)`
 
-Write transaction to memory using base MemoryModel directly.
+Write a transaction into the attached MemoryModel.
 
 **Parameters:**
 - `transaction`: Transaction to write to memory
 
-**Returns:** Tuple of (success, error_message)
+**Returns:** Tuple of (success, error_message) — the error message is worth logging, it tells you *why*.
 
 ```python
 # Write transaction to memory
@@ -196,13 +196,13 @@ else:
 
 #### `read_from_memory_unified(transaction, update_transaction=True)`
 
-Read data from memory using base MemoryModel directly.
+Read from the MemoryModel at the transaction's address.
 
 **Parameters:**
 - `transaction`: Transaction with address to read from
 - `update_transaction`: Whether to update transaction with read data
 
-**Returns:** Tuple of (success, data, error_message)
+**Returns:** Tuple of (success, data, error_message). With `update_transaction=True` the packet's data field gets filled in for you.
 
 ```python
 # Read from memory  
@@ -219,7 +219,7 @@ else:
 
 #### `get_base_stats_unified()`
 
-Get comprehensive base statistics common to all components.
+One dict with everything the base knows about itself: component config, signal resolution, data strategy performance, memory stats.
 
 **Returns:** Dictionary containing base statistics
 
@@ -239,7 +239,7 @@ print(f"Multi-signal mode: {base_stats['multi_signal']}")
 
 #### `set_randomizer(randomizer)`
 
-Set new randomizer for timing control.
+Swap in a new timing randomizer at runtime.
 
 **Parameters:**
 - `randomizer`: FlexRandomizer instance
@@ -255,6 +255,8 @@ component.set_randomizer(new_randomizer)
 ## Usage Patterns
 
 ### Basic Component Setup
+
+The initialization order is the thing people get wrong, so here it is in full:
 
 ```python
 class CustomFIFOComponent(FIFOComponentBase, BusDriver):
@@ -287,6 +289,8 @@ class CustomFIFOComponent(FIFOComponentBase, BusDriver):
 
 ### Automatic Signal Discovery
 
+Most of the time you don't map anything — the resolver finds the signals itself:
+
 ```python
 # Let base class automatically discover signals
 master = CustomFIFOComponent(
@@ -304,6 +308,8 @@ master = CustomFIFOComponent(
 ```
 
 ### Manual Signal Mapping
+
+When it can't — custom names, `almost_full` instead of `full` — override:
 
 ```python
 # Override signal discovery for non-standard naming
@@ -326,6 +332,8 @@ master = CustomFIFOComponent(
 ```
 
 ### Memory-Integrated Component
+
+Attach a MemoryModel and the unified memory helpers become available:
 
 ```python
 # Component with built-in memory support
@@ -395,6 +403,8 @@ class HighPerformanceFIFOComponent(FIFOComponentBase, BusDriver):
 
 ### Multi-Signal vs Single-Signal Mode
 
+Same fields, two ways to wire them:
+
 ```python
 # Multi-signal mode: Each field has individual signal
 multi_sig_config = FieldConfig()
@@ -415,6 +425,8 @@ master_single = CustomFIFOComponent(
 ```
 
 ### Advanced Randomization
+
+The randomizer isn't just delays — you can shape bursts and idle time too:
 
 ```python
 # Custom randomizer for specific timing patterns
@@ -443,7 +455,7 @@ burst_size = delay_values['burst_size']
 
 ### Field Configuration Normalization
 
-The base class automatically handles field configuration conversion:
+The base takes a FieldConfig, a plain dict, or nothing at all, and ends up with a FieldConfig either way:
 
 ```python
 # Accepts dict and converts to FieldConfig
@@ -463,7 +475,7 @@ component = CustomFIFOComponent(..., field_config=None)  # Creates data-only con
 
 ### Randomizer Setup
 
-Default randomizers are created based on component type:
+Don't pass a randomizer and you get a sensible default based on protocol type:
 
 ```python
 # FIFO Master gets write-focused randomizer
@@ -475,7 +487,7 @@ Default randomizers are created based on component type:
 
 ### Data Strategy Setup
 
-The base class creates optimized data strategies:
+Both strategies receive the pre-resolved signals, so they never pay the lookup cost twice:
 
 ```python
 # Data collection for all components (monitoring)
@@ -501,6 +513,8 @@ self.data_driver = DataDrivingStrategy(
 
 ### Signal Resolution Errors
 
+If discovery fails you get a RuntimeError with the details. The usual recovery is a manual map:
+
 ```python
 try:
     component = CustomFIFOComponent(dut, title, prefix, clock, field_config)
@@ -516,6 +530,8 @@ except RuntimeError as e:
 ```
 
 ### Memory Operation Errors
+
+The memory helpers return success flags rather than raising. Check them:
 
 ```python
 # Always check memory operation results
@@ -533,7 +549,7 @@ if not success:
 ## Best Practices
 
 ### 1. **Use Unified Methods**
-Always use the unified methods for consistency and performance:
+They exist so every component behaves identically. Hand-rolling your own collection or drive path reintroduces the duplication this class was built to kill:
 ```python
 # Good - unified data collection
 data = component.get_data_dict_unified()
@@ -543,7 +559,7 @@ success = component.drive_transaction_unified(packet)
 ```
 
 ### 2. **Check Operation Results**
-Always verify operation success:
+The return values are there for a reason:
 ```python
 # Check driving success
 if not component.drive_transaction_unified(packet):
@@ -556,7 +572,7 @@ if not success:
 ```
 
 ### 3. **Use Signal Maps for Non-Standard Interfaces**
-When DUT signals don't follow standard naming:
+Don't fight the auto-discovery. If your RTL says `wr_en` and `almost_full`, say so:
 ```python
 signal_map = {
     'write': 'wr_en',
@@ -567,7 +583,7 @@ component = CustomFIFOComponent(..., signal_map=signal_map)
 ```
 
 ### 4. **Monitor Performance**
-Regularly check performance statistics:
+Glance at the stats occasionally. If `performance_optimized` is False, something kept the caching from kicking in and you'll want to know why:
 ```python
 stats = component.get_base_stats_unified()
 if 'data_collector_stats' in stats:
@@ -577,7 +593,7 @@ if 'data_collector_stats' in stats:
 ```
 
 ### 5. **Proper Initialization Order**
-Always follow the correct initialization pattern:
+Base first, cocotb parent second, `complete_base_initialization()` third, then your own setup:
 ```python
 # 1. Initialize FIFOComponentBase
 # 2. Initialize cocotb parent class
@@ -585,4 +601,4 @@ Always follow the correct initialization pattern:
 # 4. Component-specific setup
 ```
 
-The FIFOComponentBase provides a robust, high-performance foundation for all FIFO protocol components while maintaining API compatibility and exact timing behavior.
+One last time, because it matters: for new code, subclass `GAXIComponentBase` directly. Everything on this page comes from there anyway — this shim only exists so older tests keep working.

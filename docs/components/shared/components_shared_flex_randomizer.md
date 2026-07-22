@@ -23,11 +23,11 @@
 
 # flex_randomizer.py
 
-Comprehensive randomization engine that supports multiple constraint types including constrained random, sequence looping, and function-based generation. Designed for thread-safe operation in concurrent verification environments.
+The randomization engine underneath the framework's constrained-random testing — weighted bins, looping sequences, and function-based generators, all thread-safe for concurrent use.
 
 ## Overview
 
-FlexRandomizer provides a flexible randomization framework that goes beyond simple constrained random to support sequences, custom generators, and object bins. It's designed to handle complex verification scenarios while maintaining thread safety and comprehensive error reporting.
+`random.randint()` gets you noise. What verification actually needs is *shaped* noise: "zero delay most of the time, a long pause often enough to hurt," or "cycle through these four burst lengths in order," or "this field is always twice that field." FlexRandomizer handles all three patterns — constrained random with weighted bins, deterministic sequences, and custom generator functions — and lets you mix them per field and switch modes at runtime. Errors during constraint setup or generation are reported with enough context to find the offending field quickly.
 
 ## Exception Classes
 
@@ -44,7 +44,7 @@ Raised when a generator function fails during value generation.
 
 ### FlexRandomizer
 
-Main randomization class supporting multiple constraint types with thread-safe operations.
+The main randomization class. One instance manages a set of named fields, each with its own constraint type.
 
 #### Constructor
 
@@ -193,6 +193,8 @@ constraints = {
     'enable': ([(True,), (False,)], [0.9, 0.1])
 }
 ```
+
+Object bins are the part people miss on first read: bins don't have to be numeric ranges. Each bin is a tuple of candidate values, so `'state': ([('IDLE', 'ACTIVE'), ('ERROR', 'RESET')], [0.8, 0.2])` picks from the first pair 80% of the time. Watch the trailing comma — `(True,)` is a one-element tuple, `(True)` is just `True`.
 
 ### 2. Sequence Looping
 
@@ -373,6 +375,8 @@ class AdaptiveRandomizer:
             self.performance_history = self.performance_history[-50:]
 ```
 
+The adaptive pattern is worth knowing about: since `set_sequence()` and `reset_to_random()` work at runtime, a test can change its own stimulus distribution in response to what the DUT is doing. Back off when the pipe backs up, lean in when it drains.
+
 ### Thread-Safe Usage
 
 ```python
@@ -550,7 +554,7 @@ print(f"Distribution analysis: {stats}")
 ## Best Practices
 
 ### 1. **Validate Constraints Early**
-Always validate your constraints when creating the randomizer:
+Bad constraints fail at construction, which is where you want them to fail. Don't defer the creation to somewhere the traceback won't make sense:
 
 ```python
 try:
@@ -561,7 +565,7 @@ except ConstraintValidationError as e:
 ```
 
 ### 2. **Use Meaningful Field Names**
-Choose descriptive names that indicate purpose:
+The field names show up in every `next()` result and every error message. Make them self-explanatory:
 
 ```python
 constraints = {
@@ -572,7 +576,7 @@ constraints = {
 ```
 
 ### 3. **Document Complex Generators**
-Add clear documentation for function generators:
+A generator that reads other fields is a dependency graph in disguise. Say what it depends on and why:
 
 ```python
 def address_alignment_generator(current_values):
@@ -591,7 +595,7 @@ constraints = {
 ```
 
 ### 4. **Handle Dependencies Carefully**
-When using dependent generators, handle missing dependencies gracefully:
+Use `.get()` with a default in dependent generators. The one time the field you depend on isn't there, you'll get a `GeneratorError` mid-test instead of a sensible value:
 
 ```python
 def safe_dependent_generator(current_values):
@@ -603,7 +607,7 @@ def safe_dependent_generator(current_values):
 ```
 
 ### 5. **Use Type Checking**
-Validate generator return types when possible:
+Generators that return the wrong type fail far from their origin. Assert at the source:
 
 ```python
 def validated_generator(current_values):
@@ -613,4 +617,6 @@ def validated_generator(current_values):
     return result
 ```
 
-FlexRandomizer provides a powerful foundation for complex verification scenarios while maintaining simplicity for basic use cases. Its thread-safe design and comprehensive error handling make it suitable for both simple scripts and large-scale parallel verification environments.
+FlexRandomizer is deliberately simple for the simple cases — a tuple and a list gets you weighted random in one line — while the runtime mode switching and thread safety carry the complicated ones. Start with bins and weights, reach for generators when fields need to talk to each other.
+
+---

@@ -23,29 +23,29 @@
 
 # apb_sequence.py
 
-APB Sequence class for test pattern generation and management. This module provides a flexible framework for creating and managing sequences of APB transactions with configurable patterns, timing, and randomization.
+`APBSequence` is a small dataclass with a big job: describe a traffic pattern — which operations, which addresses, what data, what delays — then deal out ready-to-send `APBPacket` objects one at a time.
 
 ## Overview
 
-The `apb_sequence.py` module provides the `APBSequence` class, which enables:
-- **Flexible sequence definition** with configurable patterns
-- **Multiple selection modes** (sequential or random)
-- **Iterator-based value generation** with automatic cycling
-- **Direct packet generation** for easy integration
-- **Comprehensive timing control** and randomization support
+What a sequence gives you:
+- **Pattern definition as data** — plain lists of operations, addresses, data values, strobes, and delays
+- **Sequential or random selection** from those lists
+- **Automatic cycling** — short lists wrap around instead of running dry
+- **Direct APBPacket generation** through a single `next()` call
+- **Per-transaction pacing** via inter-cycle delay values
 
 ### Key Features
-- **Dataclass-based configuration** for clean, readable sequence definitions
-- **Automatic iterator management** with cycling through sequences
-- **Built-in randomization support** for flexible test patterns
-- **Direct APBPacket generation** for seamless integration
-- **Multiple sequence types** (addresses, data, strobes, delays)
+- **Dataclass-based configuration**, so sequences are easy to build programmatically
+- **Iterator management with wrap-around** — a 16-entry address list can feed a thousand transactions
+- **Optional random selection** when you want coverage rather than order
+- **A `verify_data` flag** for read-checking flows
+- **One call per packet** — `next()` assembles the fields for you
 
 ## Core Class
 
 ### APBSequence
 
-Configuration class for test patterns with direct packet generation capabilities.
+It's a dataclass, so building a sequence is just naming your lists:
 
 #### Constructor
 
@@ -110,7 +110,7 @@ random_sequence = APBSequence(
 
 ##### `reset_iterators()`
 
-Reset all iterators to the beginning of their sequences.
+Rewind every list to the start. Call it between test phases that reuse a sequence.
 
 ```python
 sequence.reset_iterators()  # Start over from beginning
@@ -118,7 +118,7 @@ sequence.reset_iterators()  # Start over from beginning
 
 ##### `next_pwrite() -> bool`
 
-Get the next write/read operation from the sequence.
+Get the next operation: True for write, False for read.
 
 **Returns:** True for write, False for read
 
@@ -132,7 +132,7 @@ else:
 
 ##### `next_addr() -> int`
 
-Get the next address from the address sequence.
+Get the next address in the rotation.
 
 **Returns:** Address value
 
@@ -143,7 +143,7 @@ print(f"Next address: 0x{address:X}")
 
 ##### `next_data() -> int`
 
-Get the next data value from the data sequence.
+Get the next write-data value.
 
 **Returns:** Data value for write operations
 
@@ -155,7 +155,7 @@ if is_write:
 
 ##### `next_strb() -> int`
 
-Get the next strobe pattern from the strobe sequence.
+Get the next strobe-mask value.
 
 **Returns:** Strobe mask value
 
@@ -167,7 +167,7 @@ if is_write:
 
 ##### `next_pprot() -> int`
 
-Get the next protection attribute value.
+Get the next protection-attribute value.
 
 **Returns:** Protection attribute value
 
@@ -178,7 +178,7 @@ print(f"Protection: 0x{protection:X}")
 
 ##### `next_delay() -> int`
 
-Get the next inter-cycle delay value.
+Get the next inter-cycle delay.
 
 **Returns:** Delay in clock cycles
 
@@ -189,7 +189,7 @@ print(f"Delay: {delay} cycles")
 
 ##### `next() -> APBPacket`
 
-Generate the next complete APB packet from the sequence.
+Pull the next element from each list and assemble a ready-to-send APBPacket.
 
 **Returns:** APBPacket ready for transmission
 
@@ -200,7 +200,7 @@ print(f"Generated: {packet.formatted(compact=True)}")
 
 ##### `has_more_transactions() -> bool`
 
-Check if there are more transactions available in the sequence.
+False once the operation list is drained — the natural loop condition.
 
 **Returns:** True if more transactions can be generated
 
@@ -213,6 +213,8 @@ while sequence.has_more_transactions():
 ## Usage Patterns
 
 ### Basic Sequential Sequence
+
+The bread-and-butter pattern: write a register, read it back, move on.
 
 ```python
 from CocoTBFramework.components.apb.apb_sequence import APBSequence
@@ -238,6 +240,8 @@ print(f"Generated {len(packets)} packets")
 
 ### Burst Write/Read Sequence
 
+Sixteen writes into a block, then sixteen reads back out. Lists that run short simply wrap.
+
 ```python
 # Create burst write followed by burst read
 burst_sequence = APBSequence(
@@ -261,6 +265,8 @@ for i in range(32):  # 16 writes + 16 reads
 
 ### Random Access Pattern
 
+Flip `use_random_selection` and the same lists become a coverage engine instead of a script.
+
 ```python
 # Create random access sequence
 random_sequence = APBSequence(
@@ -282,6 +288,8 @@ for i in range(50):
 
 ### Strobe Pattern Testing
 
+Same address, same data, eight different strobe masks:
+
 ```python
 # Create sequence testing different strobe patterns
 strobe_sequence = APBSequence(
@@ -302,6 +310,8 @@ while strobe_sequence.has_more_transactions():
 ```
 
 ### Performance Testing Sequence
+
+Zero delays and a thousand writes — the fastest stimulus this format can describe.
 
 ```python
 # Create high-performance back-to-back sequence
@@ -325,6 +335,8 @@ print(f"Generated {len(perf_packets)} packets in {time.time() - start_time:.3f}s
 ```
 
 ### Multi-Phase Test Sequence
+
+Initialize, pattern, verify — one sequence, three phases, built by concatenating lists.
 
 ```python
 def create_multi_phase_sequence():
@@ -362,6 +374,8 @@ multi_phase = create_multi_phase_sequence()
 
 ### Error Injection Sequence
 
+Bad addresses and a zero strobe mixed into otherwise normal traffic, so the DUT's error handling gets exercised along the way.
+
 ```python
 # Create sequence with error conditions
 error_sequence = APBSequence(
@@ -389,6 +403,8 @@ while error_sequence.has_more_transactions():
 
 ### Timing-Critical Sequence
 
+Per-transaction delays let you script the gaps, not just the transfers.
+
 ```python
 # Create sequence with specific timing requirements
 timing_sequence = APBSequence(
@@ -413,6 +429,8 @@ while timing_sequence.has_more_transactions():
 ## Integration with Test Framework
 
 ### Testbench Integration
+
+The canonical loop: pull a packet, send it, honor the delay, repeat.
 
 ```python
 import cocotb
@@ -456,6 +474,8 @@ async def sequence_driven_test(dut):
 
 ### Loop-Based Sequence Execution
 
+A reusable runner, both for finite sequences and for "run this N times" style tests:
+
 ```python
 async def execute_sequence_loop(master, sequence, cycles=None):
     """Execute a sequence with optional cycling"""
@@ -487,6 +507,8 @@ await execute_sequence_loop(master, test_sequence, cycles=5)
 ```
 
 ### Sequence Composition
+
+Build the phases separately, then stitch them into one sequence for the full test:
 
 ```python
 def compose_sequences(*sequences):
@@ -521,6 +543,8 @@ full_test = compose_sequences(init_seq, test_seq, cleanup_seq)
 ```
 
 ### Statistical Analysis
+
+Know what your generator actually generates before you trust the coverage report:
 
 ```python
 def analyze_sequence(sequence):
@@ -569,6 +593,8 @@ print(f"Sequence analysis: {analysis}")
 ## Best Practices
 
 ### 1. **Use Descriptive Names**
+The name ends up in logs and debug output — future you wants `register_bank_initialization`, not `seq2`.
+
 ```python
 sequence = APBSequence(
     name="register_bank_initialization",  # Clear, descriptive name
@@ -577,6 +603,8 @@ sequence = APBSequence(
 ```
 
 ### 2. **Validate Sequence Configuration**
+A sequence with write operations but no data list fails later and weirder than a `ValueError` at build time:
+
 ```python
 def validate_sequence(sequence):
     """Validate sequence configuration"""
@@ -596,6 +624,8 @@ validate_sequence(my_sequence)
 ```
 
 ### 3. **Handle Sequence Completion**
+Two idioms, both fine — pick one and stay consistent:
+
 ```python
 # Always check for more transactions
 while sequence.has_more_transactions():
@@ -609,6 +639,8 @@ for i in range(len(sequence.pwrite_seq)):
 ```
 
 ### 4. **Use Reset for Repeatable Tests**
+Sequences carry iterator state. Reset between tests, or your second run starts where the first one stopped.
+
 ```python
 # Reset before each test run
 sequence.reset_iterators()
@@ -622,6 +654,8 @@ run_different_test(sequence)
 ```
 
 ### 5. **Combine Sequential and Random Modes**
+Sequential for bring-up, random for soak — same object, one flag.
+
 ```python
 # Create base sequence
 base_sequence = APBSequence(
@@ -639,4 +673,6 @@ base_sequence.use_random_selection = True
 run_stress_test(base_sequence)
 ```
 
-The APBSequence class provides a powerful and flexible foundation for creating comprehensive APB test patterns, from simple register access sequences to complex multi-phase verification scenarios.
+For anything beyond lists of values — weighted random fields, say — pair sequences with the `APBTransaction` generator from `apb_packet.py`.
+
+---

@@ -1,22 +1,23 @@
 # AXIL4 Interface Classes
 
-AXIL4 (AXI4-Lite) master and slave interface classes that compose GAXI channel components to implement complete AXI4-Lite read and write functionality with integrated compliance checking. Specification-compliant with no user signal support and single-transfer-only operation.
+AXIL4 (AXI4-Lite) master and slave interfaces, assembled from GAXI channel components into complete read and write paths, with compliance checking built in. They follow the Lite spec strictly: no user signals, one transfer per transaction.
 
 ## Overview
 
-The AXIL4 interface module provides four high-level classes:
+Four classes cover both ends of both directions:
 
-- **AXIL4MasterRead** -- Drives read address (AR) requests and receives read data (R) responses
-- **AXIL4MasterWrite** -- Drives write address (AW) requests, write data (W), and receives write responses (B)
-- **AXIL4SlaveRead** -- Receives read address (AR) requests and generates read data (R) responses
-- **AXIL4SlaveWrite** -- Receives write address (AW) and write data (W), generates write responses (B)
+- **AXIL4MasterRead** -- drives read address (AR) requests, receives read data (R) responses
+- **AXIL4MasterWrite** -- drives write address (AW) and write data (W), receives write responses (B)
+- **AXIL4SlaveRead** -- receives AR requests, answers on R
+- **AXIL4SlaveWrite** -- receives AW and W, answers on B
 
-Key differences from AXI4 interfaces:
-- **No burst support** -- always single transfer operations
-- **No ID fields** -- simplified transaction tracking
-- **No user signals** -- AXIL4 specification compliant
-- **Register-oriented design** -- optimized for embedded register access
-- **API consistency** -- identical method names to AXI4 for protocol-agnostic test code
+How they differ from the full AXI4 interfaces:
+
+- **No burst support** -- every transaction is a single beat
+- **No ID fields** -- nothing to tag or reorder
+- **No user signals** -- the Lite spec doesn't define them
+- **Register-oriented design** -- shaped for control/status register access
+- **API consistency** -- same method names as AXI4, so test code can be protocol-agnostic
 
 ---
 
@@ -29,7 +30,7 @@ class AXIL4MasterRead:
     def __init__(self, dut, clock, prefix="", log=None, **kwargs)
 ```
 
-Manages single-transfer read transactions for register access. Provides identical API to `AXI4MasterRead` for protocol-agnostic test development.
+Drives single-beat reads: one AR out, one R back. The API mirrors `AXI4MasterRead` method-for-method, so test code written against full AXI4 carries over unchanged.
 
 **Parameters:**
 
@@ -56,7 +57,7 @@ Manages single-transfer read transactions for register access. Provides identica
 
 ##### `async read_transaction(address, **transaction_kwargs) -> int`
 
-Execute a single-transfer read transaction: send AR request and wait for R response.
+Execute a complete read: send the AR request, wait for the R response, return the data.
 
 **Parameters:**
 
@@ -71,35 +72,35 @@ Execute a single-transfer read transaction: send AR request and wait for R respo
 
 ##### `async simple_read(address, **kwargs) -> int`
 
-Original AXIL4 read method. Kept for backward compatibility.
+The original AXIL4 read method, kept for backward compatibility.
 
 **Returns:** `int` -- The data value.
 
 ##### `async single_read(address, **kwargs) -> int`
 
-API consistency method matching `AXI4MasterRead.single_read()`.
+Matches `AXI4MasterRead.single_read()` so protocol-agnostic tests call the same name on either interface.
 
 **Returns:** `int` -- The data value.
 
 ##### `async read_register(address, **kwargs) -> int`
 
-Semantic alias for register access operations.
+The same read under a name that says what you mean -- reading a register.
 
 **Returns:** `int` -- The register value.
 
 ##### `create_ar_packet(**kwargs) -> AXIL4Packet`
 
-Create an AR packet with the current field configuration.
+Builds an AR packet from the current field configuration.
 
 **Returns:** `AXIL4Packet` configured for the AR channel.
 
 ##### `get_compliance_report() -> Optional[Dict[str, Any]]`
 
-Get the compliance report if compliance checking is enabled.
+Returns the compliance report if checking is enabled, otherwise `None`.
 
 ##### `print_compliance_report()`
 
-Print the compliance report to the log if compliance checking is enabled.
+Logs the compliance report if checking is enabled.
 
 ---
 
@@ -110,7 +111,7 @@ class AXIL4MasterWrite:
     def __init__(self, dut, clock, prefix="", log=None, **kwargs)
 ```
 
-Manages single-transfer write transactions for register access. Provides identical API to `AXI4MasterWrite` for protocol-agnostic test development.
+Drives single-beat writes: AW and W out, B back. Mirrors `AXI4MasterWrite` the same way the read side mirrors `AXI4MasterRead`.
 
 **Parameters:**
 
@@ -138,7 +139,7 @@ Manages single-transfer write transactions for register access. Provides identic
 
 ##### `async write_transaction(address, data, strb=None, **transaction_kwargs) -> int`
 
-Execute a single-transfer write transaction: send AW address and W data, wait for B response.
+Execute a complete write: send the AW address and W data, wait for the B response.
 
 **Parameters:**
 
@@ -155,31 +156,31 @@ Execute a single-transfer write transaction: send AW address and W data, wait fo
 
 ##### `async simple_write(address, data, strb=None, **kwargs) -> int`
 
-Original AXIL4 write method. Kept for backward compatibility.
+The original AXIL4 write method, kept for backward compatibility.
 
 ##### `async single_write(address, data, strb=None, **kwargs) -> int`
 
-API consistency method matching `AXI4MasterWrite.single_write()`.
+Matches `AXI4MasterWrite.single_write()` for protocol-agnostic test code.
 
 ##### `async write_register(address, data, strb=None, **kwargs) -> int`
 
-Semantic alias for register access operations.
+The same write under a register-oriented name.
 
 ##### `create_aw_packet(**kwargs) -> AXIL4Packet`
 
-Create an AW packet with the current field configuration.
+Builds an AW packet from the current field configuration.
 
 ##### `create_w_packet(**kwargs) -> AXIL4Packet`
 
-Create a W packet with the current field configuration.
+Builds a W packet from the current field configuration.
 
 ##### `get_compliance_report() -> Optional[Dict[str, Any]]`
 
-Get the compliance report if compliance checking is enabled.
+Returns the compliance report if checking is enabled, otherwise `None`.
 
 ##### `print_compliance_report()`
 
-Print the compliance report to the log if compliance checking is enabled.
+Logs the compliance report if checking is enabled.
 
 ---
 
@@ -190,7 +191,7 @@ class AXIL4SlaveRead:
     def __init__(self, dut, clock, prefix="", log=None, **kwargs)
 ```
 
-Responds to read requests by receiving AR channel addresses and generating R channel data responses. Uses a callback from the AR slave to trigger response generation.
+The responding end of a read: AR requests come in, R responses go out. A callback on the AR channel kicks off response generation, so once constructed the slave runs on its own.
 
 **Parameters:**
 
@@ -215,19 +216,19 @@ Responds to read requests by receiving AR channel addresses and generating R cha
 | `r_channel` | `GAXIMaster` | R channel master component (drives read data responses) |
 | `compliance_checker` | `AXIL4ComplianceChecker` or `None` | Compliance checker (enabled via environment) |
 
-When no memory model is provided, the slave returns a default data pattern of `(address & 0xFFFFFFFF) ^ 0xDEADBEEF`. When a memory model read fails, it returns `0xDEADDEAD` with a SLVERR response.
+With no memory model attached, the slave answers with a canned pattern -- `(address & 0xFFFFFFFF) ^ 0xDEADBEEF` -- which at least is easy to spot in a waveform. A failed memory-model read returns `0xDEADDEAD` with a SLVERR.
 
 #### Core Methods
 
 ##### `get_compliance_report() -> Optional[Dict[str, Any]]`
 
-Get the compliance report if compliance checking is enabled.
+Returns the compliance report if checking is enabled, otherwise `None`.
 
 ##### `print_compliance_report()`
 
-Print the compliance report to the log if compliance checking is enabled.
+Logs the compliance report if checking is enabled.
 
-Note: The slave automatically generates R responses via an internal callback when AR requests are received.
+Note: there's nothing to call to make responses happen -- the internal AR callback generates them as requests arrive.
 
 ---
 
@@ -238,7 +239,7 @@ class AXIL4SlaveWrite:
     def __init__(self, dut, clock, prefix="", log=None, **kwargs)
 ```
 
-Responds to write requests by receiving AW address and W data, then generating B channel responses. Both AW and W must be received before a B response is generated.
+The responding end of a write: AW and W come in, B goes out. Both the address and the data have to arrive before the B response is generated -- the slave waits for both halves, as it should.
 
 **Parameters:**
 
@@ -264,25 +265,27 @@ Responds to write requests by receiving AW address and W data, then generating B
 | `b_channel` | `GAXIMaster` | B channel master component (drives write responses) |
 | `compliance_checker` | `AXIL4ComplianceChecker` or `None` | Compliance checker (enabled via environment) |
 
-Write strobes are applied per-byte when writing to the memory model. If a memory write fails, the slave responds with SLVERR.
+Write strobes are applied per byte when updating the memory model. A failed memory write gets a SLVERR.
 
 #### Core Methods
 
 ##### `get_compliance_report() -> Optional[Dict[str, Any]]`
 
-Get the compliance report if compliance checking is enabled.
+Returns the compliance report if checking is enabled, otherwise `None`.
 
 ##### `print_compliance_report()`
 
-Print the compliance report to the log if compliance checking is enabled.
+Logs the compliance report if checking is enabled.
 
-Note: The slave automatically generates B responses via internal callbacks when both AW and W data have been received.
+Note: B responses are automatic -- internal callbacks fire once both AW and W have been received.
 
 ---
 
 ## Usage Examples
 
 ### Basic Register Read and Write
+
+The two masters are separate objects that share a prefix -- instantiate both and drive them:
 
 ```python
 import cocotb
@@ -321,6 +324,8 @@ async def test_register_access(dut):
 
 ### Slave with Memory Model
 
+Point both slave halves at one `MemoryModel` and writes become visible to subsequent reads:
+
 ```python
 from CocoTBFramework.components.axil4.axil4_interfaces import (
     AXIL4SlaveRead, AXIL4SlaveWrite
@@ -355,6 +360,8 @@ async def test_axil4_slave(dut):
 
 ### Convenience-Method Access via Factory Dictionaries
 
+The AXIL4 factories return dictionaries that also expose the transaction methods as keys -- handy for protocol-agnostic test code:
+
 ```python
 async def test_register_map(master_factory, dut, clock):
     """Works with AXIL4 factories (create_axil4_master / create_axil4_master_rd/wr),
@@ -377,3 +384,5 @@ async def test_register_map(master_factory, dut, clock):
     )
     print_unified_compliance_reports(master)
 ```
+
+---

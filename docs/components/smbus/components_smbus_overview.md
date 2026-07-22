@@ -1,10 +1,10 @@
 # SMBus Components Overview
 
-The SMBus (System Management Bus) components provide a complete verification environment for the SMBus/I2C protocol. These components implement passive monitoring, active master emulation, and active slave emulation using tristate (open-drain) signal interfaces, supporting all SMBus 2.0 transaction types including Packet Error Checking (PEC).
+The SMBus (System Management Bus) components give you everything that sits on an SMBus/I2C bus except the DUT: a passive monitor, an active master, and an active slave, all working over tristate (open-drain) signal interfaces. All SMBus 2.0 transaction types are supported, Packet Error Checking (PEC) included.
 
 ## Architecture Overview
 
-The SMBus components use a signal-level architecture that models the open-drain behavior of the physical SMBus/I2C interface:
+Everything is built on a signal-level model of the open-drain bus — the same wired-AND behavior your PCB has, reproduced in coroutines:
 
 ```mermaid
 graph TB
@@ -43,40 +43,37 @@ graph TB
 ## Component Categories
 
 ### Protocol Implementation
-Core SMBus protocol components that handle signal-level communication:
+The pieces that touch wires:
 
-- **SMBusMaster**: Initiates SMBus transactions with bit-level bus control
-- **SMBusSlave**: Responds to SMBus transactions with memory-mapped register model
-- **SMBusMonitor**: Passively observes and captures bus transactions
+- **SMBusMaster**: initiates transactions, bit-banging the bus itself
+- **SMBusSlave**: answers transactions out of a memory-mapped register model
+- **SMBusMonitor**: observes the bus and captures transactions without driving anything
 
-**Key Features:**
-- Tristate (open-drain) signal interface for realistic bus modeling
+What that buys you:
+- Tristate (open-drain) signal interface, so releases and contention behave like real hardware
 - All SMBus 2.0 transaction types supported
-- Bit-level bus control with configurable clock period
-- START, STOP, and repeated START condition generation and detection
-- ACK/NAK handling with proper bus release semantics
-- Clock stretching support (slave)
+- Bit-level bus control with a configurable clock period
+- START, STOP, and repeated START generation and detection
+- ACK/NAK handling with proper bus release
+- Clock stretching on the slave side
 
 ### Packet & Transaction Management
-Transaction representation and bus condition tracking:
+What a transaction looks like once it's off the wire:
 
-- **SMBusPacket**: Complete transaction record with timing, data, and status
-- **SMBusTransactionType**: Enumeration of all SMBus 2.0 transaction types
-- **SMBusCondition**: Enumeration of bus conditions (START, STOP, ACK, NAK)
+- **SMBusPacket**: the complete record of a transaction — timing, data, and status
+- **SMBusTransactionType**: enumeration of the SMBus 2.0 transaction types
+- **SMBusCondition**: enumeration of bus conditions (START, STOP, ACK, NAK)
 
-**Key Features:**
-- Dataclass-based packet with all transaction fields
-- Compact and detailed formatting for logging
-- Status tracking (ACK, timeout, arbitration lost, PEC verification)
-- Word data extraction with LSB-first byte ordering
-- Deep copy support for transaction queuing
+Packets are dataclasses with compact and detailed string formats for logging, status fields covering ACK, timeout, arbitration loss, and PEC verification, word-data extraction with LSB-first byte ordering, and deep-copy support so you can queue packets without aliasing surprises.
 
 ### CRC Utility
-- **SMBusCRC**: CRC-8 calculator implementing the SMBus PEC polynomial
+- **SMBusCRC**: the CRC-8 calculator behind PEC. One polynomial, one static method — nothing to configure.
 
 ## SMBus Protocol Support
 
 ### Transaction Types
+
+All ten SMBus 2.0 transaction types are represented:
 
 | Type | Enum Value | Description | Data Bytes |
 |------|------------|-------------|------------|
@@ -93,6 +90,8 @@ Transaction representation and bus condition tracking:
 
 ### Bus Conditions
 
+The conditions tracked on the wire:
+
 | Condition | Value | Description |
 |-----------|-------|-------------|
 | IDLE | 0 | Bus is idle |
@@ -104,7 +103,7 @@ Transaction representation and bus condition tracking:
 
 ### Tristate Signal Interface
 
-The SMBus components use a tristate interface to model the open-drain behavior of the physical bus:
+The components talk to the bus through a tristate interface that mirrors open-drain hardware:
 
 | Signal | Type | Description |
 |--------|------|-------------|
@@ -115,41 +114,32 @@ The SMBus components use a tristate interface to model the open-drain behavior o
 | `sda_o` | Output | SDA drive value (0 to pull low) |
 | `sda_t` | Output | SDA tristate control (1=release/input, 0=drive) |
 
-**Open-drain semantics:**
-- To **release** a line (allow pull-up): set `_t=1`
+Open-drain semantics — and yes, the `_t` polarity trips everyone up the first time:
+- To **release** a line (let the pull-up take it): set `_t=1`
 - To **drive low**: set `_t=0` and `_o=0`
-- The monitor uses only `_i` signals for passive observation
+- The monitor uses only the `_i` signals, so it physically cannot disturb the bus
+
+`_t` reads like an output-enable but works backwards from one: 1 means *released*. Get that inverted and you'll be holding a line low while wondering why nobody ACKs.
 
 ## Design Principles
 
-### 1. **Accurate Bus Modeling**
-- Tristate interface faithfully models open-drain behavior
-- Proper START/STOP condition generation with correct timing
-- ACK/NAK follows SMBus protocol with proper bus release
-- Clock stretching support for slave-paced transactions
+### 1. Model the bus like the hardware
+The tristate interface reproduces open-drain behavior rather than approximating it: START/STOP conditions are generated with correct timing, ACK/NAK includes the bus release, and slaves can stretch the clock. The point is that a DUT bug which depends on real bus behavior shows up here too, instead of being papered over by an idealized model.
 
-### 2. **Complete Protocol Coverage**
-- All SMBus 2.0 transaction types implemented
-- Repeated START for read-after-write operations
-- PEC (Packet Error Checking) support via CRC-8 utility
-- Transaction status tracking (ACK, timeout, arbitration loss)
+### 2. Cover the whole protocol
+All SMBus 2.0 transaction types are implemented, reads use repeated START for read-after-write, PEC is available through the CRC-8 utility, and every transaction records its status — ACK, timeout, arbitration loss.
 
-### 3. **Flexible Configuration**
-- Configurable slave address (7-bit)
-- Configurable SCL clock period for master
-- Configurable memory size for slave register model
-- Configurable clock stretching delay
-- Optional PEC support per component
+### 3. Configure what matters
+Slave address, SCL period, register-file size, clock-stretch delay, PEC on or off — each component takes its own settings, so a fast master and a stretching slave can share one bus without special-casing anything.
 
-### 4. **Ease of Use**
-- High-level transaction methods (write_byte_data, read_byte_data, block_write, etc.)
-- Automatic address byte construction with R/W bit
-- Callback support for monitor notifications
-- Start/stop lifecycle management for all components
+### 4. Keep the API out of the way
+There's a high-level method per transaction type (`write_byte_data`, `read_byte_data`, `block_write`, and so on), the address byte with its R/W bit is built for you, the monitor takes a callback, and every component has start/stop lifecycle control. You write the test; the components do the wiggling.
 
 ## Usage Patterns
 
 ### Basic Master-Slave Communication
+
+The standard lineup — master, slave, and monitor on the same six signals:
 
 ```python
 import cocotb
@@ -196,6 +186,8 @@ async def basic_smbus_test(dut):
 
 ### Block Transfer Testing
 
+Block transfers at a brisker 200 kHz:
+
 ```python
 @cocotb.test()
 async def block_transfer_test(dut):
@@ -221,6 +213,8 @@ async def block_transfer_test(dut):
 
 ### Pre-loading Slave Memory
 
+Stock the slave's registers before the master starts asking questions:
+
 ```python
 @cocotb.test()
 async def preloaded_memory_test(dut):
@@ -241,15 +235,15 @@ async def preloaded_memory_test(dut):
 ## Integration with Framework
 
 ### Standalone Components
-Unlike the APB and AXI components, the SMBus components are standalone implementations that do not inherit from cocotb_bus base classes. They directly manage signal handles and cocotb coroutines for bus interaction.
+A departure from the APB and AXI families: the SMBus components don't inherit from cocotb_bus base classes. They manage their own signal handles and cocotb coroutines directly. In practice that means fewer layers between your test and the pins — and no inherited behavior to surprise you mid-debug.
 
 ### Packet System
-- **SMBusPacket**: Dataclass-based (not derived from framework Packet base class)
-- **Transaction Types**: IntEnum for type-safe transaction identification
-- **Bus Conditions**: IntEnum for bus state tracking
+- **SMBusPacket**: a plain dataclass, not derived from the framework's Packet base class
+- **Transaction Types**: an IntEnum, so transaction identification is type-safe
+- **Bus Conditions**: an IntEnum for bus state tracking
 
 ### Statistics and Monitoring
-Each component tracks operational statistics:
+Each component keeps its own score:
 - **Monitor**: `transaction_count`, `recv_queue`
 - **Slave**: `transaction_count`, `ack_count`, `nak_count`
 - **Master**: `transaction_count`
@@ -257,37 +251,28 @@ Each component tracks operational statistics:
 ## Key Features
 
 ### Transaction Management
-- **High-level API**: Methods for each SMBus transaction type
-- **Automatic Protocol**: START, address, command, data, STOP handled internally
-- **Repeated START**: Automatic for read transactions requiring command phase
-- **Status Tracking**: ACK/NAK, timeout, arbitration, PEC results
+Each transaction type gets its own method, with START, address, command, data, and STOP handled inside it. Reads that need a command phase get their repeated START automatically. When the call returns, the packet carries the outcome: ACK/NAK, timeout, arbitration, PEC result.
 
 ### Memory Integration
-- **Slave Memory Model**: Dictionary-based memory with configurable size
-- **Address Auto-increment**: Automatic address advancement during transfers
-- **Pre-loading**: Write data into slave memory before test starts
-- **Memory Access**: Read/write/clear methods for verification
+The slave's register file is a plain dictionary with a configurable size. Addresses auto-increment during transfers the way real register interfaces do, you can pre-load contents before the test starts, and read/write/clear helpers are there for the scoreboard side.
 
 ### Verification Support
-- **Passive Monitor**: Non-interfering transaction capture
-- **Callback Support**: Monitor notifies on transaction completion
-- **Packet Formatting**: Compact and detailed display formats
-- **Transaction Parsing**: Automatic type detection from byte patterns
+The monitor captures without interfering, classifies each transaction from its byte pattern, and fires a callback on completion. Packets print in compact or detailed form, so the same object serves a one-line log and a full protocol dump.
 
 ## Getting Started
 
 ### Quick Setup
 1. **Import Components**: `from CocoTBFramework.components.smbus import *`
-2. **Create Slave**: Configure address and memory, call `start()`
-3. **Create Monitor**: Connect to input signals, call `start()`
-4. **Create Master**: Configure clock period
-5. **Run Transactions**: Use high-level methods (write_byte_data, read_byte_data, etc.)
+2. **Create the slave**: pick an address and memory size, then `start()` it
+3. **Create the monitor**: point it at the input signals, `start()` it too
+4. **Create the master**: pick an SCL period
+5. **Talk**: `write_byte_data`, `read_byte_data`, and friends
 
 ### Advanced Usage
-1. **PEC Support**: Enable `support_pec=True` and use SMBusCRC for verification
-2. **Clock Stretching**: Configure `clock_stretch_cycles` on the slave
-3. **Custom Signal Names**: Override default signal names to match your DUT
-4. **Memory Pre-loading**: Use `slave.write_memory()` to set initial register state
-5. **Transaction Monitoring**: Register callbacks on the monitor for real-time observation
+1. **PEC**: enable `support_pec=True` and verify with `SMBusCRC`
+2. **Clock stretching**: give the slave `clock_stretch_cycles` to hold SCL low and pace the transfer
+3. **Custom signal names**: override the defaults to match your DUT's port names
+4. **Memory pre-loading**: `slave.write_memory()` sets the initial register state
+5. **Monitor callbacks**: register one for real-time notification as each transaction completes
 
-Each component provides start/stop lifecycle management, allowing dynamic activation during different test phases.
+Everything runs under start/stop lifecycle control, so you can bring components up and down between test phases instead of rebuilding the world.

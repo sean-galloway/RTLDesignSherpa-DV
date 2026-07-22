@@ -23,19 +23,19 @@
 
 # fifo_slave.py
 
-FIFO Slave component for reading transactions from FIFO interfaces. Inherits from FIFOMonitorBase for unified functionality while preserving exact API and timing behavior.
+The read side of the FIFO. FIFOSlave drives `read` itself — with whatever delay profile you give it — and captures the data that comes out. Half driver, half monitor, which is why it inherits FIFOMonitorBase.
 
 ## Overview
 
-The `FIFOSlave` class combines monitoring capabilities with active read signal control to consume transactions from FIFO interfaces. It observes transactions like a monitor while actively driving read signals to control data flow, making it ideal for modeling FIFO consumers.
+A FIFO consumer has two jobs: pull data out, and keep track of what it pulled. FIFOSlave does both. The `read` signal is actively driven with configurable or randomized timing, while the inherited monitoring path captures, unpacks, timestamps, and counts every transaction. Because the capture machinery is the same code the pure monitor uses, the slave and the monitor can't disagree about what a transaction looked like.
 
 ### Key Features
-- **Active Read Control**: Drives read signals with configurable timing and delays
-- **Transaction Monitoring**: Observes and processes incoming transactions
-- **Flow Control**: Handles FIFO empty conditions with backpressure support
-- **Memory Integration**: Built-in memory model support for data storage
-- **Protocol Violation Detection**: Detects read-while-empty and other issues
-- **Flexible Timing**: Configurable read delays with randomization support
+- **Active read control**: drives `read` itself, with configurable or randomized delays
+- **Everything the monitor does**: same capture, stats, and violation detection, inherited from FIFOMonitorBase
+- **Empty handling**: read-while-empty attempts are detected and counted
+- **Memory integration**: store or cross-check incoming data against a MemoryModel
+- **Two capture timings**: `fifo_mux` (same-cycle) or `fifo_flop` (next-cycle), matching the DUT's output style
+- **Standard queue and callbacks**: observed packets land in `_recvQ`, callbacks fire per transaction
 
 ## Core Class
 
@@ -72,6 +72,8 @@ FIFOSlave(dut, title, prefix, clock, field_config,
 - `signal_map`: Optional manual signal mapping
 - `**kwargs`: Additional arguments for BusMonitor
 
+The knob set mirrors FIFOMaster's, plus the read-side randomizer.
+
 **Example:**
 ```python
 # Basic FIFO slave
@@ -104,7 +106,7 @@ slave = FIFOSlave(
 
 #### `async reset_bus()`
 
-Reset the bus and clear all queued transactions.
+Drop queued transactions and return the interface to idle.
 
 ```python
 # Reset slave and clear state
@@ -113,7 +115,7 @@ await slave.reset_bus()
 
 #### `async wait_cycles(cycles)`
 
-Wait for specified number of clock cycles.
+Exactly what it says.
 
 **Parameters:**
 - `cycles`: Number of cycles to wait
@@ -127,7 +129,7 @@ await slave.wait_cycles(5)
 
 #### `get_observed_packets(count=None)`
 
-Get observed transactions from the standard cocotb receive queue.
+Pull observed transactions out of the standard cocotb receive queue.
 
 **Parameters:**
 - `count`: Number of packets to return (None = all)
@@ -148,7 +150,7 @@ for packet in all_packets:
 
 #### `clear_queue()`
 
-Clear the observed transactions queue.
+Empty the queue. Do it between test phases.
 
 ```python
 # Clear accumulated transactions
@@ -157,7 +159,7 @@ slave.clear_queue()
 
 #### `create_packet(**field_values)`
 
-Create a packet with specified field values.
+Build a packet, usually for comparison against observed traffic.
 
 **Parameters:**
 - `**field_values`: Field values to set in packet
@@ -173,7 +175,7 @@ expected = slave.create_packet(data=0x12345678)
 
 #### `handle_memory_write(packet)`
 
-Handle memory write using integrated memory model.
+Store the packet's data in the attached MemoryModel. Called automatically during transaction processing when a model is present; you can also call it directly.
 
 **Parameters:**
 - `packet`: Packet to write to memory
@@ -188,7 +190,7 @@ success = slave.handle_memory_write(packet)
 
 #### `handle_memory_read(packet)`
 
-Handle memory read using integrated memory model.
+Fetch data from the model at the packet's address.
 
 **Parameters:**
 - `packet`: Packet with address to read from
@@ -206,7 +208,7 @@ if success:
 
 #### `get_stats()`
 
-Get comprehensive statistics including base and monitoring statistics.
+Monitor counters plus the base's. `received_transactions` is the slave-side count; `transactions_observed` is the monitor view of the same traffic.
 
 **Returns:** Dictionary containing all statistics
 
@@ -229,7 +231,7 @@ print(f"Component type: {stats['component_type']}")
 
 ### FIFO_MUX Mode
 
-In `fifo_mux` mode, data is captured in the same cycle as the read:
+Combinatorial read data: when `read` asserts and the FIFO isn't empty, the data is valid that same cycle, so the slave captures it immediately.
 
 ```python
 slave = FIFOSlave(dut, "MuxSlave", "", clock, field_config, mode='fifo_mux')
@@ -240,7 +242,7 @@ slave = FIFOSlave(dut, "MuxSlave", "", clock, field_config, mode='fifo_mux')
 
 ### FIFO_FLOP Mode  
 
-In `fifo_flop` mode, data is captured in the cycle following the read:
+Registered read data: the data shows up the cycle after `read` asserts, so the slave waits a cycle before capturing.
 
 ```python
 slave = FIFOSlave(dut, "FlopSlave", "", clock, field_config, mode='fifo_flop')
@@ -249,9 +251,13 @@ slave = FIFOSlave(dut, "FlopSlave", "", clock, field_config, mode='fifo_flop')
 # Timeline: read=1 -> wait 1 cycle -> data captured
 ```
 
+Pick the mode that matches the DUT. A mismatch here shifts every capture by a cycle, and the resulting errors look exactly like data corruption — this is the part that bites people.
+
 ## Usage Patterns
 
 ### Basic Read Operations
+
+The slave works in the background once constructed. You just harvest the queue:
 
 ```python
 # Set up slave
@@ -269,6 +275,8 @@ for packet in packets:
 ```
 
 ### Multi-Field Transaction Processing
+
+Same as the monitor: `multi_sig=True`, and packets come out fully unpacked:
 
 ```python
 # Configure multi-field packets
@@ -302,6 +310,8 @@ for packet in packets:
 
 ### Randomized Read Timing
 
+The `read_delay` randomizer controls how eagerly the slave drains the FIFO. Mostly-fast for throughput runs; long tails when you want the DUT to sit full:
+
 ```python
 # Create randomizer for read delays
 read_randomizer = FlexRandomizer({
@@ -322,6 +332,8 @@ slave = FIFOSlave(
 ```
 
 ### Memory-Integrated Processing
+
+With a model attached, incoming data can be stored and cross-checked:
 
 ```python
 # Set up memory model
@@ -350,6 +362,8 @@ for packet in packets:
 ```
 
 ### Real-Time Transaction Processing
+
+`add_callback` fires per transaction — the place to put live protocol handling:
 
 ```python
 class ProcessingSlave:
@@ -391,6 +405,8 @@ processor = ProcessingSlave(dut, clock, field_config)
 ```
 
 ### Error Detection and Monitoring
+
+Poll the violation counters over a window and timestamp what you find:
 
 ```python
 class MonitoringSlave:
@@ -459,6 +475,8 @@ print(monitor.generate_error_report())
 
 ### High-Performance Data Collection
 
+For soak tests, drain the queue in batches and keep the per-sample work minimal:
+
 ```python
 class HighPerformanceSlave:
     def __init__(self, dut, clock, field_config):
@@ -521,6 +539,8 @@ print(f"Collection analysis: {analysis}")
 
 ### Custom Signal Mapping
 
+`rd_en` / `fifo_empty` / `dout` instead of the defaults? Map them — don't rename the RTL:
+
 ```python
 # For non-standard FIFO interfaces
 def create_custom_slave(dut, clock, custom_signals):
@@ -560,9 +580,11 @@ slave = create_custom_slave(dut, clock, custom_signals)
 
 ## Protocol Violation Detection
 
-The FIFOSlave automatically detects and reports various protocol violations:
+The slave counts these as it runs; you read the counters.
 
 ### Read While Empty
+
+Counted every time `read` asserts against an empty FIFO. If this fires, either the testbench got ahead of the DUT or the DUT's `empty` is lying — both are worth knowing:
 
 ```python
 # Automatically detected and logged
@@ -574,6 +596,8 @@ if read_while_empty_count > 0:
 ```
 
 ### X/Z Signal Values
+
+Unresolvable values on the control or data signals get counted too. This is usually a reset or initialization problem upstream:
 
 ```python
 # X/Z values in signals automatically detected
@@ -587,6 +611,8 @@ if xz_violations > 0:
 ## Timing Analysis
 
 ### Read Timing Patterns
+
+If you need inter-transaction intervals, timestamp the queue growth:
 
 ```python
 class TimingAnalyzer:
@@ -642,6 +668,7 @@ print(f"Timing analysis: {timing_analysis}")
 ## Best Practices
 
 ### 1. **Use Appropriate Mode for Interface**
+Combinatorial read data → `fifo_mux`; registered read data → `fifo_flop`. Wrong mode, every capture off by a cycle:
 ```python
 # For combinatorial FIFO outputs
 slave = FIFOSlave(dut, "CombSlave", "", clock, field_config, mode='fifo_mux')
@@ -651,6 +678,7 @@ slave = FIFOSlave(dut, "RegSlave", "", clock, field_config, mode='fifo_flop')
 ```
 
 ### 2. **Monitor Error Conditions**
+Assert on the violation counters. They turn "something felt off" into a failing test with a number in it:
 ```python
 # Regular error checking
 async def check_slave_health(slave):
@@ -662,6 +690,7 @@ async def check_slave_health(slave):
 ```
 
 ### 3. **Use Memory Integration for Verification**
+When data integrity is what you're checking, attach the model:
 ```python
 # Enable memory model for data verification
 memory = MemoryModel(num_lines=1024, bytes_per_line=4)
@@ -669,6 +698,7 @@ slave = FIFOSlave(dut, "VerifySlave", "", clock, field_config, memory_model=memo
 ```
 
 ### 4. **Configure Appropriate Randomizers**
+Keep two profiles: realistic, and mean:
 ```python
 # For realistic read patterns
 realistic_randomizer = FlexRandomizer({
@@ -688,4 +718,4 @@ await slave.reset_bus()
 slave.clear_queue()
 ```
 
-The FIFOSlave provides comprehensive transaction monitoring and read control capabilities with automatic error detection, performance tracking, and flexible timing control for thorough FIFO interface verification.
+The slave is the monitor with a job to do: it drains the FIFO so the interesting behavior — full, watermarks, backpressure — actually happens. Give it a realistic delay profile and it will find corner cases your directed stimulus walked right past.

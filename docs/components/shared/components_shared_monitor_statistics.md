@@ -23,17 +23,17 @@
 
 # monitor_statistics.py
 
-Robust statistics class for Monitor components that provides comprehensive tracking of monitoring operations, protocol violations, and system state observations.
+Statistics for monitor components — the counters that tell you what a passive observer actually saw: transactions, violations, X/Z values, and buffer-state trouble.
 
 ## Overview
 
-The `monitor_statistics.py` module provides the `MonitorStatistics` class, which is designed specifically for monitor components that observe transactions and protocol behavior without actively participating in the communication. This class tracks various monitoring metrics and provides a standard interface for accessing statistics.
+A monitor's job is to watch without touching, which means its statistics answer a different question than a master's or slave's. Not "how fast was I" but "what did I observe, and how much of it was broken." `MonitorStatistics` counts observed transactions, protocol violations, unresolvable (X/Z) signal values, and the FIFO-specific sins — reads while empty, writes while full — and hands them back through a standard `get_stats()` interface like every other statistics class in the framework.
 
 ## Class
 
 ### MonitorStatistics
 
-Robust statistics class designed for Monitor components to track observation metrics.
+Statistics class for monitor components, tracking observation metrics.
 
 #### Constructor
 
@@ -582,6 +582,8 @@ def comprehensive_monitoring_test(dut):
 ## Best Practices
 
 ### 1. **Reset Statistics Between Test Phases**
+Per-phase numbers beat one blended average every time:
+
 ```python
 def run_test_phase(phase_name, monitor):
     monitor.stats.reset()
@@ -593,6 +595,8 @@ def run_test_phase(phase_name, monitor):
 ```
 
 ### 2. **Use Statistics for Test Validation**
+The monitor's counts belong in your pass criteria — especially `protocol_violations`, which should be zero in any test that isn't deliberately injecting errors:
+
 ```python
 # Validate expected activity levels
 stats = monitor.stats.get_stats()
@@ -601,6 +605,8 @@ assert stats['protocol_violations'] == 0, "Protocol violations detected"
 ```
 
 ### 3. **Monitor Continuously During Long Tests**
+Don't wait for the end of a long test to find out the monitor saw nothing but X's for the last hour:
+
 ```python
 @cocotb.coroutine
 def periodic_stats_report(monitor, interval=1000):
@@ -611,6 +617,8 @@ def periodic_stats_report(monitor, interval=1000):
 ```
 
 ### 4. **Combine with Other Statistics Classes**
+The monitor is your independent witness. When the master says it sent 1,000 transactions and the monitor says it observed 999, that difference *is* the bug report:
+
 ```python
 # Use alongside master/slave statistics for complete picture
 master_stats = MasterStatistics()
@@ -627,4 +635,6 @@ def compare_statistics():
     assert abs(m_stats['transactions_sent'] - mon_stats['transactions_observed']) <= 1
 ```
 
-The MonitorStatistics class provides essential visibility into monitoring operations and system behavior, enabling effective debugging and validation of protocol implementations during verification.
+MonitorStatistics is deliberately small — a handful of counters and a standard interface. The value isn't in the class, it's in the habit: count what the monitor saw, assert on it, and let the numbers catch the tests that "passed" while watching garbage.
+
+---

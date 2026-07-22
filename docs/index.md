@@ -25,38 +25,38 @@
 
 # CocoTBFramework Index
 
-Welcome to the CocoTBFramework - a comprehensive verification framework built on top of CocoTB that provides protocol-specific components, advanced scoreboards, and complete testbench environments for digital design verification.
+Welcome to the CocoTBFramework — a verification framework built on cocotb, with protocol-specific BFMs, transaction scoreboards, and complete testbench environments for digital design verification.
 
 ## Overview
-- [**Framework Overview**](overview.md) - Complete architectural overview and framework philosophy
+- [**Framework Overview**](overview.md) - The architecture, and the reasoning behind it
 
 ## Core Directories
 
 ### Verification Components
-- [**Components**](components/components_index.md) - Protocol-specific verification components including masters, slaves, monitors, and supporting utilities
-  - **AXI4 / AXI5 / AXI4-Lite**: Full AMBA memory-mapped protocol BFMs with compliance checking
-  - **APB / APB5**: Advanced Peripheral Bus protocol components
-  - **AXI-Stream (AXIS4 / AXIS5)**: Unidirectional streaming protocol components
+- [**Components**](components/components_index.md) - Protocol BFMs: masters, slaves, monitors, and the utilities around them
+  - **AXI4 / AXI5 / AXI4-Lite**: full AMBA memory-mapped BFMs with compliance checking
+  - **APB / APB5**: Advanced Peripheral Bus components
+  - **AXI-Stream (AXIS4 / AXIS5)**: unidirectional streaming components
   - **DFI**: DDR PHY Interface (v2.1-v5.x) memory-controller and PHY BFMs
-  - **FIFO**: First-In-First-Out buffer protocol components  
-  - **GAXI**: Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
-  - **SMBus / UART**: Serial protocol components
+  - **FIFO**: First-In-First-Out buffer components  
+  - **GAXI**: the generic valid/ready layer under the AXI-family BFMs — also usable standalone on small internal blocks
+  - **SMBus / UART**: serial protocol components
   - **Wavedrom**: WaveJSON timing-diagram generation
-  - **Misc**: Specialized monitoring components
-  - **Shared**: Common infrastructure used across all protocols
+  - **Misc**: specialized monitoring components
+  - **Shared**: the common infrastructure every protocol uses
 
 ### Transaction Verification
-- [**Scoreboards**](scoreboards/scoreboards_index.md) - Comprehensive transaction verification and comparison infrastructure
-  - **Protocol Scoreboards**: APB, AXI4, FIFO, GAXI transaction verification
+- [**Scoreboards**](scoreboards/scoreboards_index.md) - Transaction checking and comparison infrastructure
+  - **Protocol Scoreboards**: APB, AXI4, FIFO, and GAXI transaction verification
   - **Cross-Protocol**: APB-GAXI bridge verification with protocol transformation
-  - **Base Framework**: Common scoreboard infrastructure and transformer support
+  - **Base Framework**: shared scoreboard machinery and transformer support
 
 ### Testbench Classes (in RTLDesignSherpa repo)
 - **TBClasses** — RTL-specific testbench classes remain in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository
 
 ## Quick Start
 
-### Basic Component Usage
+### Creating Components and Sending Traffic
 ```python
 # Create protocol components
 from CocoTBFramework.components.gaxi.gaxi_factories import create_gaxi_master, create_gaxi_slave
@@ -76,7 +76,7 @@ packet = master.create_packet(addr=0x1000, data=0xDEADBEEF)
 await master.send(packet)
 ```
 
-### Scoreboard Integration
+### Hooking Up a Scoreboard
 ```python
 # Create scoreboard for verification
 from CocoTBFramework.scoreboards.gaxi_scoreboard import GAXIScoreboard
@@ -92,7 +92,7 @@ error_count = scoreboard.report()
 assert error_count == 0, f"Verification failed with {error_count} errors"
 ```
 
-### Complete Testbench
+### A Complete Testbench
 ```python
 # High-level testbench classes (TBClasses) live in the RTLDesignSherpa
 # main repo, not in this package
@@ -173,38 +173,40 @@ graph TB
     Scoreboards --> Components
 ```
 
+Components do the pin work, scoreboards do the checking, TBClasses wire it all into a runnable environment. Each layer only depends on the one beneath it.
+
 ## Key Features
 
-### 🎯 **Protocol Coverage**
-- **APB**: Advanced Peripheral Bus with multi-slave support and register testing
-- **FIFO**: Buffer protocols with flow control and multi-field support
-- **GAXI**: Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
-- **AXI4**: Full AXI4 protocol support with ID tracking and channel separation
-- **Cross-Protocol**: Bridge verification and protocol transformation
+### Protocol Coverage
+- **APB**: multi-slave support and register testing
+- **FIFO**: buffer protocols with flow control and multi-field packets
+- **GAXI**: the shared valid/ready substrate — and the lightweight option for small internal blocks
+- **AXI4**: full AXI4 with ID tracking and channel separation
+- **Cross-Protocol**: bridge verification and protocol transformation
 
-### 🎲 **Advanced Randomization**
-- **FlexRandomizer**: Multi-mode randomization (constrained, sequence, custom)
-- **FlexConfigGen**: Profile-based randomization with weighted constraints
-- **Pattern Generation**: Burst, stress, corner case, and custom patterns
-- **Constraint Management**: Field dependencies and validation rules
+### Randomization
+- **FlexRandomizer**: constrained, sequence, and custom modes in one engine
+- **FlexConfigGen**: profile-based randomization with weighted constraints
+- **Pattern Generation**: burst, stress, corner-case, and custom patterns
+- **Constraint Management**: field dependencies and validation rules
 
-### 📊 **Comprehensive Verification**
-- **Transaction Matching**: Automatic expected vs actual comparison
-- **Protocol Compliance**: Signal timing and handshake verification
-- **Memory Modeling**: High-performance NumPy-backed memory simulation
-- **Statistics Tracking**: Performance metrics, error analysis, coverage reporting
+### Checking and Measurement
+- **Transaction Matching**: automatic expected-vs-actual comparison
+- **Protocol Compliance**: signal timing and handshake checks
+- **Memory Modeling**: NumPy-backed memory simulation
+- **Statistics**: performance metrics, error analysis, coverage reporting
 
-### 🚀 **Performance Optimization**
+### Performance
 - **Signal Caching**: 40% faster data collection through cached references
-- **Thread-Safe Operations**: Parallel test execution support
-- **Memory Efficiency**: Optimized data structures and cleanup
-- **Scalable Architecture**: Efficient handling of large test suites
+- **Thread-Safe Operations**: parallel test execution
+- **Memory Efficiency**: optimized data structures and cleanup
+- **Scale**: handles large test suites without falling over
 
-### 🔧 **Developer Experience**
-- **Factory Functions**: One-line component creation with sensible defaults
-- **Environment Configuration**: Extensive environment variable support
-- **Advanced Monitoring**: Real-time performance profiling and analysis
-- **Comprehensive Logging**: Structured logging with configurable verbosity
+### Quality of Life
+- **Factory Functions**: one-line component creation with sensible defaults
+- **Environment Configuration**: extensive environment variable support
+- **Monitoring**: real-time performance profiling when you need it
+- **Logging**: structured logs with configurable verbosity
 
 ## Usage Patterns
 
@@ -281,28 +283,30 @@ pip install -e ".[dev,all]"
 ```
 
 ### Setup
-1. **Set Environment**: Configure PYTHONPATH and simulator settings
-2. **Run Examples**: Execute provided example tests to verify setup
+1. **Set Environment**: configure PYTHONPATH and your simulator
+2. **Run Examples**: execute the provided example tests to confirm everything's wired up
 
 ### Basic Workflow
-1. **Choose Components**: Select appropriate protocol components for your design
-2. **Configure Tests**: Set up field configurations and test parameters
-3. **Create Testbench**: Use factory functions or TBClasses for complete environments
-4. **Add Verification**: Integrate scoreboards for transaction checking
-5. **Run and Analyze**: Execute tests and analyze results with comprehensive reporting
+1. **Choose Components**: pick the protocol components that match your design
+2. **Configure Tests**: field configurations and test parameters
+3. **Create Testbench**: factory functions for a quick setup, TBClasses for a full environment
+4. **Add Verification**: scoreboards for transaction checking
+5. **Run and Analyze**: execute, then read the reports
 
 ### Advanced Features
-1. **Custom Protocols**: Extend framework for proprietary protocols
-2. **Complex Scenarios**: Use TBClasses for multi-protocol system verification
-3. **Performance Analysis**: Enable advanced monitoring for optimization
-4. **Continuous Integration**: Integrate with CI/CD systems for automated verification
+1. **Custom Protocols**: extend the framework for proprietary interfaces
+2. **Complex Scenarios**: TBClasses for multi-protocol system verification
+3. **Performance Analysis**: turn on the monitoring when you need to optimize
+4. **Continuous Integration**: wire the tests into your CI flow
 
 ## Support and Documentation
 
-Each directory contains comprehensive documentation including:
-- **API References**: Detailed class and method documentation
-- **Usage Examples**: Real-world usage patterns and best practices
-- **Integration Guides**: How to integrate with existing verification flows
-- **Performance Tips**: Optimization strategies for large-scale verification
+Each directory carries its own documentation:
+- **API References**: class and method details
+- **Usage Examples**: real patterns, not toy snippets
+- **Integration Guides**: fitting the framework into an existing flow
+- **Performance Tips**: what to do when the test suite gets big
 
-The CocoTBFramework provides a complete verification ecosystem that scales from simple unit tests to complex system-level verification while maintaining consistency, performance, and ease of use across all verification scenarios.
+Start with the page for your protocol, and work outward from there.
+
+---

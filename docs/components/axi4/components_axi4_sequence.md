@@ -33,7 +33,7 @@ for building controller-stress traffic.
 The `AXI4Sequence` class provides:
 - **Declarative bursts** — build a list of read/write transactions up front, then run them.
 - **Bus-width aware** — `AWSIZE`/`ARSIZE` are derived from `data_width`; one sequence serves any bus.
-- **DDR/SDRAM stress patterns** — row-hit, bank-spray, and row-miss helpers that exercise a memory controller's scheduler (PRE/ACT, tFAW/tRRD).
+- **DDR/SDRAM stress patterns** — row-hit, bank-spray, and row-miss helpers that make a memory controller's scheduler work for a living (PRE/ACT, tFAW/tRRD).
 - **Randomized workloads** — weighted burst sizes, write/read ratio, QoS and ID pools, address alignment.
 - **Tagging + filtering** — every burst carries a `tag`; `filter()` builds a sub-sequence (e.g. to exclude a buggy pattern).
 - **Single async runner** — `run_axi4_sequence()` drives the bursts against the BFM masters and returns per-burst results.
@@ -44,7 +44,7 @@ A sequence holds only *data*; nothing touches the DUT until `run_axi4_sequence()
 
 ### `AXI4Burst`
 
-Dataclass describing one burst. Sequence helpers populate it; you rarely build one by hand.
+Dataclass describing one burst. The sequence helpers populate it; you rarely build one by hand.
 
 | Field | Type | Default | Meaning |
 |-------|------|---------|---------|

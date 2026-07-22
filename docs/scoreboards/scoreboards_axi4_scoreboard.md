@@ -23,22 +23,21 @@
 
 # axi4_scoreboard.py
 
-AXI4 protocol scoreboard implementation for verifying AXI4 transactions with ID-based tracking, channel separation, and protocol compliance checking. This module provides comprehensive verification for complex AXI4 systems with multiple outstanding transactions.
+AXI4 is where simple expected/actual queue matching runs out of road: multiple IDs, out-of-order completion, five channels. Transactions finish in whatever order the interconnect feels like. This scoreboard tracks each one by ID on both sides of the interface and pairs the master-side half with the slave-side half when both have arrived.
 
 ## Overview
 
-The AXI4 scoreboard system provides:
-- **ID-based Transaction Tracking**: Separate transaction queues per AXI4 ID
-- **Channel Separation**: Independent handling of read and write channels
-- **Master/Slave Monitoring**: Dual-side transaction verification
-- **Protocol Compliance**: Built-in AXI4 protocol violation detection
-- **Performance Analysis**: Transaction timing and throughput metrics
+- **ID-based Transaction Tracking**: a separate queue per AXI4 ID
+- **Channel Separation**: reads and writes tracked independently
+- **Master/Slave Monitoring**: both sides report; comparison fires when the two halves meet
+- **Protocol Compliance**: AXI4 rule checking built in
+- **Performance Analysis**: transaction counts, timing, and throughput data
 
 ## Classes
 
 ### AXI4Scoreboard
 
-Advanced AXI4 transaction verification with full protocol support.
+Full-protocol AXI4 verification.
 
 ```python
 class AXI4Scoreboard(BaseScoreboard):
@@ -46,25 +45,25 @@ class AXI4Scoreboard(BaseScoreboard):
 ```
 
 **Parameters:**
-- `name`: Scoreboard name for identification
-- `id_width`: Width of ID fields in bits (default: 8)
-- `addr_width`: Width of address fields in bits (default: 32)
-- `data_width`: Width of data fields in bits (default: 32)
-- `user_width`: Width of user fields in bits (default: 1)
-- `log`: Logger instance for detailed reporting
+- `name`: scoreboard name; appears in reports
+- `id_width`: width of ID fields in bits (default: 8)—size this for your system's ID space
+- `addr_width`: width of address fields in bits (default: 32)
+- `data_width`: width of data fields in bits (default: 32)
+- `user_width`: width of user fields in bits (default: 1)
+- `log`: logger for the detail
 
 **Key Attributes:**
-- `write_count`: Number of write transactions processed
-- `read_count`: Number of read transactions processed
-- `protocol_error_count`: Number of protocol violations detected
-- `master_writes`: Dictionary mapping IDs to master-side write transactions
-- `slave_writes`: Dictionary mapping IDs to slave-side write transactions
-- `master_reads`: Dictionary mapping IDs to master-side read transactions
-- `slave_reads`: Dictionary mapping IDs to slave-side read transactions
+- `write_count`: writes processed
+- `read_count`: reads processed
+- `protocol_error_count`: protocol violations caught
+- `master_writes`: master-side writes, keyed by ID
+- `slave_writes`: slave-side writes, keyed by ID
+- `master_reads`: master-side reads, keyed by ID
+- `slave_reads`: slave-side reads, keyed by ID
 
 ## Monitor Integration
 
-The scoreboard supports two monitor callback mechanisms:
+The scoreboard speaks two callback dialects and uses whichever the monitor offers:
 
 1. **Custom monitors** exposing `set_write_callback(cb)` / `set_read_callback(cb)`.
    Callbacks are invoked with `(id_value, transaction)`. When a monitor provides
@@ -76,12 +75,11 @@ The scoreboard supports two monitor callback mechanisms:
    `b_transaction` vs `ar_transaction`/`r_transactions`) and extracts the AXI4
    ID automatically (from an `id` key, or from the AW/B or AR/R packets).
 
-A monitor providing neither mechanism raises `ValueError` at connection time.
-Transactions that cannot be classified as read or write are logged and ignored.
+A monitor offering neither raises `ValueError` when you connect it. A transaction that can't be classified as read or write gets logged and ignored.
 
 ### Transaction format
 
-Transactions are composite dictionaries assembled per AXI4 transaction:
+Transactions arrive as composite dictionaries—one per AXI4 transaction, holding the channel packets:
 
 ```python
 write_tx = {
@@ -95,16 +93,16 @@ read_tx = {
 }
 ```
 
-Channel packets may use **either** AXI-prefixed field names (`awaddr`, `awlen`,
-`wdata`, `bresp`, `rdata`, ...) **or** the framework's generic field names
-(`addr`, `len`, `data`, `resp`, ...). Field access tries both, so master and
-slave sides can even use different naming styles. Packets may be objects
-(attribute access) or dictionaries (key access).
+Channel packets may use **either** naming dialect: AXI-prefixed (`awaddr`, `awlen`,
+`wdata`, `bresp`, `rdata`, ...) **or** the framework's generic names
+(`addr`, `len`, `data`, `resp`, ...). Field access tries both, so the master and
+slave sides don't even have to agree on naming. Packets can be objects
+(attribute access) or dictionaries (key access)—both work.
 
 ### Master Monitor Connection
 
 #### `add_master_monitor(monitor)`
-Connect master-side AXI4 monitor to scoreboard.
+Hook up the monitor watching the master interface.
 
 **Parameters:**
 - `monitor`: monitor instance observing the master interface
@@ -112,7 +110,7 @@ Connect master-side AXI4 monitor to scoreboard.
 **Behavior:**
 - Registers write/read handlers via `set_write_callback`/`set_read_callback`
   when available, otherwise via `add_callback`
-- Enables automatic transaction capture from master side
+- From then on, master-side transactions flow in automatically
 
 ```python
 # Connect master monitor
@@ -124,7 +122,7 @@ axi4_scoreboard.add_master_monitor(master_monitor)
 ### Slave Monitor Connection
 
 #### `add_slave_monitor(monitor)`
-Connect slave-side AXI4 monitor to scoreboard.
+Same deal on the slave side.
 
 **Parameters:**
 - `monitor`: monitor instance observing the slave interface
@@ -132,7 +130,7 @@ Connect slave-side AXI4 monitor to scoreboard.
 **Behavior:**
 - Registers write/read handlers via `set_write_callback`/`set_read_callback`
   when available, otherwise via `add_callback`
-- Enables automatic transaction capture from slave side
+- From then on, slave-side transactions flow in automatically
 
 ```python
 # Connect slave monitor
@@ -146,76 +144,72 @@ axi4_scoreboard.add_slave_monitor(slave_monitor)
 ### Write Transaction Handling
 
 #### `_handle_master_write(id_value, transaction)`
-Process completed write transaction from master side.
+A completed write showed up on the master side.
 
 **Parameters:**
 - `id_value`: AXI4 ID of the transaction
-- `transaction`: Completed write transaction
+- `transaction`: the completed write
 
 **Behavior:**
-- Stores transaction in `master_writes[id_value]`
-- Checks for matching slave-side transaction
-- Triggers comparison if both sides available
-- Updates write transaction counters
+- Filed under `master_writes[id_value]`
+- If the slave-side half is already waiting, comparison runs
+- Write counters updated
 
 #### `_handle_slave_write(id_value, transaction)`
-Process completed write transaction from slave side.
+A completed write showed up on the slave side.
 
 **Parameters:**
 - `id_value`: AXI4 ID of the transaction
-- `transaction`: Completed write transaction
+- `transaction`: the completed write
 
 **Behavior:**
-- Stores transaction in `slave_writes[id_value]`
-- Checks for matching master-side transaction
-- Triggers comparison if both sides available
-- Validates write response compliance
+- Filed under `slave_writes[id_value]`
+- If the master-side half is already waiting, comparison runs
+- Write response compliance validated
 
 ### Read Transaction Handling
 
 #### `_handle_master_read(id_value, transaction)`
-Process completed read transaction from master side.
+A completed read showed up on the master side.
 
 **Parameters:**
 - `id_value`: AXI4 ID of the transaction
-- `transaction`: Completed read transaction
+- `transaction`: the completed read
 
 **Behavior:**
-- Stores transaction in `master_reads[id_value]`
-- Checks for matching slave-side transaction
-- Triggers comparison if both sides available
-- Updates read transaction counters
+- Filed under `master_reads[id_value]`
+- If the slave-side half is already waiting, comparison runs
+- Read counters updated
 
 #### `_handle_slave_read(id_value, transaction)`
-Process completed read transaction from slave side.
+A completed read showed up on the slave side.
 
 **Parameters:**
 - `id_value`: AXI4 ID of the transaction
-- `transaction`: Completed read transaction
+- `transaction`: the completed read
 
 **Behavior:**
-- Stores transaction in `slave_reads[id_value]`
-- Checks for matching master-side transaction
-- Triggers comparison if both sides available
-- Validates read data and response codes
+- Filed under `slave_reads[id_value]`
+- If the master-side half is already waiting, comparison runs
+- Read data and response codes validated
 
 ## Transaction Verification
 
 ### Write Transaction Matching
 
 #### `_check_write_match(id_value, master_transaction, slave_transaction)`
-Compare master and slave write transactions for specific ID.
+What has to agree before a write counts as matched.
 
 **Parameters:**
-- `id_value`: Transaction ID
-- `master_transaction`: Master-side write transaction
-- `slave_transaction`: Slave-side write transaction
+- `id_value`: transaction ID
+- `master_transaction`: master-side write
+- `slave_transaction`: slave-side write
 
 **Verification Checks:**
 - Address field consistency (`awaddr`/`addr`)
 - Burst parameters (`awlen`/`len`, `awsize`/`size`, `awburst`/`burst`)
-- Data payload matching per beat (`wdata`/`data`)
-- Response code verification (`bresp`/`resp`)
+- Data payload, beat by beat (`wdata`/`data`)
+- Response code (`bresp`/`resp`)
 - A field present on only one side is reported as a mismatch; a field absent
   on both sides is skipped
 
@@ -229,17 +223,17 @@ Compare master and slave write transactions for specific ID.
 ### Read Transaction Matching
 
 #### `_check_read_match(id_value, master_transaction, slave_transaction)`
-Compare master and slave read transactions for specific ID.
+Same idea for reads.
 
 **Parameters:**
-- `id_value`: Transaction ID
-- `master_transaction`: Master-side read transaction
-- `slave_transaction`: Slave-side read transaction
+- `id_value`: transaction ID
+- `master_transaction`: master-side read
+- `slave_transaction`: slave-side read
 
 **Verification Checks:**
 - Address field consistency (`araddr`/`addr`)
 - Burst parameters (`arlen`/`len`, `arsize`/`size`, `arburst`/`burst`)
-- Read data validation per beat (`rdata`/`data`)
+- Read data, beat by beat (`rdata`/`data`)
 - A field present on only one side is reported as a mismatch; a field absent
   on both sides is skipped
 
@@ -254,14 +248,16 @@ Compare master and slave read transactions for specific ID.
 
 ### Built-in Validation
 
-The AXI4 scoreboard automatically checks for:
-- **ID Consistency**: Transaction IDs match between request and response
-- **Burst Alignment**: Address alignment matches burst size requirements
-- **Response Codes**: Valid RESP field values (OKAY, EXOKAY, SLVERR, DECERR)
-- **Outstanding Limits**: Configurable limits on outstanding transactions per ID
-- **Ordering Requirements**: AXI4 ordering model compliance
+Checked automatically on every transaction:
+- **ID Consistency**: response IDs match request IDs
+- **Burst Alignment**: address alignment fits the burst size
+- **Response Codes**: RESP values are legal (OKAY, EXOKAY, SLVERR, DECERR)
+- **Outstanding Limits**: configurable caps on outstanding transactions per ID
+- **Ordering Requirements**: the AXI4 ordering model
 
 ### Protocol Error Detection
+
+Violations are logged as they happen:
 
 ```python
 # Protocol errors automatically logged:
@@ -279,11 +275,11 @@ if axi4_scoreboard.protocol_error_count > 0:
 
 ### Transaction Statistics
 
-The scoreboard automatically tracks:
-- **Transaction Counts**: Read and write transaction totals
-- **ID Utilization**: Distribution of transactions across ID space
-- **Channel Efficiency**: Bandwidth utilization analysis
-- **Latency Metrics**: Average response times per transaction type
+Tracked for you:
+- **Transaction Counts**: read and write totals
+- **ID Utilization**: how traffic spread across the ID space
+- **Channel Efficiency**: bandwidth utilization analysis
+- **Latency Metrics**: average response times by transaction type
 
 ### Performance Reporting
 
@@ -305,6 +301,8 @@ print(f"Protocol Compliance: {stats['protocol_errors']} violations")
 ## Usage Examples
 
 ### Basic AXI4 Verification Setup
+
+The standard wiring: one monitor per side, then let transactions accumulate.
 
 ```python
 from CocoTBFramework.scoreboards.axi4_scoreboard import AXI4Scoreboard
@@ -343,6 +341,8 @@ print(f"AXI4 Verification: {'PASS' if error_count == 0 else 'FAIL'} ({success_ra
 ```
 
 ### Advanced Multi-ID Verification
+
+Sixteen IDs in flight at once—exactly the case per-ID tracking exists for.
 
 ```python
 # Test with multiple outstanding transactions
@@ -383,6 +383,8 @@ async def test_multi_id_axi4():
 ```
 
 ### Memory System Verification
+
+A memory controller exercised with sequential, random, and burst traffic, checking protocol health between patterns.
 
 ```python
 # Verify AXI4 memory controller
@@ -429,6 +431,8 @@ async def test_memory_controller():
 ```
 
 ### Cross-Clock Domain Verification
+
+Clock crossings add latency the scoreboard can't see through; this pattern tracks transactions across the boundary and compares with CDC delay in mind.
 
 ```python
 # Verify AXI4 clock domain crossing
@@ -481,24 +485,24 @@ async def test_clock_domain_crossing():
 ## Best Practices
 
 ### Monitor Configuration
-- Connect both master and slave monitors for complete verification
-- Use appropriate ID width for system requirements
-- Configure timeout values for protocol compliance checking
+- Connect both sides—one-sided verification only tells half the story
+- Size `id_width` to the actual system, not the default
+- Set timeouts that reflect your interconnect's real latency
 
 ### Performance Optimization
-- Clear completed transactions periodically in long tests
-- Monitor memory usage with high transaction volumes
-- Use ID-based filtering for targeted verification
+- Retire completed transactions in long tests
+- Watch memory usage when transaction volume gets large
+- Filter by ID when you're chasing something specific
 
 ### Error Analysis
-- Enable detailed logging for protocol violation analysis
-- Use transaction timestamps for timing analysis
-- Preserve failed transaction pairs for debugging
+- Detailed logging is worth it for protocol violations
+- Timestamps turn "it failed" into "it failed 40 ns after the request"
+- Keep failed transaction pairs for debugging
 
 ### Integration Guidelines
-- Connect monitors before starting transaction generation
-- Use scoreboard statistics for test coverage analysis
-- Implement custom callbacks for specialized verification
+- Monitors connected before traffic starts, not after
+- Scoreboard statistics double as coverage data
+- Write custom callbacks for anything specialized
 
 ## Integration Points
 
@@ -519,6 +523,9 @@ class AXI4TestEnvironment:
 ```
 
 ### Coverage Integration
+
+The ID dictionaries double as functional coverage:
+
 ```python
 # Functional coverage with scoreboard
 def calculate_id_coverage():
@@ -528,4 +535,4 @@ def calculate_id_coverage():
     print(f"ID Coverage: {coverage:.1f}% ({len(used_ids)}/{total_ids})")
 ```
 
-The AXI4 scoreboard provides comprehensive verification for complex AXI4 systems with robust protocol compliance checking, performance analysis, and multi-ID transaction tracking capabilities.
+Per-ID queues, dual-side pairing, and protocol checks running the whole time—this is the scoreboard you want between a master and a slave that don't finish transactions in the order they started them.

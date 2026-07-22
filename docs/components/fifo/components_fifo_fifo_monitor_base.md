@@ -23,18 +23,17 @@
 
 # fifo_monitor_base.py
 
-Base class providing common FIFO monitoring functionality using unified infrastructure. Eliminates duplication between FIFOMonitor and FIFOSlave while preserving exact APIs and timing.
+The shared plumbing behind FIFOMonitor and FIFOSlave. Both need to collect data, finish packets, update statistics, and talk to memory — this base does all of it once, so the two components can't drift apart.
 
 ## Overview
 
-The `FIFOMonitorBase` class provides shared monitoring infrastructure for FIFO components that need to observe and process transactions. It combines FIFOComponentBase functionality with cocotb's BusMonitor to provide a unified foundation for both pure monitors and active slaves.
+FIFOMonitorBase combines FIFOComponentBase with cocotb's BusMonitor. A pure monitor and an active slave turn out to need almost exactly the same machinery — the only real difference is that the slave also drives `read`. So the machinery lives here, and the subclasses keep only what makes them different.
 
 ### Key Features
-- **Unified Data Collection**: Clean data collection with automatic field unpacking
-- **Standardized Packet Processing**: Consistent packet finishing without conditional complexity
-- **Memory Integration**: Built-in memory model support for transaction storage
-- **Statistics Collection**: Monitoring statistics using MonitorStatistics
-- **cocotb Integration**: Standard _recvQ and callback support
+- **One data collection path**: field unpacking happens in the strategy, not in per-component conditionals
+- **One way to finish a packet**: timestamps, queue, stats, callbacks — no per-component variations
+- **Memory hooks**: read/write through the MemoryModel with no extra wiring
+- **Standard cocotb behavior**: packets land in `_recvQ`, callbacks fire as usual
 
 ## Core Class
 
@@ -71,7 +70,7 @@ FIFOMonitorBase(dut, title, prefix, clock, field_config,
 - `signal_map`: Optional manual signal mapping
 - `**kwargs`: Additional arguments for BusMonitor
 
-**Note:** This is a base class and should not be instantiated directly. Use FIFOMonitor or FIFOSlave instead.
+**Note:** You won't instantiate this directly — use FIFOMonitor or FIFOSlave. This page exists so you know where their shared behavior comes from.
 
 ## Core Methods
 
@@ -79,7 +78,7 @@ FIFOMonitorBase(dut, title, prefix, clock, field_config,
 
 #### `_get_data_dict()`
 
-Clean data collection with automatic field unpacking using unified infrastructure.
+One call that returns the current signal values unpacked into fields. The multi-signal/packed distinction lives inside the strategy, not here.
 
 **Returns:** Dictionary of field values, properly unpacked
 
@@ -89,13 +88,13 @@ data_dict = self._get_data_dict()
 # Returns: {'addr': 0x1000, 'data': 0xDEADBEEF, 'cmd': 0x2}
 ```
 
-This method replaces the messy conditional unpacking logic that was duplicated across components with a single unified call to the DataCollectionStrategy.
+Subclasses call this; your testbench probably never will. It replaced a pile of conditional unpacking logic that used to be duplicated, slightly differently, in every component.
 
 ### Packet Processing (Unified)
 
 #### `_finish_packet(current_time, packet, data_dict=None)`
 
-Clean packet finishing without conditional complexity.
+Everything that happens when a transaction completes, in one place: fields populated, end time stamped, packet pushed to `_recvQ`, stats updated, callbacks fired.
 
 **Parameters:**
 - `current_time`: Current simulation time
@@ -119,7 +118,7 @@ self._finish_packet(current_time, packet)
 # 5. Callbacks triggered
 ```
 
-This method eliminates the duplicate packet finishing logic and ensures consistent behavior across all monitoring components.
+Every monitoring component used to implement its own version of this, each with slightly different quirks. That went about as well as you'd expect.
 
 ### Packet Management
 
@@ -143,7 +142,7 @@ test_packet = monitor_base.create_packet(
 
 #### `get_observed_packets(count=None)`
 
-Get observed packets from standard cocotb _recvQ.
+Pull observed packets from the standard cocotb `_recvQ`.
 
 **Parameters:**
 - `count`: Number of packets to return (None = all)
@@ -160,7 +159,7 @@ recent_packets = monitor_base.get_observed_packets(count=5)
 
 #### `clear_queue()`
 
-Clear the observed transactions queue using standard cocotb pattern.
+Empty the observation queue, using the standard cocotb pattern. Do it between test phases.
 
 ```python
 # Clear accumulated observations
@@ -171,7 +170,7 @@ monitor_base.clear_queue()
 
 #### `handle_memory_write(packet)`
 
-Handle memory write using unified memory integration.
+Push a packet's data into the attached MemoryModel.
 
 **Parameters:**
 - `packet`: Packet to write to memory
@@ -187,7 +186,7 @@ if success:
 
 #### `handle_memory_read(packet)`
 
-Handle memory read using unified memory integration.
+Fetch expected data for a packet's address. The slave uses this for memory-backed responses and checking.
 
 **Parameters:**
 - `packet`: Packet with address to read from
@@ -205,7 +204,7 @@ if success:
 
 #### `get_base_stats()`
 
-Get base statistics common to all FIFO monitoring components.
+One dict: component config, signal resolution, data strategy performance, memory stats, monitor counters, observed packet count.
 
 **Returns:** Dictionary containing base statistics
 
@@ -225,7 +224,7 @@ base_stats = monitor_base.get_base_stats()
 
 ### Unified Data Collection
 
-The base class eliminates the messy conditional data collection logic:
+Here's the before-and-after. The old version of this logic existed, near-identical, in two components:
 
 ```python
 # OLD WAY (duplicated across components):
@@ -252,9 +251,11 @@ def _get_data_dict(self):
     return self.get_data_dict_unified()  # Single call, no conditionals!
 ```
 
+One call. Which fields exist, whether they're resolvable, how to unpack them — all of that lives in the strategy, where it's tested once.
+
 ### Unified Packet Finishing
 
-The base class eliminates duplicate packet finishing logic:
+Same story for finishing packets. Two copies of the same logic, each with its own quirks, replaced by one implementation:
 
 ```python
 # OLD WAY (duplicated with slight variations):
@@ -280,6 +281,8 @@ def _finish_packet(self, current_time, packet, data_dict=None):
 ## Usage Patterns
 
 ### Subclass Implementation
+
+Writing a new monitoring component looks like this — the base does the heavy lifting, you decide what counts as a transaction:
 
 ```python
 class MyFIFOComponent(FIFOMonitorBase):
@@ -323,6 +326,8 @@ class MyFIFOComponent(FIFOMonitorBase):
 
 ### Clean Monitoring Loop
 
+This is the point of the base class: the monitoring loop reads like what it does.
+
 ```python
 # Example of clean monitoring implementation using base class
 async def clean_monitor_recv(self):
@@ -354,6 +359,8 @@ async def clean_monitor_recv(self):
 ```
 
 ### Memory-Integrated Component
+
+Add a MemoryModel and the unified handlers slot straight in:
 
 ```python
 class MemoryIntegratedMonitor(FIFOMonitorBase):
@@ -395,6 +402,8 @@ class MemoryIntegratedMonitor(FIFOMonitorBase):
 ```
 
 ### Statistics Collection
+
+`get_base_stats()` gives you the standard counters; add your own on top:
 
 ```python
 class StatisticsCollectingMonitor(FIFOMonitorBase):
@@ -443,6 +452,8 @@ class StatisticsCollectingMonitor(FIFOMonitorBase):
 
 ### For FIFOMonitor
 
+The monitor is this base plus a transaction detector. Nothing more:
+
 ```python
 # FIFOMonitor inherits clean monitoring without any data handling complexity:
 class FIFOMonitor(FIFOMonitorBase):
@@ -462,6 +473,8 @@ class FIFOMonitor(FIFOMonitorBase):
 ```
 
 ### For FIFOSlave
+
+The slave is this base plus read-signal driving. Same capture path as the monitor, which is exactly what you want — the two can't disagree about what a transaction looked like:
 
 ```python
 # FIFOSlave inherits monitoring capabilities plus adds read signal control:
@@ -492,38 +505,20 @@ class FIFOSlave(FIFOMonitorBase):
 
 ### Elimination of Code Duplication
 
-Before FIFOMonitorBase:
-- FIFOMonitor: ~150 lines of data collection/packet processing
-- FIFOSlave: ~150 lines of identical data collection/packet processing  
-- Total: ~300 lines of duplicated code
-
-After FIFOMonitorBase:
-- FIFOMonitorBase: ~100 lines of unified infrastructure
-- FIFOMonitor: ~50 lines of monitoring-specific logic
-- FIFOSlave: ~75 lines of slave-specific logic
-- Total: ~225 lines with no duplication
+Before this class existed, FIFOMonitor and FIFOSlave each carried about 150 lines of the same collection and packet-finishing code — call it 300 lines maintained in two places, free to drift apart. Now the base owns roughly 100 lines of shared logic, the monitor adds about 50 of its own, and the slave about 75. Fewer lines total, and none of them duplicated.
 
 ### Consistency Guarantee
 
-All monitoring components now use identical:
-- Data collection logic
-- Packet finishing procedures
-- Statistics updating
-- Memory integration
-- Error handling
+Every monitoring component now collects data, finishes packets, updates stats, integrates memory, and handles errors the same way. When a monitor and a slave disagree about a transaction, it's a real difference — not an implementation artifact.
 
 ### Maintainability
 
-Single point of maintenance for:
-- Data strategy integration
-- Field unpacking logic
-- Statistics collection
-- Memory model integration
-- cocotb queue management
+One place to fix field unpacking, statistics, memory integration, and queue handling. A bug fixed here is fixed for everything that monitors.
 
 ## Best Practices
 
 ### 1. **Always Set protocol_type in Subclasses**
+The base needs to know which side it's on:
 ```python
 # Required in subclass __init__
 super().__init__(
@@ -534,6 +529,7 @@ super().__init__(
 ```
 
 ### 2. **Use Unified Methods in Monitoring Loops**
+That's what they're for. Bypassing them re-creates the mess this class cleaned up:
 ```python
 # In _monitor_recv implementation:
 data_dict = self._get_data_dict()  # Unified data collection
@@ -541,6 +537,7 @@ self._finish_packet(current_time, packet, data_dict)  # Unified finishing
 ```
 
 ### 3. **Leverage Memory Integration**
+If a model is attached, use the handlers rather than poking the model directly:
 ```python
 # If memory_model is available, use unified handlers
 if self.memory_model:
@@ -549,6 +546,7 @@ if self.memory_model:
 ```
 
 ### 4. **Use get_base_stats() in Subclasses**
+Build your `get_stats()` on top of it so the standard counters never go missing:
 ```python
 def get_stats(self):
     base_stats = self.get_base_stats()  # Gets all base statistics
@@ -563,4 +561,4 @@ def get_stats(self):
 self.clear_queue()
 ```
 
-The FIFOMonitorBase provides a robust, unified foundation for FIFO monitoring components that eliminates code duplication while ensuring consistent behavior and optimal performance across all monitoring implementations.
+If you're subclassing this, the contract is simple: implement `_monitor_recv`, call `_get_data_dict()` and `_finish_packet()`, and the rest is handled.

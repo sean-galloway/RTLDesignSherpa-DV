@@ -32,15 +32,15 @@
 
 ## Overview
 
-The UART BFM (Bus Functional Model) package provides CocoTB-based verification components for UART protocol testing. These components implement the standard 8N1 UART protocol (8 data bits, no parity, 1 stop bit) with configurable baud rates.
+UART is the simplest serial link still in daily use, and it's everywhere — boot consoles, debug ports, command bridges into register maps. This package gives you the three pieces you need to verify a UART interface without bit-banging waveforms by hand: a transmitter (`UARTMaster`), a receiver (`UARTMonitor`), and a small responder (`UARTSlave`). All three speak plain 8N1 — 8 data bits, no parity, 1 stop bit — with the baud rate set by a single `clks_per_bit` parameter, so the same components work from 9600 baud up to whatever your DUT will tolerate.
 
 ### Package Contents
 
 | Component | Purpose | Direction |
 |-----------|---------|-----------|
-| **UARTMaster** | UART transmitter | TX (sends data) |
-| **UARTMonitor** | UART receiver monitor | RX (captures data) |
-| **UARTSlave** | UART responder | RX/TX (echo, respond) |
+| **UARTMaster** | Drives UART traffic into the DUT's receiver | TX (sends data) |
+| **UARTMonitor** | Decodes and captures the DUT's transmit output | RX (captures data) |
+| **UARTSlave** | Responder with byte-triggered replies | RX/TX (echo, respond) |
 
 ---
 
@@ -48,17 +48,19 @@ The UART BFM (Bus Functional Model) package provides CocoTB-based verification c
 
 ### Purpose
 
-Transmits UART data for stimulating DUT UART receivers. Used to drive commands and test data into UART-based designs.
+The master is your transmit path: it drives the DUT's RX pin with properly framed UART bytes. Reach for it whenever you need to push commands or test data into a design that takes orders over a serial port.
 
 ### Features
 
-- Configurable baud rate (via `clks_per_bit`)
-- Automatic start/stop bit generation
-- String and byte transmission
-- Non-blocking async transmission
-- Transaction logging
+- Baud rate set by one parameter (`clks_per_bit`)
+- Start and stop bits generated for you
+- Sends single bytes, byte lists, or whole strings
+- Async transmit methods that won't hold up the rest of your testbench
+- Transaction logging built in
 
 ### Usage
+
+Wire it to the DUT's receive pin — from the DUT's point of view, the master *is* the external device talking to it:
 
 ```python
 from CocoTBFramework.components.uart import UARTMaster
@@ -103,22 +105,23 @@ UARTMaster(
 #### Methods
 
 **`async send(data)`**
-- Transmits single byte over UART
+- Sends a single byte over UART
 - `data`: 8-bit value (0-255) or single character
-- Automatically adds start/stop bits
-- Returns a `UARTPacket` describing the transmitted byte
+- Start and stop bits are added automatically
+- Returns a `UARTPacket` describing the byte that went out
 
 **`async send_bytes(data_list)`**
-- Transmits a list of bytes (or characters) sequentially
-- Returns a list of `UARTPacket` objects
+- Sends a list of bytes (or characters) back to back
+- Returns a list of `UARTPacket` objects, one per byte
 
 **`async send_string(string)`**
-- Transmits ASCII string over UART
+- Sends an ASCII string, one character at a time
 - `string`: String to transmit
-- Sends each character sequentially
 - Returns a list of `UARTPacket` objects
 
 ### Timing
+
+Every byte costs ten bit-times — one start bit, eight data bits, one stop bit — so the math is about as simple as timing math gets:
 
 **Per-Byte Transmission Time:**
 ```
@@ -131,6 +134,8 @@ T_byte = 868 * 10 = 8680 clocks = 86.8 µs
 ```
 
 ### Example
+
+Sending a command string into a UART bridge looks like this:
 
 ```python
 @cocotb.test()
@@ -154,17 +159,19 @@ async def test_uart_commands(dut):
 
 ### Purpose
 
-Monitors UART output from DUT transmitters. Captures transmitted data for verification and analysis.
+The monitor is the receive side. It watches the DUT's TX pin, decodes each frame at the configured baud rate, and queues up every byte it catches for your test to inspect when it's ready. It also checks the stop bit on every frame and flags framing errors, so a DUT with sloppy line discipline won't slip past you.
 
 ### Features
 
-- Configurable baud rate (via `clks_per_bit`)
-- Automatic start/stop bit detection
-- Queue-based transaction capture (`_recvQ`)
-- Transaction logging
-- Data validation
+- Baud rate set by one parameter (`clks_per_bit`)
+- Start/stop bit detection handled internally
+- Received bytes land in a queue (`_recvQ`) you drain at your own pace
+- Per-packet error flags, so bad frames are visible rather than silent
+- Transaction logging built in
 
 ### Usage
+
+Point it at the DUT's transmit pin:
 
 ```python
 from CocoTBFramework.components.uart import UARTMonitor
@@ -218,12 +225,9 @@ UARTMonitor(
 
 #### Attributes
 
-**`_recvQ`** - `collections.deque`
-- Queue of received UART packets
-- Access with `.popleft()` to retrieve oldest packet
-- Each packet is a `UARTPacket` object
+**`_recvQ`** — a `collections.deque` of received `UARTPacket` objects, oldest first. Pull packets out with `.popleft()`.
 
-**`UARTPacket` Structure (key fields):**
+**`UARTPacket` — the fields you'll actually read:**
 ```python
 @dataclass
 class UARTPacket:
@@ -238,9 +242,8 @@ class UARTPacket:
 
 #### Methods
 
-Monitor runs automatically in background. Access received data via `_recvQ`.
+There aren't any to call. The monitor starts capturing as soon as it's constructed and runs in the background on its own — reading `_recvQ` is the whole interface. The patterns you'll use constantly:
 
-**Common Patterns:**
 ```python
 # Check if data available
 if len(self.uart_rx_monitor._recvQ) > 0:
@@ -259,6 +262,8 @@ while len(self.uart_rx_monitor._recvQ) > 0:
 ```
 
 ### Example
+
+A typical echo test — clear the queue, send a string, give the DUT time to answer, then drain whatever came back:
 
 ```python
 @cocotb.test()
@@ -292,16 +297,18 @@ async def test_uart_echo(dut):
 
 ### Purpose
 
-Simulates UART slave device that can respond to received commands. Useful for testing UART masters.
+The slave plays the far end of the link: it receives whatever the DUT transmits and can drive bytes back into the DUT's receiver. Its useful trick is byte-triggered auto-response — register a trigger byte and a reply, and the moment the DUT sends that byte, the slave transmits the reply without your test lifting a finger. If you're verifying a UART master, this is what saves you from writing a responder by hand.
 
 ### Features
 
-- Receives bytes via UART into `rx_queue`
-- Byte-triggered auto-responses (`add_response`)
-- Non-blocking receive checking (`get_received`)
-- Byte matching with timeout (`wait_for_byte`)
+- Receives bytes into `rx_queue`
+- Byte-triggered auto-responses via `add_response`
+- Non-blocking receive checking with `get_received`
+- Byte matching with timeout via `wait_for_byte`
 
 ### Usage
+
+Note the signal names are from the DUT's perspective — the slave listens on the DUT's TX output and drives the DUT's RX input:
 
 ```python
 from CocoTBFramework.components.uart import UARTSlave
@@ -344,26 +351,28 @@ UARTSlave(
 
 #### Attributes
 
-**`rx_queue`** - `collections.deque` of received byte values (integers 0-255)
+**`rx_queue`** — `collections.deque` of received byte values (integers 0-255)
 
-**`response_map`** - Dictionary mapping trigger bytes to response sequences
+**`response_map`** — dictionary mapping trigger bytes to the responses they'll send
 
 #### Methods
 
 **`add_response(trigger, response)`**
-- Register an auto-response for a received byte
+- Registers an auto-response for a received byte
 - `trigger`: byte value (0-255) or single character
-- `response`: byte, list of bytes, or string to transmit when triggered
+- `response`: a byte, a list of bytes, or a string to transmit when the trigger arrives
 
 **`get_received()`**
-- Non-blocking; returns the next received byte (0-255) or `None` if the queue is empty
+- Non-blocking; returns the next received byte (0-255) or `None` if nothing has arrived
 
 **`async wait_for_byte(expected, timeout_cycles=1000)`**
-- Wait for a specific byte with a clock-cycle timeout
-- Returns `True` if received, `False` on timeout
-- Raises `AssertionError` if a different byte is received
+- Waits for a specific byte, giving up after `timeout_cycles` clocks
+- Returns `True` if the byte arrived, `False` on timeout
+- Raises `AssertionError` if a *different* byte shows up first — it's a strict check, not a filter
 
 ### Example
+
+Two lines of setup and the slave handles the protocol chatter on its own:
 
 ```python
 @cocotb.test()
@@ -384,6 +393,8 @@ async def test_uart_slave(dut):
 ## Protocol Details
 
 ### UART 8N1 Protocol
+
+Ten bits on the wire per byte: start low, eight data bits, stop high. The one detail that bites everyone exactly once — me included — is that data goes out least-significant bit first.
 
 **Frame Format:**
 
@@ -417,10 +428,11 @@ Common Baud Rates:
 
 ### Timing Constraints
 
-**Minimum Requirements:**
-- Clock frequency >> baud rate (at least 16x recommended)
-- Stable clock during transmission
-- Proper CDC for async UART inputs
+Nothing exotic here, but three things matter:
+
+- Run the testbench clock well above the baud rate — 16x oversampling is the usual floor.
+- Keep the clock stable for the duration of a transfer; the BFM counts clock edges, not wall time.
+- Treat the real RX pin as asynchronous and give it a proper synchronizer (see Clock Domain Crossing below).
 
 **Typical Timing:**
 | Baud Rate | Bit Time | Byte Time |
@@ -434,6 +446,8 @@ Common Baud Rates:
 ## Integration Examples
 
 ### Complete UART Bridge Testbench
+
+Here's a full testbench putting master and monitor together against a UART-to-AXI4-Lite bridge — the DUT takes ASCII commands like `W 1000 DEADBEEF` and answers with `OK\n` or a hex readback. It's the shape most UART tests end up taking: clear the queue, send the command, wait, then pick the response apart.
 
 ```python
 # TBBase is located in the RTLDesignSherpa main repo (tbclasses/shared/tbbase.py)
@@ -513,7 +527,7 @@ class UARTBridgeTB(TBBase):
 
 ### Unit Tests
 
-Located in: `tests/` directory
+Unit tests live in the `tests/` directory.
 
 **Test Coverage:**
 - Byte transmission accuracy
@@ -536,12 +550,11 @@ pytest test_uart_components.py -v
 
 ### Clock Domain Crossing
 
-UART inputs are asynchronous and require CDC:
-- Use 2-FF synchronizer for RX input
-- Implemented in UART RX modules (e.g., `uart_rx.sv`)
-- BFM assumes single clock domain (testbench synchronous)
+A UART RX pin is asynchronous to your system clock by definition — there's no shared clock on the wire, that's the whole point. A real design needs a two-flop synchronizer on that input before the bit sampler, and the RTL side already does this (see `uart_rx.sv`). The BFM has it easier: it drives and samples synchronously with the testbench clock, so CDC is the DUT's problem, not yours.
 
 ### Baud Rate Calculation
+
+`clks_per_bit` is just your clock frequency divided by the baud rate, rounded down to an integer:
 
 ```python
 def calculate_clks_per_bit(clock_mhz, baud_rate):
@@ -557,10 +570,12 @@ clks_per_bit_50mhz_115200 = calculate_clks_per_bit(50, 115200)    # 434
 ### Performance Considerations
 
 **Testbench Performance:**
-- UART is slow - expect long test times
-- 115200 baud ≈ 11.5 KB/s max throughput
-- Use higher baud rates for faster tests (if DUT supports)
-- Consider parallel testing for throughput-intensive tests
+
+UART is slow, and simulation makes you feel every bit of it. At 115200 baud you're moving roughly 11.5 KB/s, each byte costs ten bit-times, and each bit-time is `clks_per_bit` clock edges your simulator has to walk through. The practical consequences:
+
+- Expect long test times for anything chatty.
+- If the DUT allows it, run the UART faster than production baud — the protocol doesn't care.
+- If you're only using the UART as a side door to reach internal registers, skip it for bulk setup and inject transactions directly on the internal bus instead. Save the UART traffic for the tests that are actually about the UART.
 
 **Simulation Optimization:**
 ```python
@@ -581,19 +596,21 @@ None currently documented.
 
 ## Future Enhancements
 
-1. **Parity Support** - 8E1, 8O1 modes
-2. **Flow Control** - RTS/CTS hardware handshaking
-3. **Break Detection** - Extended low period detection
-4. **Configurable Stop Bits** - 1, 1.5, 2 stop bits
+On the list, in no particular order:
 
-(Framing error detection — invalid stop bit — is already implemented in `UARTMonitor`.)
+1. **Parity Support** — 8E1 and 8O1 modes
+2. **Flow Control** — RTS/CTS hardware handshaking
+3. **Break Detection** — flagging an extended low period on the line
+4. **Configurable Stop Bits** — 1, 1.5, or 2 stop bits
+
+Framing error detection — catching an invalid stop bit — is already implemented in `UARTMonitor`, which is why it's not on the list.
 
 ---
 
 ## References
 
 **Internal:**
-- Converters Project - Usage example
+- Converters Project — a real-world usage example
 - [CocoTB Framework Overview](../components_overview.md)
 - TBBase (located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repo under `tbclasses/shared/tbbase.py`)
 

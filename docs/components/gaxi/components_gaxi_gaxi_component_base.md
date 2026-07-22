@@ -23,18 +23,18 @@
 
 # gaxi_component_base.py
 
-Unified base class for all GAXI components that consolidates common functionality across GAXIMaster, GAXIMonitor, and GAXISlave, eliminating code duplication while preserving exact APIs and timing.
+The class every GAXI component stands on. GAXIMaster, GAXISlave and GAXIMonitor all inherit from it, and because the AXI4/AXI5/AXI-Stream/FIFO BFMs delegate to the GAXI pipelines, most of the traffic anywhere in this framework ends up flowing through code defined here. It exists so that signal resolution, field handling, memory access and statistics live in exactly one place instead of three.
 
 ## Overview
 
 The `GAXIComponentBase` class provides:
-- **Unified signal resolution** and data handling setup
-- **Shared field configuration** handling and packet management  
-- **Memory model integration** using base MemoryModel directly
-- **Common statistics** and logging patterns
-- **Resolved signal passing** to DataStrategies eliminating guesswork
+- **Signal resolution and data-strategy setup**, once for the whole family
+- **Field configuration and packet management** in a common shape
+- **Memory model access** using the base MemoryModel directly
+- **Statistics and logging** that look the same on every component
+- **Resolved signals handed to the DataStrategies**, so nothing downstream has to re-derive them
 
-All existing parameters are preserved and used exactly as before, with the addition of optional manual signal mapping.
+Every parameter the old components took still means what it meant; the only addition is the optional `signal_map` for manual signal naming.
 
 ## Class
 
@@ -87,9 +87,9 @@ signal_map = {
 ### Core Initialization
 
 #### `complete_base_initialization(bus=None)`
-Complete initialization after cocotb parent class setup.
+Finish initialization after the cocotb parent class is set up.
 
-**Must be called by subclasses** after their cocotb parent class (BusDriver/BusMonitor) initialization is complete.
+**You must call this from the subclass** after its BusDriver/BusMonitor `__init__` completes — skip it and the data strategies never get built, and nothing downstream works.
 
 ```python
 # In subclass __init__ after BusDriver.__init__:
@@ -99,7 +99,7 @@ self.complete_base_initialization(self.bus)
 ### Unified Data Operations
 
 #### `get_data_dict_unified()`
-Get current data from signals with automatic field unpacking.
+Read the current signal values, unpacked into fields.
 
 **Returns:** Dictionary of field values, properly unpacked
 
@@ -110,7 +110,7 @@ print(data)  # {'addr': 0x1000, 'data': 0xDEADBEEF, 'cmd': 0x2}
 ```
 
 #### `drive_transaction_unified(transaction)`
-Drive transaction data using unified DataDrivingStrategy.
+Drive a transaction's fields through the unified DataDrivingStrategy.
 
 **Parameters:**
 - `transaction`: Transaction to drive
@@ -164,9 +164,10 @@ if success:
 
 #### `_build_packet(**field_values)`
 
-The single extension point for packet construction across the GAXI and FIFO
-component families. Every packet produced by the receive pipeline,
-`create_packet()`, and the master transmit path comes from this hook.
+One hook controls every packet this family builds. The receive pipeline,
+`create_packet()`, and the master's transmit path all construct their packets
+here — so if you need a different packet class, this is the only place you
+have to touch.
 
 **Parameters:**
 - `**field_values`: Optional initial field values. Names matching a field the
@@ -216,10 +217,10 @@ class AXIS5Slave(GAXISlave):
         )
 ```
 
-Because the whole pipeline routes through the hook, downstream
-`isinstance(packet, AXIS5Packet)` checks keep working — previously the
-receive path hard-coded `GAXIPacket(self.field_config)`, so a delegating
-slave or monitor silently lost its protocol packet subclass.
+This matters because the whole pipeline routes through the hook: downstream
+`isinstance(packet, AXIS5Packet)` checks keep working. Before the hook
+existed, the receive path hard-coded `GAXIPacket(self.field_config)`, so a
+delegating slave or monitor silently lost its protocol packet subclass.
 
 An override takes precedence over `packet_class`. Subclasses that only need
 a different default (no extra constructor arguments) can instead set the
@@ -233,7 +234,7 @@ class FIFOComponentBase(GAXIComponentBase):
 ### Statistics and Configuration
 
 #### `get_base_stats_unified()`
-Get comprehensive base statistics common to all components.
+The statistics every component reports, whatever its role.
 
 **Returns:** Dictionary containing base statistics
 
@@ -245,7 +246,7 @@ print(f"Field count: {stats['field_count']}")
 ```
 
 #### `set_randomizer(randomizer)`
-Set new randomizer for timing control.
+Swap in a new randomizer for timing control.
 
 **Parameters:**
 - `randomizer`: FlexRandomizer instance
@@ -286,6 +287,8 @@ master = GAXIMaster(
 ```
 
 ### Manual Signal Mapping
+
+Automatic discovery handles conventional naming. When the DUT names its pins something creative, hand in a map and skip the guessing.
 
 ```python
 # For non-standard signal names
@@ -330,6 +333,8 @@ success, error = master.write_to_memory_unified(packet)
 ```
 
 ### Unified Data Collection
+
+A minimal custom monitor, showing the two calls that matter — the cocotb parent first, then `complete_base_initialization()`, then the unified methods inside the loop.
 
 ```python
 class CustomMonitor(GAXIComponentBase, BusMonitor):
@@ -404,6 +409,9 @@ except RuntimeError as e:
 ```
 
 ### Memory Operation Errors
+
+Memory helpers return `(success, error)` tuples rather than raising, so check the first element before trusting the rest.
+
 ```python
 # Memory operations return success/error tuples
 success, error = component.write_to_memory_unified(packet)
@@ -426,6 +434,9 @@ if not success:
 5. **Component signal application** via `apply_to_component()`
 
 ### Data Strategy Integration
+
+The resolver runs once, and the resolved signals are passed straight into the strategies. Nothing downstream goes back to the DUT to guess again.
+
 ```python
 # Internal flow (handled automatically)
 resolver = SignalResolver(protocol_type, dut, bus, log, title, ...)
@@ -444,7 +455,7 @@ data_driver = DataDrivingStrategy(..., resolved_signals=resolved_signals)
 
 ## Best Practices
 
-### 1. **Use Automatic Signal Discovery First**
+### 1. **Let Automatic Discovery Try First**
 ```python
 # Try automatic discovery
 component = GAXIMaster(dut, title, prefix, clock, field_config)
@@ -465,7 +476,10 @@ class MyComponent(GAXIComponentBase, BusDriver):
         self.complete_base_initialization(self.bus)  # Essential!
 ```
 
-### 3. **Use Unified Methods for Consistency**
+### 3. **Use the Unified Methods**
+
+They're the ones the rest of the family uses, which means they're the ones that get fixed when something's wrong.
+
 ```python
 # Prefer unified methods over custom implementations
 data = component.get_data_dict_unified()  # Not custom _get_data_dict()
@@ -491,4 +505,4 @@ if not success:
     handle_memory_error(error, packet)
 ```
 
-GAXIComponentBase provides the foundation for all GAXI components, ensuring consistent behavior, optimal performance, and comprehensive error handling across the entire GAXI ecosystem.
+If you're building a new component on this layer: inherit here, call `complete_base_initialization()` after the cocotb parent is up, and use the unified methods rather than rolling your own. That's all the existing components do — it's why the AXI and FIFO BFMs on top can stay thin.

@@ -23,17 +23,16 @@
 
 # gaxi_monitor.py
 
-GAXI Monitor implementation using unified base functionality. Preserves exact timing-critical cocotb methods and external API while eliminating code duplication through inheritance from unified base classes.
+The passive observer. A GAXIMonitor never drives a pin — it watches valid and ready, timestamps the handshake, unpacks the fields, and drops a packet into the queue for your callbacks. The one real decision is which side of the interface to watch (`is_slave`), because that choice changes when the data gets sampled.
 
 ## Overview
 
 The `GAXIMonitor` class provides:
-- **Pure monitoring functionality** with no signal driving
-- **Master-side or slave-side monitoring** based on is_slave parameter
-- **Protocol violation detection** and reporting
-- **Handshake tracking** with precise timing
-- **Inherited functionality** from GAXIMonitorBase for common operations
-- **Mode-specific data sampling** with corrected timing
+- **Pure observation** — it drives nothing, ever
+- **Master-side or slave-side monitoring** via the `is_slave` parameter
+- **Mode-aware data sampling** (the fifo_flop case below is the one that bites people)
+- **Protocol violation and X/Z tracking** in the statistics
+- **Everything else inherited** from GAXIMonitorBase: signal resolution, packet building, memory integration
 
 Inherits all common functionality from GAXIMonitorBase including signal resolution, data collection, packet management, and memory integration.
 
@@ -67,18 +66,18 @@ class GAXIMonitor(GAXIMonitorBase):
 
 ## Data Sampling Rules
 
-The GAXIMonitor uses corrected sampling timing based on mode and monitoring side:
+Sampling timing depends on the side and the mode, and getting it wrong looks like off-by-one data corruption in the DUT — so get it right here instead.
 
 ### Master Side Monitoring (`is_slave=False`)
-- **All modes**: Always sample immediately when handshake detected
-- **Rationale**: Master side signals are stable at handshake time
-- **Performance**: Lowest latency monitoring
+- **All modes**: sample the moment the handshake completes
+- Master-side signals are stable at handshake time, so waiting gains nothing
+- Lowest-latency observation
 
 ### Slave Side Monitoring (`is_slave=True`)
-- **Skid mode**: Sample immediately when handshake detected
-- **FIFO MUX mode**: Sample immediately when handshake detected  
-- **FIFO FLOP mode**: Delay capture by one cycle after handshake
-- **Rationale**: Matches DUT internal timing for different implementations
+- **Skid mode**: sample at the handshake
+- **FIFO MUX mode**: sample at the handshake
+- **FIFO FLOP mode**: wait one cycle after the handshake, then capture
+- The delayed capture matches the DUT: a registered FIFO output doesn't show the new data until the cycle after the handshake. Sample early and you record whatever was on the bus before.
 
 ## Core Methods
 
@@ -95,7 +94,7 @@ GAXIMonitor inherits all methods from GAXIMonitorBase:
 ### Monitor-Specific Methods
 
 #### `get_stats()`
-Get comprehensive statistics including monitor-specific information.
+Base statistics plus the monitor-specific ones: which side you're watching, observed count, violations.
 
 **Returns:** Dictionary containing all statistics
 
@@ -193,6 +192,8 @@ async def test_slave_monitoring(dut):
 ```
 
 ### Dual Monitor Setup
+
+Monitors are cheap. Watch both sides and let the counts disagree if something drops a transaction.
 
 ```python
 @cocotb.test()
@@ -302,6 +303,8 @@ async def test_protocol_violations(dut):
 
 ### Performance Monitoring
 
+Interval and throughput tracking from the callback:
+
 ```python
 @cocotb.test()
 async def test_performance_monitoring(dut):
@@ -406,6 +409,8 @@ async def test_mode_specific_monitoring(dut):
 ```
 
 ### Integration with Scoreboards
+
+This is the standard wiring: expected from the master side, actual from the slave side, scoreboard does the comparison.
 
 ```python
 from CocoTBFramework.scoreboards.gaxi_scoreboard import GAXIScoreboard
@@ -549,6 +554,9 @@ except RuntimeError as e:
 ```
 
 ### Monitoring Errors
+
+Signal problems don't stop the monitor — they accumulate in the statistics. Check there first when counts look off.
+
 ```python
 # Monitor automatically handles signal errors
 # Check statistics for error information
@@ -560,7 +568,7 @@ if monitor_stats['x_z_violations'] > 0:
 
 ## Best Practices
 
-### 1. **Choose Appropriate Monitoring Side**
+### 1. **Choose the Side That Answers Your Question**
 ```python
 # Monitor master side to see outgoing transactions
 master_monitor = GAXIMonitor(..., is_slave=False)
@@ -569,7 +577,10 @@ master_monitor = GAXIMonitor(..., is_slave=False)
 slave_monitor = GAXIMonitor(..., is_slave=True)
 ```
 
-### 2. **Match Mode to DUT Implementation**
+### 2. **Match Mode to the DUT Implementation**
+
+This is the configuration error that wastes afternoons. Registered interface on the DUT means `fifo_flop` on the monitor, or every packet looks shifted.
+
 ```python
 # For DUT with registered slave interface
 monitor = GAXIMonitor(..., is_slave=True, mode='fifo_flop')
@@ -578,7 +589,7 @@ monitor = GAXIMonitor(..., is_slave=True, mode='fifo_flop')
 monitor = GAXIMonitor(..., is_slave=True, mode='skid')
 ```
 
-### 3. **Use Callbacks for Real-Time Processing**
+### 3. **Use Callbacks, Not Polling**
 ```python
 # Prefer callbacks over polling
 monitor.add_callback(process_transaction)
@@ -595,7 +606,7 @@ monitor = GAXIMonitor(..., super_debug=True)   # Development
 monitor = GAXIMonitor(..., super_debug=False)  # Production
 ```
 
-### 5. **Monitor Statistics for Health**
+### 5. **Check the Violation Counters**
 ```python
 # Regular statistics checking
 stats = monitor.get_stats()
@@ -603,4 +614,4 @@ if stats['monitor_stats']['protocol_violations'] > 0:
     print("Protocol violations detected - investigate")
 ```
 
-The GAXIMonitor provides comprehensive transaction observation capabilities with precise timing control, protocol violation detection, and flexible configuration for thorough verification of GAXI protocol implementations.
+Put a monitor on each side, wire them into a scoreboard, and most interface bugs announce themselves. The callback path is where the real-time checking happens; `get_observed_packets()` is for the post-run autopsy.

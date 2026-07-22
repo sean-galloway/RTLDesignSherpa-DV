@@ -23,17 +23,17 @@
 
 # field_config.py
 
-Field Configuration Classes for GAXI Validation Framework that provide robust and type-safe field definitions, replacing dictionary-based approaches with proper class structures.
+Field configuration classes for the GAXI validation framework — real class-based field definitions instead of ad-hoc dictionaries, with validation, encoding support, and Rich table formatting.
 
 ## Overview
 
-The `field_config.py` module provides classes for defining field configurations with comprehensive validation, encoding support, and Rich table formatting. It supports both individual field definitions and complete packet configurations.
+Dictionary-based field configs work until they don't: a typo'd key, a missing `bits` entry, a format string nobody validates, and the failure shows up three calls away from the mistake. `field_config.py` replaces that with `FieldDefinition` (one field) and `FieldConfig` (an ordered set of fields for a packet), with validation at construction time instead of at 3 a.m. in a failing test. It handles both individual field definitions and complete packet layouts.
 
 ## Classes
 
 ### FieldDefinition
 
-Definition of a single field within a packet using a dataclass structure.
+Definition of a single field within a packet, as a dataclass.
 
 #### Constructor
 
@@ -116,7 +116,7 @@ mask_field = FieldDefinition(
 
 ### FieldConfig
 
-Configuration of all fields in a packet, maintaining field order and providing helper methods for field manipulation.
+An ordered configuration of all fields in a packet, with helpers for building, querying, and modifying the layout.
 
 #### Constructor
 
@@ -144,7 +144,7 @@ Concrete two-field example — `add_field("a", 4 bits)` then `add_field("b", 8 b
 | Default (`lsb_first=False`) | `[3:0]` | `[11:4]` |
 | Legacy (`lsb_first=True`) | `[11:8]` | `[7:0]` |
 
-These semantics are pinned by `tests/unit/test_field_config.py` and will not change silently.
+Read this section twice before you build a config — getting the packing order backwards is the classic way to spend an afternoon wondering why your address field contains your data. These semantics are pinned by `tests/unit/test_field_config.py` and will not change silently.
 
 #### Methods
 
@@ -252,7 +252,7 @@ print(config.debug_str())
 
 #### Dictionary-like Interface
 
-FieldConfig supports dictionary-like operations:
+FieldConfig supports dictionary-style operations, so old code that treated configs as dicts mostly keeps working:
 
 ```python
 # Length
@@ -411,6 +411,8 @@ config.add_field(FieldDefinition(
 # This is useful for registers where not all bits are used
 ```
 
+Active bits are the answer for registers where the designer only wired up a slice of the word — you keep the full-width field for layout, and the framework only cares about the bits that actually exist.
+
 ### Validation and Error Correction
 
 ```python
@@ -523,7 +525,7 @@ validated_config = FieldConfig.validate_and_create(legacy_config)
 
 ## Error Handling
 
-The FieldConfig system includes comprehensive error handling:
+FieldConfig fails loudly and early, which is what you want from a config layer:
 
 ### Field Definition Validation
 - **Bit Width**: Must be positive integer
@@ -553,19 +555,21 @@ except KeyError as e:
 
 ## Best Practices
 
-1. **Use Method Chaining**: Take advantage of fluent interface for building configurations
-2. **Validate Early**: Use `validate_and_create()` for external configurations
-3. **Document Fields**: Always provide meaningful descriptions
-4. **Use Encoding**: Define state names for control fields
-5. **Check Existence**: Use `has_field()` before accessing optional fields
-6. **Display Configs**: Use `debug_str()` for configuration review and documentation
+1. **Use Method Chaining**: The fluent interface makes config construction readable — use it.
+2. **Validate Early**: Run `validate_and_create()` on any config that comes from outside your code.
+3. **Document Fields**: Write real descriptions. "Address field" beats "addr" when someone else reads the dump.
+4. **Use Encoding**: Give control fields state names. `0x2: "WRITE"` in a log line saves a decode step every time.
+5. **Check Existence**: Use `has_field()` before accessing optional fields.
+6. **Display Configs**: `debug_str()` is the fastest way to eyeball a config in review or in a log.
 
 ## Integration with Other Components
 
-FieldConfig integrates seamlessly with other framework components:
+FieldConfig is the piece the rest of the framework reads from:
 
-- **Packet**: Provides field structure and validation
+- **Packet**: Gets its structure and validation rules from FieldConfig
 - **PacketFactory**: Uses FieldConfig for packet creation
-- **DataStrategies**: Uses field information for efficient collection/driving
-- **FlexRandomizer**: Can generate values based on field bit widths
+- **DataStrategies**: Uses field widths and layouts for cached collection/driving
+- **FlexRandomizer**: Can size generated values from field bit widths
 - **Memory Model**: Uses field definitions for transaction processing
+
+---

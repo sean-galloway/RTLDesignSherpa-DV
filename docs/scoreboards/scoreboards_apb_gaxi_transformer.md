@@ -23,29 +23,28 @@
 
 # apb_gaxi_transformer.py
 
-APB to GAXI protocol transformer implementation providing bidirectional conversion between APB and GAXI protocols. This module enables cross-protocol verification through transaction transformation and adapter classes for seamless protocol bridge testing.
+When a testbench has APB on one side and GAXI on the other, something has to translate before a comparison means anything. This module is that something: bidirectional APB ↔ GAXI conversion, plus adapter classes that keep the plumbing out of the rest of the bench.
 
 ## Overview
 
-The APB-GAXI transformer system provides:
-- **Bidirectional Transformation**: Complete APB ↔ GAXI protocol conversion
-- **Field Mapping**: Configurable mapping between APB and GAXI protocol fields
-- **Timing Preservation**: Maintains transaction timing information across transformations
-- **Adapter Framework**: High-level adapters for integration with master components
-- **Performance Tracking**: Transaction statistics and latency analysis
+- **Bidirectional Transformation**: APB → GAXI and GAXI → APB
+- **Field Mapping**: configurable correspondence between the two protocols' fields
+- **Timing Preservation**: transaction timestamps survive the trip across
+- **Adapter Framework**: high-level wrappers for hooking conversion into master components
+- **Performance Tracking**: transformation counts and latency analysis
 
 ## Classes
 
 ### APBtoGAXITransformer
 
-Core transformer providing bidirectional APB-GAXI protocol conversion.
+The converter itself. One instance handles both directions.
 
-> **This module is the canonical implementation.** A same-named class in
-> `scoreboards.apb_scoreboard` is a thin subclass kept for backward
-> compatibility: it keeps the older `(gaxi_field_config, packet_class, log)`
-> constructor and its `transform()` method returning a list, while inheriting
-> `apb_to_gaxi()` / `gaxi_to_apb()` from this class. Prefer importing from
-> `apb_gaxi_transformer` in new code.
+> **This module is the canonical implementation.** The same-named class in
+> `scoreboards.apb_scoreboard` is a thin subclass kept around for backward
+> compatibility: it holds on to the older `(gaxi_field_config, packet_class, log)`
+> constructor and a `transform()` that returns a list, while inheriting
+> `apb_to_gaxi()` / `gaxi_to_apb()` from this class. New code should import from
+> `apb_gaxi_transformer`.
 
 ```python
 class APBtoGAXITransformer:
@@ -53,34 +52,34 @@ class APBtoGAXITransformer:
 ```
 
 **Parameters:**
-- `gaxi_field_config`: GAXI field configuration for packet creation
-- `gaxi_packet_class`: GAXI packet class for creating instances (default: GAXIPacket)
-- `log`: Logger instance for transformation debugging
+- `gaxi_field_config`: GAXI field configuration used to build packets
+- `gaxi_packet_class`: packet class to instantiate (default: GAXIPacket)
+- `log`: logger for transformation debugging
 
 **Key Features:**
-- Field mapping between APB and GAXI formats
-- Direction-aware data handling
-- Timing information preservation
-- Error handling and logging
+- Field mapping between the APB and GAXI formats
+- Data handling that respects transaction direction
+- Timing information carried across the conversion
+- Errors logged, not swallowed
 
 ## Core Transformation Methods
 
 ### APB to GAXI Conversion
 
 #### `apb_to_gaxi(apb_transaction)`
-Convert APB transaction to GAXI packet format.
+Turn an APB transaction into a GAXI packet.
 
 **Parameters:**
-- `apb_transaction`: APB transaction to convert
+- `apb_transaction`: the APB transaction to convert
 
 **Returns:**
-- `GAXIPacket`: Converted GAXI packet
+- `GAXIPacket`: the converted packet
 
 **Field Mapping:**
-- `apb.paddr` → `gaxi.addr`: Address field mapping
-- `apb.pwdata/prdata` → `gaxi.data`: Data field (direction-dependent)
-- `apb.pstrb` → `gaxi.strb`: Write strobe mapping (write transactions only)
-- `apb.direction` → `gaxi.cmd`: Command type (1=write, 0=read)
+- `apb.paddr` → `gaxi.addr`: address
+- `apb.pwdata/prdata` → `gaxi.data`: data, chosen by direction
+- `apb.pstrb` → `gaxi.strb`: write strobe (writes only)
+- `apb.direction` → `gaxi.cmd`: command type (1 = write, 0 = read)
 
 ```python
 # APB write transaction transformation
@@ -97,20 +96,20 @@ gaxi_packet = transformer.apb_to_gaxi(apb_write)
 ### GAXI to APB Conversion
 
 #### `gaxi_to_apb(gaxi_packet, apb_transaction_class)`
-Convert GAXI packet to APB transaction format.
+The reverse trip: GAXI packet to APB transaction.
 
 **Parameters:**
-- `gaxi_packet`: GAXI packet to convert
-- `apb_transaction_class`: APB transaction class for creating instances
+- `gaxi_packet`: the GAXI packet to convert
+- `apb_transaction_class`: APB class to instantiate
 
 **Returns:**
-- `APBTransaction`: Converted APB transaction
+- `APBTransaction`: the converted transaction
 
 **Field Mapping:**
-- `gaxi.addr` → `apb.paddr`: Address field mapping
-- `gaxi.data` → `apb.pwdata/prdata`: Data field (command-dependent)
-- `gaxi.strb` → `apb.pstrb`: Write strobe mapping (if available)
-- `gaxi.cmd` → `apb.direction`: Direction field (1=WRITE, 0=READ)
+- `gaxi.addr` → `apb.paddr`: address
+- `gaxi.data` → `apb.pwdata/prdata`: data, chosen by command type
+- `gaxi.strb` → `apb.pstrb`: write strobe (when present)
+- `gaxi.cmd` → `apb.direction`: 1 becomes WRITE, 0 becomes READ
 
 ```python
 # GAXI packet transformation
@@ -127,7 +126,7 @@ apb_transaction = transformer.gaxi_to_apb(gaxi_read, APBPacket)
 
 ### APBGAXIAdapterBase
 
-Base class providing common functionality for protocol adapters.
+Base class for the adapters—everything the concrete adapters share lives here.
 
 ```python
 class APBGAXIAdapterBase:

@@ -1,47 +1,31 @@
 # AXI5ComplianceChecker
 
-The `AXI5ComplianceChecker` provides non-intrusive AXI5 protocol compliance checking that can be optionally enabled in existing testbenches without requiring code changes. It monitors all five AXI5 channels and validates transactions against AXI5 protocol rules, with dedicated checks for AXI5-specific features.
+The `AXI5ComplianceChecker` is a passive AXI5 protocol monitor. You don't rebuild your testbench to use it — you enable it (one environment variable), it hooks the channels that actually exist on the DUT, and it spends the rest of the simulation checking every transaction on all five channels against the AXI5 rules, including the rules for the features AXI5 adds over AXI4.
 
 ## Key Differences from AXI4 Compliance Checking
 
-- **Atomic operation validation**: ATOP encoding, single-beat requirement, response matching
+Everything the AXI4 checker covers, plus the AXI5-specific rule set:
+
+- **Atomic operation validation**: ATOP encoding, the single-beat requirement, response matching
 - **Memory Tagging Extension checks**: TAGOP encoding, TAGUPDATE/TAGMATCH consistency
-- **Security context validation**: NSAID, MPAM, MECID field rules
+- **Security context validation**: NSAID, MPAM, and MECID field rules
 - **Chunked transfer validation**: CHUNKEN/CHUNKV consistency, data width requirements
-- **Poison propagation tracking**: POISON indicator monitoring and statistics
+- **Poison propagation tracking**: POISON indicator monitoring, with statistics
 - **Trace consistency**: TRACE signal matching between request and response channels
 
-**Wiring:** the transaction-level checks (ATOP, MTE, chunking, response codes, RLAST
-matching) are fed by the `GAXIMonitorBase.get_completed_packets()` drain API.
-`setup_monitors()` calls `enable_completed_packet_tracking()` on each channel monitor,
-and the `monitor_transactions()` coroutine drains each monitor every clock cycle and
-runs the `validate_*` checks on every observed packet. The drain queue is separate from
-the cocotb `_recvQ`, so the documented `monitor._recvQ.popleft()` verification pattern
-is unaffected.
+Two coroutines do the checking, and they see the bus differently — worth understanding before you wire your own monitors into the same testbench.
 
-The `monitor_handshakes()` coroutine checks the VALID/READY rule live on DUT signals:
-once VALID is asserted it must stay asserted until the cycle where READY is also high
-(AMBA AXI A3.2.1). A VALID deassertion without a completed handshake is reported as
-`VALID_DROPPED`; deassertion after a completed handshake is recognized as legal.
+The transaction-level checks (ATOP, MTE, chunking, response codes, RLAST matching) run on completed packets pulled from the `GAXIMonitorBase.get_completed_packets()` drain API. `setup_monitors()` calls `enable_completed_packet_tracking()` on each channel monitor, and the `monitor_transactions()` coroutine drains every monitor once per clock and runs the `validate_*` checks on each packet that comes out. The drain queue is separate from the cocotb `_recvQ`, so if your testbench already uses the `monitor._recvQ.popleft()` verification pattern, that keeps working untouched.
 
-Outstanding reads, writes, and atomic transactions are tracked as **per-ID FIFO
-queues**: AXI5 permits multiple outstanding transactions with the same ID (they
-complete in order), so R beats and CHUNKV checks are matched against the oldest
-outstanding read for their ID, and each B response retires the oldest outstanding
-write/atomic for its ID (including the TRACE consistency check).
+The handshake check can't wait for completed packets, so `monitor_handshakes()` watches the DUT signals directly and enforces the VALID/READY rule live (AMBA AXI A3.2.1): once VALID is asserted it must hold until the cycle where READY is also high. A VALID that drops without a completed handshake is reported as `VALID_DROPPED`; a drop after a completed handshake is legal and passes quietly.
+
+Outstanding reads, writes, and atomics are tracked as **per-ID FIFO queues**. AXI5 permits multiple outstanding transactions with the same ID as long as they complete in order, so R beats and CHUNKV checks are matched against the oldest outstanding read for their ID, and each B response retires the oldest outstanding write or atomic for its ID — which is also where the TRACE consistency check happens.
 
 ### WLAST validation and the write-data ordering rule
 
-WLAST is fully validated against the beat count declared by the corresponding AW
-command, using the same mechanism as the AXI4 checker. Like AXI4, **AXI5 has no `WID`
-and no write data interleaving** (interleaving was dropped after AXI3), so write data
-bursts must appear on the W channel in exactly the same order as their AW commands --
-a strict FIFO across *all* IDs, not per ID.
+WLAST is fully validated against the beat count declared by the corresponding AW command, using the same mechanism as the AXI4 checker. And as in AXI4, **AXI5 has no `WID` and no write-data interleaving** — interleaving was dropped after AXI3 — so write data bursts must appear on the W channel in exactly the order their AW commands arrived. One strict FIFO across *all* IDs, not one per ID. That trips people up, so the checker is explicit about it.
 
-The checker keeps a single global queue, `aw_awaiting_w`, of AW commands awaiting
-their data phase, in arrival order. Each W beat is counted against the head entry, and
-the head is popped when its data phase ends. Entries are the same objects held in the
-per-ID `outstanding_writes` queues, so beat bookkeeping is shared, not duplicated.
+It keeps a single global queue, `aw_awaiting_w`, of AW commands still awaiting their data phase, in arrival order. Each W beat counts against the head entry, and the head pops when its data phase ends. The entries are the same objects held in the per-ID `outstanding_writes` queues, so beat bookkeeping is shared, not duplicated.
 
 The two queues advance on **different protocol events and never pop each other**:
 
@@ -58,10 +42,7 @@ Three conditions are reported as `WLAST_MISMATCH` on the `W` channel:
 | WLAST missing | The final expected beat arrived without WLAST |
 | No pending AW | A W beat arrived with no AW command awaiting write data |
 
-On a missing WLAST the checker ends the data phase at the expected beat count and
-resynchronizes to the next AW, so a single malformed burst produces one violation
-rather than one per subsequent beat. POISON statistics are still collected on every
-W beat, independent of WLAST outcome.
+When WLAST goes missing, the checker closes the data phase at the expected beat count and resynchronizes to the next AW. One malformed burst, one violation — not one per beat for the rest of the test. POISON statistics are still collected on every W beat, whatever happened with WLAST.
 
 ## Class Signature
 
@@ -90,9 +71,11 @@ class AXI5ComplianceChecker:
 
 ## Class Methods
 
+Two ways in, depending on whether you want the environment to make the decision.
+
 ### `create_if_enabled(dut, clock, prefix, log, **kwargs) -> Optional[AXI5ComplianceChecker]`
 
-Factory method that returns `None` if compliance checking is disabled. Enable via the `AXI5_COMPLIANCE_CHECK` environment variable.
+The factory you should actually call. It returns `None` when compliance checking is disabled, so testbench code can hold the result and guard on truthiness. The switch is the `AXI5_COMPLIANCE_CHECK` environment variable:
 
 ```bash
 export AXI5_COMPLIANCE_CHECK=1
@@ -100,17 +83,17 @@ export AXI5_COMPLIANCE_CHECK=1
 
 ### `is_enabled() -> bool`
 
-Static method that checks if compliance checking is enabled via the `AXI5_COMPLIANCE_CHECK` environment variable.
+Static method that reports whether `AXI5_COMPLIANCE_CHECK` is set. Handy when you need to know before you've built anything.
 
 ## Instance Methods
 
 ### `setup_monitors()`
 
-Set up signal monitors for all AXI5 channels. Called automatically during initialization. Creates `GAXIMonitor` instances for each channel (AR, AW, W, R, B) that has valid/ready signals present on the DUT.
+Builds the signal monitors for all AXI5 channels. Called automatically during initialization. A `GAXIMonitor` is created for each channel (AR, AW, W, R, B) that has valid/ready signals present on the DUT — a partial interface gets partial monitoring.
 
 ### `get_compliance_report() -> Dict[str, Any]`
 
-Get a comprehensive compliance report.
+Returns the full compliance report as a dictionary.
 
 **Returns**: Dictionary containing:
 
@@ -126,11 +109,11 @@ Get a comprehensive compliance report.
 
 ### `print_compliance_report()`
 
-Print a formatted compliance report to the logger.
+Same report, formatted and sent to the logger. The one to call in your finalization path when a human will read the output.
 
 ### `record_violation(violation_type, channel, message, **kwargs)`
 
-Record a protocol violation.
+Records a protocol violation by hand. The checkers call this themselves; you'd call it only if your test enforces protocol rules of its own.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -140,6 +123,8 @@ Record a protocol violation.
 | `severity` | str | `'ERROR'`, `'WARNING'`, or `'INFO'` (default `'ERROR'`) |
 
 ## Violation Types
+
+What the checker can raise — first the standard AXI set, then the AXI5 additions.
 
 ### Standard AXI Violations
 
@@ -193,7 +178,7 @@ class AXI5Violation:
 
 ## Statistics Tracked
 
-The compliance checker maintains the following statistics:
+Counters the checker maintains while the test runs:
 
 | Statistic | Description |
 |-----------|-------------|
@@ -215,7 +200,7 @@ The compliance checker maintains the following statistics:
 
 ### `add_axi5_compliance_checking(testbench_class)`
 
-Class decorator that adds AXI5 compliance checking to existing testbenches without modifying their code.
+The zero-touch option: a class decorator that wires compliance checking into an existing testbench without editing its body.
 
 ```python
 from CocoTBFramework.components.axi5 import add_axi5_compliance_checking
@@ -227,13 +212,13 @@ class MyAXI5Testbench(TBBase):
         # ... existing setup code ...
 ```
 
-When the `AXI5_COMPLIANCE_CHECK=1` environment variable is set, the decorator automatically:
-1. Creates an `AXI5ComplianceChecker` instance after `__init__`
-2. Prints the compliance report during `finalize_test()`
+With `AXI5_COMPLIANCE_CHECK=1` set, the decorator creates an `AXI5ComplianceChecker` right after your `__init__` finishes and prints the compliance report during `finalize_test()`. With the variable unset it stays out of the way, so the same testbench runs in either mode unchanged.
 
 ## Usage Examples
 
 ### Example 1: Manual Integration
+
+Build the checker through the factory and assert on the report when the test finishes:
 
 ```python
 from CocoTBFramework.components.axi5 import AXI5ComplianceChecker
@@ -261,6 +246,8 @@ class MyTestbench:
 ```
 
 ### Example 2: Environment-Controlled Checking
+
+The usual setup — everything keyed off the environment, so CI decides whether checking runs:
 
 ```python
 # Enable at runtime:
@@ -290,6 +277,8 @@ if checker:
 
 ### Example 3: Decorator-Based Integration
 
+Or skip the plumbing entirely and decorate the testbench class:
+
 ```python
 from CocoTBFramework.components.axi5 import add_axi5_compliance_checking
 
@@ -310,3 +299,5 @@ class AXI5DMATestbench(TBBase):
         # Compliance report printed automatically by decorator
         pass
 ```
+
+---

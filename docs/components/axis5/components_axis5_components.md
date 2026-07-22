@@ -1,10 +1,10 @@
 # AXIS5 Component Classes
 
-The AXIS5 component classes extend their AXIS4 counterparts with AXI5-Stream-specific features. Each class adds TWAKEUP (wake-up signaling) and TPARITY (data parity) support while maintaining full backward compatibility with AXIS4 APIs.
+The AXIS5 classes are the AXIS4 classes with the two AMBA5 additions wired in: TWAKEUP for power-state coordination and TPARITY for per-byte data protection. They inherit directly from their AXIS4 counterparts, so every AXIS4 API keeps working — the AXI5-Stream extras are purely additive.
 
 ## AXIS5Master
 
-Stream protocol master with AMBA5 extensions for wake-up signaling and parity generation.
+The stream master, extended to drive TWAKEUP ahead of transfers and to generate TPARITY on outgoing data.
 
 ### Class Signature
 
@@ -39,15 +39,15 @@ class AXIS5Master(AXISMaster):
 | `super_debug` | bool | Enable detailed debugging | `False` |
 | `pipeline_debug` | bool | Enable pipeline debugging | `False` |
 | `signal_map` | dict | Optional manual signal mapping | `None` |
-| `enable_wakeup` | bool | Enable TWAKEUP signaling | `True` |
-| `enable_parity` | bool | Enable TPARITY generation | `False` |
-| `wakeup_cycles` | int | Number of cycles for wakeup hold | `3` |
+| `enable_wakeup` | bool | Drive TWAKEUP signaling | `True` |
+| `enable_parity` | bool | Generate TPARITY on outgoing data | `False` |
+| `wakeup_cycles` | int | Cycles TWAKEUP stays asserted ahead of a transfer | `3` |
 
 ### Key Methods
 
 #### `send_packet(packet) -> bool`
 
-Send a single AXIS5 packet with automatic wakeup assertion and parity calculation.
+Sends one AXIS5 packet, handling wakeup assertion and parity calculation automatically.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -57,11 +57,11 @@ Send a single AXIS5 packet with automatic wakeup assertion and parity calculatio
 
 #### `request_wakeup()`
 
-Request wakeup signaling before the next transfer. The TWAKEUP signal will be asserted for `wakeup_cycles` clock cycles before the next `send_packet()` call.
+Arms wakeup for the next transfer — TWAKEUP is asserted for `wakeup_cycles` clock cycles ahead of the next `send_packet()` call.
 
 #### `send_stream_data_with_wakeup(data_list, id=0, dest=0, user=0, auto_last=True, strb_list=None) -> bool`
 
-Send stream data with automatic wakeup signaling at the start of the transfer.
+Sends a list of data values as a stream, asserting TWAKEUP automatically at the start of the transfer.
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
@@ -76,7 +76,7 @@ Send stream data with automatic wakeup signaling at the start of the transfer.
 
 #### `send_single_beat_axis5(data, last=1, id=0, dest=0, user=0, strb=None, wakeup=False) -> bool`
 
-Send a single AXIS5 beat/transfer.
+Sends a single AXIS5 beat, with wakeup on request.
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
@@ -86,24 +86,19 @@ Send a single AXIS5 beat/transfer.
 | `dest` | int | Destination | `0` |
 | `user` | int | User signal | `0` |
 | `strb` | int | Strobe value (auto-generated if None) | `None` |
-| `wakeup` | bool | Whether to assert wakeup | `False` |
+| `wakeup` | bool | Assert TWAKEUP for this beat | `False` |
 
 #### `inject_parity_error(enable=True)`
 
-Enable or disable parity error injection for testing error handling. While
-enabled, every packet sent through `send_packet` (and the stream/single-beat
-helpers that build on it) has its odd-parity TPARITY value corrupted (bit 0
-flipped) before driving, and the `parity_errors_generated` counter is
-incremented once per corrupted packet. Only effective when `enable_parity`
-is `True`; call `inject_parity_error(enable=False)` to resume correct parity.
+Turns parity error injection on or off — this is how you exercise the DUT's error handling. While enabled, every packet sent through `send_packet` (and the stream/single-beat helpers that build on it) has its odd-parity TPARITY value corrupted — bit 0 flipped — before it's driven, and the `parity_errors_generated` counter ticks up once per corrupted packet. Only effective when `enable_parity` is `True`; call `inject_parity_error(enable=False)` to go back to correct parity.
 
 #### `is_wakeup_active() -> bool`
 
-Check if the TWAKEUP signal is currently asserted.
+True while TWAKEUP is asserted.
 
 #### `get_stats() -> Dict`
 
-Get comprehensive statistics including AXIS5 extensions.
+All the inherited AXIS4 statistics, plus the AXIS5 counters.
 
 **Returns**: Dictionary with all inherited AXIS4 statistics plus:
 
@@ -146,11 +141,11 @@ master.inject_parity_error(enable=False)
 
 ## AXIS5Slave
 
-Stream protocol slave with AMBA5 extensions for wake-up detection and parity checking.
+The stream slave, extended to watch TWAKEUP and to verify TPARITY on incoming data.
 
-Packets are captured by the GAXI receive pipeline inherited through `AXISSlave` (which also owns all TREADY driving). AXIS5 layers TPARITY verification on top via the same packet callback hook that `AXISSlave` uses for frame tracking — parity is checked with **odd** parity per byte, matching `AXIS5Packet.calculate_parity()`.
+Packet capture — and all TREADY driving — comes from the GAXI receive pipeline inherited through `AXISSlave`. AXIS5 adds TPARITY verification on top via the same packet callback hook that `AXISSlave` uses for frame tracking, checking **odd** parity per byte to match `AXIS5Packet.calculate_parity()`.
 
-`_build_packet` is overridden so the pipeline constructs real `AXIS5Packet` instances carrying this slave's `enable_wakeup` / `enable_parity` settings and the data width taken from the field config; the parity check therefore calls `packet.check_parity()` directly rather than recomputing odd parity from raw field values.
+`_build_packet` is overridden so the pipeline constructs real `AXIS5Packet` instances carrying this slave's `enable_wakeup` / `enable_parity` settings and the data width taken from the field config. The parity check can therefore call `packet.check_parity()` directly instead of recomputing odd parity from raw field values.
 
 ### Class Signature
 
@@ -192,15 +187,15 @@ class AXIS5Slave(AXISSlave):
 
 #### `is_wakeup_active() -> bool`
 
-Check if the TWAKEUP signal is currently detected as active.
+True while TWAKEUP is detected as asserted.
 
 #### `get_last_wakeup_time() -> Optional[float]`
 
-Get the simulation timestamp (in ns) of the last wakeup event.
+Simulation timestamp (in ns) of the most recent wakeup event.
 
 #### `get_stats() -> Dict`
 
-Get comprehensive statistics including AXIS5 extensions.
+The inherited AXIS4 statistics, plus wakeup and parity bookkeeping.
 
 **Returns**: Dictionary with all inherited AXIS4 statistics plus:
 
@@ -241,7 +236,7 @@ print(f"Last wakeup at: {slave.get_last_wakeup_time()} ns")
 
 ## AXIS5Monitor
 
-Stream protocol monitor with AMBA5 extensions for non-intrusive observation of wake-up signaling and parity verification.
+The passive monitor — observes TWAKEUP and verifies TPARITY without touching the handshake.
 
 Transactions are captured by the GAXI receive loop inherited through `AXISMonitor` (which extends `GAXIMonitor`); `AXIS5Monitor` has no receive loop of its own. AXIS5 layers TPARITY verification and AXIS5 protocol checks on top via the same `_axis_packet_observed` hook that `AXISMonitor` uses for TLAST frame tracking.
 
@@ -282,17 +277,17 @@ class AXIS5Monitor(AXISMonitor):
 
 #### `get_wakeup_history() -> List[Dict]`
 
-Get the complete history of wakeup events.
+The complete TWAKEUP timeline.
 
 **Returns**: List of dictionaries with `'time'` (float, ns) and `'type'` (`'assert'` or `'deassert'`).
 
 #### `is_wakeup_active() -> bool`
 
-Check if TWAKEUP is currently active.
+True while TWAKEUP is active.
 
 #### `get_parity_stats() -> Dict`
 
-Get parity-related statistics.
+The parity pass/fail counters.
 
 **Returns**:
 
@@ -306,7 +301,7 @@ Get parity-related statistics.
 
 #### `get_wakeup_stats() -> Dict`
 
-Get wakeup-related statistics.
+Wakeup event and violation counters.
 
 **Returns**:
 
@@ -320,7 +315,7 @@ Get wakeup-related statistics.
 
 #### `get_stats() -> Dict`
 
-Get comprehensive statistics including all AXIS5 extensions.
+The inherited AXIS4 statistics plus a roll-up of the AXIS5 checks.
 
 **Returns**: Dictionary with inherited AXIS4 statistics plus:
 
@@ -365,7 +360,7 @@ slave_mon = AXIS5Monitor(
 
 ## Factory Functions
 
-Factory functions provide the recommended way to create AXIS5 components. They handle field configuration creation and return dictionaries containing the component and convenience aliases.
+Use the factories — they're the recommended way to build AXIS5 components. Each one creates the field configuration for you and returns a dictionary holding the component under a few convenience aliases, so testbench infrastructure can grab whichever key it expects.
 
 ### `create_axis5_master(dut, clock, prefix, data_width, id_width, dest_width, user_width, enable_wakeup, enable_parity, wakeup_cycles, log, **kwargs) -> Dict`
 
@@ -381,28 +376,28 @@ Factory functions provide the recommended way to create AXIS5 components. They h
 
 ### `create_axis5_testbench(dut, clock, master_prefix, slave_prefix, data_width, id_width, dest_width, user_width, enable_wakeup, enable_parity, log, **kwargs) -> Dict`
 
-Creates a complete testbench with master, slave, and monitors for both sides.
+Builds a complete bench in one call: master, slave, and monitors for both sides.
 
 **Returns**: Dictionary with keys `'master'`, `'slave'`, `'master_monitor'`, `'slave_monitor'` (each present only if corresponding DUT signals exist).
 
 ### `create_simple_axis5_master(dut, clock, prefix, data_width, enable_wakeup, enable_parity, log, **kwargs) -> AXIS5Master`
 
-Create a simple master with minimal sideband signals (no TID, TDEST, TUSER).
+A master with minimal sideband signals (no TID, TDEST, TUSER) — the data-pipe configuration.
 
 ### `create_simple_axis5_slave(dut, clock, prefix, data_width, enable_wakeup, enable_parity, log, **kwargs) -> AXIS5Slave`
 
-Create a simple slave with minimal sideband signals.
+The matching slave, with minimal sideband signals.
 
 ### Utility Functions
 
 #### `get_axis5_signal_map(prefix, direction) -> Dict`
 
-Get standard AXIS5 signal name mapping for manual override.
+The standard AXIS5 signal name mapping, for when you need to override signal resolution manually.
 
 #### `print_axis5_stats_to_log(components, log)`
 
-Print statistics for all AXIS5 components to a logger.
+Prints statistics for all AXIS5 components to a logger.
 
 #### `get_axis5_stats_summary(components) -> Dict`
 
-Get aggregated statistics summary from all AXIS5 components.
+Aggregates statistics from all AXIS5 components into one summary.

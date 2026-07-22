@@ -1,6 +1,6 @@
 # AXI4 Randomization
 
-Unified AXI4 randomization infrastructure providing protocol-aware field value generation and timing delay management. Includes industry-specific profiles, constraint management, and integration with all AXI4 components.
+Two layers of randomization live here: what goes on the bus (field values) and when it goes (timing). This module covers both, with profiles for common verification scenarios and constraint management on top.
 
 ## Overview
 
@@ -9,7 +9,7 @@ The AXI4 randomization module provides two primary classes:
 - **AXI4RandomizationConfig** -- Protocol-level randomization for AXI4 field values (addresses, burst parameters, IDs, data patterns, response codes)
 - **AXI4RandomizationManager** -- Unified manager that combines protocol and timing randomization with convenient configuration presets
 
-Together these classes enable sophisticated constraint-random verification of AXI4 interfaces with support for compliance testing, performance stress testing, error injection, and industry-specific verification profiles.
+Between them you can run constraint-random verification of AXI4 interfaces: compliance runs, performance stress, error injection, and a few industry-flavored profiles.
 
 ---
 
@@ -21,7 +21,7 @@ Together these classes enable sophisticated constraint-random verification of AX
 class AXI4RandomizationProfile(Enum)
 ```
 
-Predefined randomization profiles for different verification scenarios.
+Predefined profiles for different verification scenarios. Pick one as a starting point, then tighten constraints on top of it.
 
 | Value | Description |
 |-------|-------------|
@@ -40,7 +40,7 @@ Predefined randomization profiles for different verification scenarios.
 class AXI4ProtocolMode(Enum)
 ```
 
-AXI4 protocol operation modes.
+Protocol operation modes the randomizer can bias toward.
 
 | Value | Description |
 |-------|-------------|
@@ -58,7 +58,7 @@ AXI4 protocol operation modes.
 class AXI4ConstraintSet
 ```
 
-Enhanced constraint set controlling all randomization parameters.
+The constraint set — every knob that controls the randomization.
 
 | Field | Type | Description | Default |
 |-------|------|-------------|---------|
@@ -96,7 +96,7 @@ class AXI4RandomizationConfig:
                  user_width=1, log=None)
 ```
 
-Protocol-aware randomization for AXI4 field values with industry-specific profiles and intelligent constraint management.
+Protocol-aware randomization for AXI4 field values, with industry profiles and constraint management built in.
 
 **Parameters:**
 
@@ -124,7 +124,7 @@ Protocol-aware randomization for AXI4 field values with industry-specific profil
 
 ##### `randomize_fields(field_requests) -> Dict[str, Any]`
 
-Randomize AXI4 fields according to constraints and protocol rules. This is the primary randomization entry point.
+The main entry point: hand it the fields you want randomized, get values back that satisfy both the constraints and the protocol rules.
 
 **Parameters:**
 
@@ -148,7 +148,7 @@ to `AXI5RandomizationConfig.randomize_fields` in the AXI5 package.
 
 ##### `set_profile(profile)`
 
-Change the active randomization profile and update constraints accordingly.
+Switch the active profile; constraints update to match.
 
 **Parameters:**
 
@@ -158,7 +158,7 @@ Change the active randomization profile and update constraints accordingly.
 
 ##### `set_data_width(width)`
 
-Update the data width and reconfigure field definitions.
+Update the data width and rebuild the field definitions.
 
 ##### `set_master_mode(is_master)`
 
@@ -170,7 +170,7 @@ Set the error injection rate (0.0 to 1.0) for response generation.
 
 ##### `set_exclusive_access_mode(enabled)`
 
-Enable or disable exclusive access mode and associated constraints.
+Enable or disable exclusive access mode and its associated constraints.
 
 ##### `set_burst_constraints(max_len=None, preferred_sizes=None)`
 
@@ -185,7 +185,7 @@ Set burst length constraints and preferred size weighting.
 
 ##### `enable_advanced_features()`
 
-Enable advanced AXI4 features including exclusive access, locked access, and cache hints.
+Turn on the advanced AXI4 feature set: exclusive access, locked access, and cache hints.
 
 ##### `enable_error_scenarios()`
 
@@ -193,11 +193,11 @@ Enable enhanced error injection scenarios with a 5% default rate.
 
 ##### `get_statistics() -> Dict[str, Any]`
 
-Get comprehensive randomization statistics including profile info, protocol mode, and performance metrics.
+Randomization statistics: profile info, protocol mode, and performance metrics.
 
 ##### `reset_statistics()`
 
-Reset all statistics counters and caches.
+Zero the statistics counters and caches.
 
 ---
 
@@ -208,10 +208,10 @@ class AXI4TimingConfig:
     def __init__(self, channels=None, performance_mode='normal')
 ```
 
-Timing configuration wrapper defined in `axi4_randomization_manager` (mirroring
-`AXI5TimingConfig` in `axi5_randomization_manager`). It maps manager performance
-modes to the named timing profiles in `axi4_timing_config` and exposes the
-interface the randomization manager expects.
+A timing configuration wrapper defined in `axi4_randomization_manager` (mirroring
+`AXI5TimingConfig` in `axi5_randomization_manager`). It maps the manager's
+performance modes onto the named timing profiles in `axi4_timing_config` and
+exposes the interface the randomization manager expects.
 
 **Performance mode to timing profile mapping:**
 
@@ -249,7 +249,7 @@ class AXI4RandomizationManager:
                  channels=None, data_width=32, performance_mode='normal')
 ```
 
-Unified manager combining protocol and timing randomization for AXI4 components.
+One object that hands you both protocol values and timing delays.
 
 **Parameters:**
 
@@ -287,7 +287,7 @@ Get randomized protocol field values.
 
 ##### `get_timing_delays(channels=None) -> Dict[str, Any]`
 
-Get timing delay patterns for specified channels.
+Get timing delay patterns for the specified channels.
 
 **Parameters:**
 
@@ -299,19 +299,19 @@ Get timing delay patterns for specified channels.
 
 ##### `create_master_config(**kwargs) -> Dict[str, Any]`
 
-Create optimized configuration for an AXI4 master. Sets master mode with zero error injection.
+Configuration tuned for an AXI4 master: master mode, zero error injection.
 
 **Returns:** Dictionary with `protocol_randomizer`, `timing_randomizer`, and `timing_config` keys.
 
 ##### `create_slave_config(**kwargs) -> Dict[str, Any]`
 
-Create optimized configuration for an AXI4 slave. Sets slave mode with 1% error injection.
+Configuration tuned for an AXI4 slave: slave mode, 1% error injection.
 
 **Returns:** Dictionary with `protocol_randomizer`, `timing_randomizer`, and `timing_config` keys.
 
 ##### `create_monitor_config(**kwargs) -> Dict[str, Any]`
 
-Create optimized configuration for an AXI4 monitor. Includes only timing configuration.
+Configuration for an AXI4 monitor. Timing only — a monitor doesn't generate protocol values.
 
 **Returns:** Dictionary with `timing_config` key.
 
@@ -331,27 +331,29 @@ Set the error injection rate for protocol randomization.
 
 ##### `configure_for_compliance_testing()`
 
-Configure for strict AXI4 protocol compliance testing with predictable timing and no error injection.
+Strict compliance testing: predictable timing, no error injection.
 
 ##### `configure_for_performance_testing()`
 
-Configure for high-performance stress testing with large bursts and aggressive timing.
+Performance stress testing: large bursts, aggressive timing.
 
 ##### `configure_for_error_injection(error_rate=0.05)`
 
-Configure for error injection testing with variable timing and enhanced error scenarios.
+Error injection testing: variable timing and the enhanced error scenarios.
 
 ##### `get_statistics() -> Dict[str, Any]`
 
-Get combined usage statistics from both protocol and timing randomization.
+Combined usage statistics from protocol and timing randomization.
 
 ##### `reset_statistics()`
 
-Reset all statistics counters.
+Zero all statistics counters.
 
 ---
 
 ## Factory Functions
+
+Sensible-default constructors for the common setups.
 
 ### `create_unified_randomization(data_width=32, channels=None, performance_mode='normal') -> AXI4RandomizationManager`
 

@@ -23,22 +23,23 @@
 
 # apb_packet.py
 
-APB Packet and Transaction classes providing object-oriented transaction handling with randomization support. This module extends the base Packet class with APB-specific functionality and includes transaction generators for test stimulus.
+Two classes live here. `APBPacket` is the object that actually travels through the BFMs — direction, address, data, strobes, protection, error, plus timing stamps. `APBTransaction` is a constrained-random generator that stamps packets out for you when directed tests stop finding bugs.
 
 ## Overview
 
-The `apb_packet.py` module provides two main classes:
-- **APBPacket**: Protocol-specific packet extending the base Packet class
-- **APBTransaction**: Randomized transaction generator for test stimulus
+- **APBPacket**: the framework's base Packet class with the APB field set baked in
+- **APBTransaction**: randomized stimulus generator that produces APBPacket objects
 
 ### Key Features
-- **Object-oriented transaction handling** with field validation
-- **Built-in randomization** with configurable constraints
-- **Protocol compliance checking** for APB specification
-- **Flexible field configuration** with default APB layout
-- **Integration with base framework** components
+- **Field definitions via FieldConfig** — widths and formats are declared, not hoped for
+- **Constrained randomization** through FlexRandomizer, with a sane default profile
+- **Direction-aware comparison and formatting** — a read and a write to the same address are not the same transaction
+- **Defaults that match a standard 32-bit APB bus**, overridable per packet
+- **Full integration with the base packet machinery** — timing, counting, equality, formatting
 
 ## Constants and Mappings
+
+One decode table, used everywhere the direction gets printed:
 
 ```python
 # PWRITE direction mapping
@@ -49,7 +50,7 @@ PWRITE_MAP = ['READ', 'WRITE']
 
 ### APBPacket
 
-APB-specific packet class that extends the base Packet with APB protocol fields and functionality.
+The base Packet with APB fields. If you've used any other packet class in this framework you already know the API — comparison, formatting, and timing stamps are inherited; only the field set is APB-specific.
 
 #### Constructor
 
@@ -86,15 +87,15 @@ custom_packet = APBPacket(
 
 #### Properties
 
-- `direction`: String representation of transaction direction ('READ' or 'WRITE')
+- `direction`: 'READ' or 'WRITE', decoded from PWRITE
 - `data_width`: Data field width in bits
-- `addr_width`: Address field width in bits  
+- `addr_width`: Address field width in bits
 - `strb_width`: Strobe field width in bits
-- `count`: Transaction counter for identification
+- `count`: Transaction counter — handy when correlating log lines
 
 #### APB Field Configuration
 
-The default APB field configuration includes:
+The default layout — what you get unless you pass your own `field_config`:
 
 | Field    | Bits | Format | Description |
 |----------|------|--------|-------------|
@@ -110,7 +111,7 @@ The default APB field configuration includes:
 
 ##### `create_apb_field_config(addr_width, data_width, strb_width)` [Static]
 
-Create default field configuration for APB packets.
+Build a FieldConfig for a non-standard bus width, then pass it to the constructor. Most tests never need this — the defaults already cover 32-bit data, 32-bit address, 4 strobes.
 
 **Parameters:**
 - `addr_width`: Address field width in bits
@@ -133,7 +134,7 @@ packet = APBPacket(field_config=config)
 
 ##### `__str__() -> str`
 
-Detailed string representation showing all packet fields.
+The verbose dump — every field, plus timing:
 
 ```python
 print(packet)
@@ -153,7 +154,7 @@ print(packet)
 
 ##### `formatted(compact=False) -> str`
 
-Return formatted string representation.
+The one you'll actually call in loops. `compact=True` gives you one line per transaction, which is the difference between a readable log and a 40 MB one.
 
 **Parameters:**
 - `compact`: If True, return compact one-line format
@@ -169,7 +170,7 @@ print(packet.formatted(compact=True))
 
 ##### `__eq__(other) -> bool`
 
-Compare packets for equality with APB-specific logic.
+Equality is direction-aware: reads compare PRDATA, writes compare PWDATA, and a read never equals a write no matter how similar the addresses look. Anything listed in `skip_compare_fields` is ignored.
 
 ```python
 packet1 = APBPacket(pwrite=1, paddr=0x100, pwdata=0x123)
@@ -184,7 +185,7 @@ assert read_packet != write_packet  # Different directions and data
 
 ### APBTransaction
 
-Randomized transaction generator that extends the Randomized base class for constraint-based stimulus generation.
+A Randomized subclass that generates APBPacket objects from a constraint set. Reach for it when hand-written packets stop turning up new failures.
 
 #### Constructor
 
@@ -218,7 +219,7 @@ transaction = APBTransaction(
 
 #### Default Randomization
 
-The default randomizer provides realistic APB traffic patterns:
+Out of the box you get a balanced mix — 50/50 reads and writes, addresses weighted toward the low end of the map, mostly full strobes, mostly normal protection:
 
 ```python
 # Default randomization constraints
@@ -234,7 +235,7 @@ The default randomizer provides realistic APB traffic patterns:
 
 ##### `next() -> APBPacket`
 
-Generate the next randomized transaction packet.
+Generate and return the next randomized APBPacket.
 
 **Returns:** APBPacket with randomized field values
 
@@ -247,7 +248,7 @@ for i in range(10):
 
 ##### `set_constrained_random() -> 'APBTransaction'`
 
-Set fields using constrained randomization.
+Randomize the transaction's fields in place. Note the return value is self, for chaining — the generated packet is read back from `.packet`, not from the return.
 
 **Returns:** Self for method chaining
 
@@ -259,7 +260,7 @@ packet = transaction.packet
 
 ##### `formatted(compact=False) -> str`
 
-Return formatted representation of the transaction.
+Format the transaction's current packet, compact or verbose.
 
 ```python
 print(transaction.formatted())
@@ -269,6 +270,8 @@ print(transaction.formatted(compact=True))
 ## Usage Patterns
 
 ### Basic Packet Creation
+
+Everything is a keyword argument — say what you want and let the rest default:
 
 ```python
 from CocoTBFramework.components.apb.apb_packet import APBPacket
@@ -295,6 +298,8 @@ print(f"Read: {read_packet.formatted(compact=True)}")
 
 ### Custom Field Configuration
 
+64-bit data bus? Eight strobes? Build the config once and reuse it:
+
 ```python
 # Create 64-bit APB configuration
 config = APBPacket.create_apb_field_config(
@@ -314,6 +319,8 @@ packet = APBPacket(
 ```
 
 ### Transaction Generation
+
+Let the defaults drive when you just need traffic:
 
 ```python
 from CocoTBFramework.components.apb.apb_packet import APBTransaction
@@ -338,6 +345,8 @@ print(f"Generated {write_count} writes, {read_count} reads")
 
 ### Constrained Randomization
 
+When you're hunting something specific, weight the bins toward it — here, low addresses and a spread of strobe patterns:
+
 ```python
 # Create address-constrained randomizer
 address_randomizer = FlexRandomizer({
@@ -357,6 +366,8 @@ for i in range(20):
 ```
 
 ### Register Access Patterns
+
+A helper-shaped pattern you'll write in every APB project: write a known value to each register, then read them all back.
 
 ```python
 def create_register_access_sequence(base_addr, num_regs):
@@ -396,6 +407,8 @@ reg_packets = create_register_access_sequence(0x1000, 16)
 
 ### Error Testing Patterns
 
+Packets destined to fail, on purpose — note PSLVERR starts at 0 in the packet and the slave is what sets it:
+
 ```python
 def create_error_test_packets():
     """Create packets for error testing"""
@@ -425,6 +438,8 @@ def create_error_test_packets():
 ```
 
 ### Strobe Pattern Testing
+
+One address, one data word, every strobe combination you care about — byte-lane bugs have nowhere to hide:
 
 ```python
 def create_strobe_test_packets(base_addr):
@@ -461,6 +476,8 @@ def create_strobe_test_packets(base_addr):
 
 ### Performance Testing
 
+All writes, a tight address range, full strobes: maximum traffic, minimum randomness.
+
 ```python
 def create_performance_test_sequence(num_transactions):
     """Create high-performance test sequence"""
@@ -488,6 +505,8 @@ def create_performance_test_sequence(num_transactions):
 ```
 
 ### Packet Validation
+
+A small checker like this earns its keep in scoreboards and callbacks. The packet will happily hold a misaligned address — deciding whether that's legal is your test's job.
 
 ```python
 def validate_apb_packet(packet):
@@ -528,6 +547,8 @@ if validation_errors:
 
 ### Testbench Integration
 
+Packets go in via `master.send()`; the driver's queue does the rest.
+
 ```python
 import cocotb
 from cocotb.triggers import RisingEdge
@@ -559,6 +580,8 @@ async def packet_driven_test(dut):
 
 ### Scoreboard Integration
 
+The simplest scoreboard that still catches real bugs: queue expected packets, compare on arrival, and let `APBPacket.__eq__` do the field-level work.
+
 ```python
 class APBScoreboard:
     def __init__(self):
@@ -588,6 +611,8 @@ class APBScoreboard:
 ## Best Practices
 
 ### 1. **Use Appropriate Field Widths**
+Match the packet to the DUT, not to the defaults:
+
 ```python
 # Match your DUT configuration
 packet = APBPacket(
@@ -598,6 +623,8 @@ packet = APBPacket(
 ```
 
 ### 2. **Validate Packets Before Use**
+Cheap asserts, run early, save afternoons:
+
 ```python
 # Always validate critical fields
 assert packet.direction in ['READ', 'WRITE']
@@ -607,6 +634,8 @@ if packet.direction == 'WRITE':
 ```
 
 ### 3. **Use Transactions for Random Testing**
+Directed packets for the bugs you can imagine; `APBTransaction` for the ones you can't.
+
 ```python
 # Use transaction generators for stimulus
 transaction = APBTransaction(randomizer=custom_randomizer)
@@ -616,6 +645,8 @@ for _ in range(1000):
 ```
 
 ### 4. **Handle Timing Information**
+Stamp `start_time`/`end_time` around the transfer if you want latency numbers later:
+
 ```python
 # Set timing for performance analysis
 import cocotb
@@ -626,10 +657,14 @@ duration = packet.end_time - packet.start_time
 ```
 
 ### 5. **Use Compact Format for Logging**
+Your future self, scrolling a log at midnight, will thank you.
+
 ```python
 # Use compact format in loops
 for packet in packet_sequence:
     print(f"Processing: {packet.formatted(compact=True)}")
 ```
 
-The APB packet classes provide a robust foundation for APB transaction handling, from simple directed tests to complex randomized stimulus generation, with full integration into the verification framework.
+That's the packet layer. `apb_components.py` shows what consumes these objects; `apb_sequence.py` shows how to generate them in bulk.
+
+---

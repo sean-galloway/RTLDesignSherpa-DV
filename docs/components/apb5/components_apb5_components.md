@@ -1,29 +1,31 @@
 # apb5_components.py
 
-APB5 Protocol Components providing Monitor, Master, and Slave implementations with AMBA5 extension support. This module extends the APB4 protocol components with user-defined signals, wake-up support, and parity signal monitoring for comprehensive APB5 verification.
+This module is where the APB5 protocol actually lives in the testbench: a monitor, a slave, and a master, all built on the APB4 components and extended with the AMBA5 extras — user-defined sideband signals, requester-driven wake-up, and parity signal monitoring.
 
 ## Overview
 
-The `apb5_components.py` module provides three main classes that implement the APB5 protocol:
-- **APB5Monitor**: Observes and logs APB5 transactions including user signals and wake-up
-- **APB5Slave**: Responds to APB5 transactions with memory backing and randomized user signal responses
-- **APB5Master**: Drives APB5 transactions with user signal support and requester-driven PWAKEUP
+Three classes make up the component layer:
+
+- **APB5Monitor**: watches the bus and records every completed transfer, user signals and PWAKEUP included, without driving a single pin
+- **APB5Slave**: answers transfers out of a memory-backed register array, with configurable PREADY timing, error injection, and randomized PRUSER/PBUSER responses
+- **APB5Master**: drives read and write transfers, carries the user signals end to end, and owns PWAKEUP
 
 ### PWAKEUP Direction
 
-Per AMBA APB5 (IHI 0024E), **PWAKEUP is driven by the requester (master)**: it is asserted with (or before) PSEL and held until the transfer completes. Accordingly:
+Worth stating up front, because earlier versions of this library modeled it the other way: per AMBA APB5 (IHI 0024E), **PWAKEUP is driven by the requester (master)**. It is asserted with (or before) PSEL and held until the transfer completes. That decision determines which component does what:
 
-- **APB5Master** drives PWAKEUP (asserted with PSEL for each transfer when `wakeup_enable` is set, deasserted when PSEL falls). The driven value is recorded in the transaction's `wakeup` field.
-- **APB5Slave** and **APB5Monitor** only *observe* PWAKEUP and record the sampled value in captured packets.
+- **APB5Master** drives PWAKEUP — asserted with PSEL on every transfer when `wakeup_enable` is set, dropped when PSEL falls. The driven value is recorded in the transaction's `wakeup` field.
+- **APB5Slave** and **APB5Monitor** only *observe* PWAKEUP. Whatever they sample lands in the captured packet's `wakeup` field; they never drive the pin.
 
 ### Key Features
-- **Full APB5 signal support** with optional signal handling for all AMBA5 extensions
-- **User signal channels** (PAUSER, PWUSER, PRUSER, PBUSER) with configurable widths
-- **Wake-up signal support** via PWAKEUP
-- **Optional parity signal monitoring** (PWDATAPARITY, PADDRPARITY, PCTRLPARITY, etc.)
-- **Memory model integration** for realistic slave behavior
-- **Configurable timing randomization** with user signal value randomization
-- **Transaction queuing and pipelining** for performance testing
+
+- Full APB5 signal support, with every AMBA5 extension treated as optional
+- Four user signal channels (PAUSER, PWUSER, PRUSER, PBUSER), each with its own width
+- Requester-driven wake-up via PWAKEUP
+- Optional parity signal monitoring (PWDATAPARITY, PADDRPARITY, PCTRLPARITY, and friends)
+- Memory-backed slave model
+- Timing randomization, plus randomized user-signal values on responses
+- Transaction queues on master and slave for scoreboard hookup
 
 ## Constants and Mappings
 
@@ -63,13 +65,13 @@ apb5_optional_signals = [
 ]
 ```
 
-`apb5_signals` is bound as the `cocotb_bus` **required** signal list and `apb5_optional_signals` as the **optional** list, so a DUT that implements only a subset of the AMBA5 extensions still binds. Guard every extension access with `is_signal_present()`.
+The split between those two lists is what makes partial implementations painless: `apb5_signals` is bound as the `cocotb_bus` **required** signal list and `apb5_optional_signals` as the **optional** list, so a DUT that implements only some of the AMBA5 extensions still binds cleanly. The flip side is that you can't assume an extension signal exists — guard every access with `is_signal_present()`.
 
 ## Core Classes
 
 ### APB5Monitor
 
-Bus monitor for observing and logging APB5 transactions without interfering with protocol operation. Captures all APB5 extension signals including user attributes and wake-up status.
+A pure observer. The monitor never drives the bus; it watches for completed transfers and captures everything that's there, including the AMBA5 user attributes and the wake-up state.
 
 #### Constructor
 
@@ -114,7 +116,8 @@ monitor = APB5Monitor(
 #### Methods
 
 ##### `is_signal_present(signal_name) -> bool`
-Check if an optional signal is present and connected on the bus.
+
+Returns True if the named signal is actually present on the bus. Call it before you touch any AMBA5 extension — that is the whole point of having optional signals.
 
 ```python
 if monitor.is_signal_present('PWAKEUP'):
@@ -127,7 +130,8 @@ if monitor.is_signal_present('PAUSER'):
 ```
 
 ##### `print(transaction)`
-Print formatted transaction information to log at debug level.
+
+Dumps a formatted transaction to the log at debug level.
 
 **Parameters:**
 - `transaction`: APB5Packet transaction to display
@@ -138,17 +142,18 @@ monitor.print(packet)  # Logs: "APB5_Monitor - APB5 Transaction #1: APB5Packet(.
 
 #### Transaction Detection
 
-The monitor automatically detects valid APB5 transactions when:
+A transfer counts as complete when all of the following hold:
+
 - `PSEL` is asserted
 - `PENABLE` is asserted
 - `PREADY` is asserted
 - All signals have resolvable values
 
-On detection, the monitor captures all present APB5 extension signals (PAUSER, PWUSER, PRUSER, PBUSER, PWAKEUP) and creates an APB5Packet record. Sampling occurs on the falling clock edge with a 200ps settling delay.
+When that fires, the monitor captures whichever APB5 extension signals are present (PAUSER, PWUSER, PRUSER, PBUSER, PWAKEUP) and wraps the transfer in an APB5Packet. Sampling happens on the falling clock edge with a 200ps settling delay — far enough from the driving edge that you're never racing the DUT's own output logic.
 
 ### APB5Slave
 
-APB5 slave implementation with memory backing, configurable response behavior, and randomized user signal responses.
+The slave answers transfers out of a memory-backed register array. You control how long it takes to assert PREADY, how often it returns an error, and what it drives on PRUSER and PBUSER.
 
 #### Constructor
 
@@ -179,7 +184,7 @@ APB5Slave(entity, title, prefix, clock, registers, signals=None,
 | `log` | Logger | None | Logger instance (default: entity logger) |
 | `error_overflow` | bool | False | Generate errors on address overflow |
 
-> **Deprecated:** the old `wakeup_generator` parameter is still accepted for backward compatibility but **ignored** (with a `DeprecationWarning`). PWAKEUP is requester-driven — control it via `APB5Master(wakeup_enable=...)` / `APB5Master.set_wakeup_enable()`.
+> **Deprecated:** the old `wakeup_generator` parameter is still accepted for backward compatibility but **ignored** (with a `DeprecationWarning`). PWAKEUP belongs to the requester — control it via `APB5Master(wakeup_enable=...)` / `APB5Master.set_wakeup_enable()`.
 
 ```python
 # Create APB5 slave with 256 registers and error overflow detection
@@ -200,7 +205,7 @@ slave = APB5Slave(
 
 #### Default Randomizer
 
-When no randomizer is provided, the slave uses a default configuration:
+If you don't pass a randomizer, the slave builds this one:
 
 ```python
 FlexRandomizer({
@@ -211,10 +216,13 @@ FlexRandomizer({
 })
 ```
 
+Short PREADY delays most of the time, no errors, and PRUSER/PBUSER spread across their full configured width — a reasonable stand-in for a well-behaved peripheral.
+
 #### Methods
 
 ##### `is_signal_present(signal_name) -> bool`
-Check if an optional signal is present on the bus.
+
+Same presence check as the monitor — ask before you rely on an extension signal.
 
 ```python
 if slave.is_signal_present('PRUSER'):
@@ -223,26 +231,28 @@ if slave.is_signal_present('PRUSER'):
 ```
 
 ##### `print(transaction)`
-Print transaction for debug logging.
 
-> **Removed:** the previous `set_wakeup(value)` method is gone. PWAKEUP is driven by the requester (master), not the completer (slave) — see [PWAKEUP Direction](#pwakeup-direction) and `APB5Master.set_wakeup_enable()`.
+Logs a transaction at debug level.
+
+> **Removed:** the old `set_wakeup(value)` method is gone. The slave never owned PWAKEUP in the first place — the requester drives it. See [PWAKEUP Direction](#pwakeup-direction) and `APB5Master.set_wakeup_enable()`.
 
 #### Response Behavior
 
-The slave provides configurable response timing and user signal generation:
-- **Ready Delay**: Configurable cycles before asserting PREADY (via `ready` randomizer field)
-- **Error Injection**: Random or deterministic error generation (via `error` randomizer field)
-- **User Signal Response**: Randomized PRUSER and PBUSER values on each response
-- **PWAKEUP**: Observed only (requester-driven); the sampled value is recorded in each captured packet's `wakeup` field
-- **Address Overflow**: Configurable error on out-of-range addresses
+Everything about how the slave responds is tunable:
+
+- **Ready Delay**: cycles to wait before asserting PREADY (via the `ready` randomizer field)
+- **Error Injection**: random or deterministic PSLVERR generation (via the `error` randomizer field)
+- **User Signal Response**: fresh randomized PRUSER and PBUSER values on every response
+- **PWAKEUP**: observed, not driven — the sampled value is recorded in each captured packet's `wakeup` field
+- **Address Overflow**: optional error when an address falls outside the register array
 
 #### Transaction Queue
 
-The slave maintains a `sentQ` deque containing APB5Packet records of all processed transactions, accessible for post-transaction verification.
+Every transaction the slave answers lands in its `sentQ` deque as an APB5Packet, so a scoreboard can walk the full history after the fact.
 
 ### APB5Master
 
-APB5 master implementation that drives transactions with user signal support and response capture.
+The master drives transfers. It owns the request side of the bus — address, write data, strobes, the request-side user signals, and PWAKEUP — and captures the response back into the transaction record.
 
 #### Constructor
 
@@ -289,10 +299,12 @@ master = APB5Master(
 #### Methods
 
 ##### `is_signal_present(signal_name) -> bool`
-Check if a signal is present on the bus.
+
+Same presence check as the other components.
 
 ##### `set_wakeup_enable(enable)`
-Enable or disable requester-driven PWAKEUP assertion for subsequent transfers. When enabled (the default), the master asserts PWAKEUP together with PSEL for every transfer and deasserts it when PSEL falls, per AMBA APB5 (IHI 0024E).
+
+Turns requester-driven PWAKEUP assertion on or off for the transfers that follow. It's enabled by default: the master asserts PWAKEUP together with PSEL on every transfer and deasserts it when PSEL falls, per AMBA APB5 (IHI 0024E). Since the toggle applies to subsequent transfers, you can flip it mid-test to walk your power controller through its sleep and wake paths.
 
 **Parameters:**
 - `enable`: Truthy to assert PWAKEUP on subsequent transfers, falsy to hold it low.
@@ -304,7 +316,8 @@ master.set_wakeup_enable(True)   # resume asserting PWAKEUP with PSEL
 ```
 
 ##### `send(transaction)`
-Send an APB5 transaction. Drives all present APB5 signals including user attributes.
+
+Sends one transaction, driving every signal that's actually present on the bus, user attributes included.
 
 **Parameters:**
 - `transaction`: APB5Packet to transmit
@@ -321,7 +334,8 @@ await master.send(packet)
 ```
 
 ##### `write(address, data, strb=None, pprot=0, pauser=0, pwuser=0) -> APB5Packet`
-Perform an APB5 write transaction with convenience parameters.
+
+One-shot write: builds the packet, runs the transfer, and hands back the completed transaction.
 
 **Parameters:**
 
@@ -351,7 +365,8 @@ result = await master.write(
 ```
 
 ##### `read(address, pprot=0, pauser=0) -> APB5Packet`
-Perform an APB5 read transaction with convenience parameters.
+
+One-shot read. Same idea as `write()` — the returned packet has `prdata`, `pruser`, and `pbuser` filled in from the response.
 
 **Parameters:**
 
@@ -375,20 +390,23 @@ result = await master.read(address=0x300, pauser=0xA)
 
 #### Transaction Pipeline
 
-The master implements the standard APB transaction pipeline with APB5 extensions:
-1. **Setup Phase**: Drive PSEL, PADDR, PWRITE, PWDATA, PSTRB, PPROT, PAUSER, PWUSER, and PWAKEUP (asserted with PSEL when `wakeup_enable` is set)
-2. **Access Phase**: Assert PENABLE
-3. **Wait for Ready**: Poll PREADY on falling clock edges
-4. **Response Capture**: Sample PRDATA, PSLVERR, PRUSER, PBUSER (with 200ps settling delay). PWAKEUP is master-driven, so it is not sampled here.
-5. **Deassert**: Clear PSEL and PENABLE; PWAKEUP falls with PSEL
+The transfer itself is the textbook APB two-phase sequence, with the AMBA5 signals riding along:
+
+1. **Setup Phase**: drive PSEL, PADDR, PWRITE, PWDATA, PSTRB, PPROT, PAUSER, and PWUSER — plus PWAKEUP, asserted with PSEL when `wakeup_enable` is set
+2. **Access Phase**: assert PENABLE
+3. **Wait for Ready**: poll PREADY on falling clock edges
+4. **Response Capture**: sample PRDATA, PSLVERR, PRUSER, and PBUSER (with a 200ps settling delay). PWAKEUP isn't sampled here — the master drove it, so it already knows the value.
+5. **Deassert**: clear PSEL and PENABLE; PWAKEUP falls with PSEL
 
 #### Transaction Queue
 
-The master maintains a `sentQ` deque containing APB5Packet records of all completed transactions.
+Completed transactions accumulate in the master's `sentQ` deque, one APB5Packet per transfer.
 
 ## Usage Patterns
 
 ### Basic Monitor Setup
+
+A monitor with a callback is usually all you need to start watching traffic:
 
 ```python
 import cocotb
@@ -419,6 +437,8 @@ async def monitor_test(dut):
 ```
 
 ### Master-Slave Communication with User Signals
+
+Round-trip a write with user attributes, then read it back. The response sidebands come back randomized by the slave:
 
 ```python
 from cocotb.triggers import RisingEdge
@@ -451,6 +471,8 @@ async def master_slave_test(dut):
 
 ### Custom Slave Randomizer with User Signals
 
+If the default response behavior doesn't match your DUT's timing, build a randomizer and hand it to the factory:
+
 ```python
 from CocoTBFramework.components.apb5.apb5_factories import (
     create_apb5_slave, create_apb5_randomizer
@@ -478,7 +500,7 @@ async def custom_randomizer_test(dut):
 
 ### Memory Model Integration
 
-The APB5Slave uses the shared MemoryModel for realistic memory behavior:
+The slave's register storage is the shared MemoryModel, so it behaves like every other memory-backed component in the framework:
 
 ```python
 # Memory model provides:
@@ -490,7 +512,7 @@ The APB5Slave uses the shared MemoryModel for realistic memory behavior:
 
 ### Packet Integration
 
-Components work seamlessly with APB5Packet:
+Everything on the bus speaks APB5Packet:
 
 ```python
 # Automatic field extraction including user signals
@@ -501,7 +523,7 @@ Components work seamlessly with APB5Packet:
 
 ### Randomization Integration
 
-Uses FlexRandomizer for comprehensive timing and user signal control:
+Timing and user-signal randomization both run through FlexRandomizer:
 
 ```python
 # Configurable delay distributions for PREADY
@@ -513,6 +535,9 @@ Uses FlexRandomizer for comprehensive timing and user signal control:
 ## Best Practices
 
 ### 1. **Match User Signal Widths**
+
+The widths you pass in configure the randomizer ranges and the packet field layout, so they need to agree with each other — and with the DUT. Define them once and share them:
+
 ```python
 # Ensure widths match between master, slave, and monitor
 AUSER_W = 8
@@ -526,6 +551,9 @@ monitor = APB5Monitor(dut, "Mon", "apb_", dut.clk,
 ```
 
 ### 2. **Handle Optional Signals Gracefully**
+
+A DUT that implements only half the AMBA5 extensions is normal, not broken. Check before you touch:
+
 ```python
 # Always check signal presence before accessing
 if master.is_signal_present('PAUSER'):
@@ -537,6 +565,9 @@ if master.is_signal_present('PWAKEUP'):
 ```
 
 ### 3. **Verify User Signal Round-Trip**
+
+The cheapest sideband check is comparing what the master sent against what the monitor saw:
+
 ```python
 # Check that user signals are captured correctly
 await master.send(packet)
@@ -546,4 +577,6 @@ observed = monitor._recvQ[-1]  # BusMonitor receive queue
 assert sent.fields['pauser'] == observed.fields['pauser']
 ```
 
-The APB5 components provide a comprehensive foundation for APB5 protocol verification, extending the proven APB4 infrastructure with full AMBA5 extension support for user signals, wake-up, and parity checking.
+That's the component layer. It stays deliberately close to the APB4 implementation — if you've used the APB4 BFM, the only new habits you need are the user sidebands and remembering that PWAKEUP belongs to the master.
+
+---

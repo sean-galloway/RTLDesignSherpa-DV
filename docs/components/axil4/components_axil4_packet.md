@@ -1,24 +1,25 @@
 # AXIL4 Packet
 
-AXIL4 (AXI4-Lite) packet implementation extending the base `Packet` class with AXI4-Lite-specific channel detection, protocol validation, and factory methods. Designed for register-oriented single-transfer operations without burst or ID support.
+The transaction object for AXIL4 (AXI4-Lite): a `Packet` subclass with channel detection, Lite-specific protocol validation, and factory methods for each of the five channels. Built for register-style single-beat traffic -- no burst fields, no IDs.
 
 ## Overview
 
-The `AXIL4Packet` class provides:
+`AXIL4Packet` gives you:
 
 - **Factory methods** for creating packets on each AXIL4 channel (AW, W, B, AR, R)
-- **Channel type detection** based on field presence
-- **Protocol validation** against AXIL4 specification rules (address alignment, response codes, strobe patterns)
+- **Channel type detection** based on which fields are present
+- **Protocol validation** against AXIL4 rules -- address alignment, response codes, strobe patterns
 - **Channel classification helpers** (`is_address_channel`, `is_data_channel`, `is_response_channel`)
-- **Response information extraction** from response channel packets
-- **Generic field naming** (addr, data, resp, prot, strb) with `pkt_prefix` handling signal mapping
+- **Response decoding** for response-channel packets
+- **Generic field names** (`addr`, `data`, `resp`, `prot`, `strb`), with `pkt_prefix` handling the mapping to real signal names
 
-Key differences from `AXI4Packet`:
-- No ID fields in any channel
-- No burst-related fields (len, size, burst, lock, cache, qos, region)
-- Always single-transfer operations
-- Address alignment validation (word-aligned)
-- Simplified field sets for register access
+Compared to `AXI4Packet`:
+
+- No ID fields on any channel
+- None of the burst baggage (len, size, burst, lock, cache, qos, region)
+- Always single-transfer
+- Word-alignment validation on addresses
+- Field sets trimmed for register access
 
 ---
 
@@ -44,7 +45,7 @@ class AXIL4Packet(Packet):
 
 ### `AXIL4Packet.create_aw_packet(addr_width=32, user_width=0, **field_values) -> AXIL4Packet`
 
-Create a Write Address (AW) channel packet.
+Builds a Write Address (AW) channel packet.
 
 **Parameters:**
 
@@ -62,7 +63,7 @@ packet = AXIL4Packet.create_aw_packet(addr=0x1000, prot=0)
 
 ### `AXIL4Packet.create_w_packet(data_width=32, user_width=0, **field_values) -> AXIL4Packet`
 
-Create a Write Data (W) channel packet.
+Builds a Write Data (W) channel packet.
 
 **Parameters:**
 
@@ -80,7 +81,7 @@ packet = AXIL4Packet.create_w_packet(data=0x12345678, strb=0xF)
 
 ### `AXIL4Packet.create_b_packet(user_width=0, **field_values) -> AXIL4Packet`
 
-Create a Write Response (B) channel packet.
+Builds a Write Response (B) channel packet.
 
 **Parameters:**
 
@@ -97,7 +98,7 @@ packet = AXIL4Packet.create_b_packet(resp=0)  # OKAY response
 
 ### `AXIL4Packet.create_ar_packet(addr_width=32, user_width=0, **field_values) -> AXIL4Packet`
 
-Create a Read Address (AR) channel packet.
+Builds a Read Address (AR) channel packet.
 
 **Parameters:**
 
@@ -115,7 +116,7 @@ packet = AXIL4Packet.create_ar_packet(addr=0x2000, prot=0)
 
 ### `AXIL4Packet.create_r_packet(data_width=32, user_width=0, **field_values) -> AXIL4Packet`
 
-Create a Read Data (R) channel packet.
+Builds a Read Data (R) channel packet.
 
 **Parameters:**
 
@@ -137,43 +138,43 @@ packet = AXIL4Packet.create_r_packet(data=0xABCDEF00, resp=0)
 
 ### `get_channel_type() -> str`
 
-Determine which AXIL4 channel this packet belongs to based on field presence.
+Works out which AXIL4 channel this packet belongs to from the fields it carries.
 
 **Returns:** One of `'AW'`, `'W'`, `'B'`, `'AR'`, `'R'`, or `'UNKNOWN'`.
 
 ### `is_address_channel() -> bool`
 
-Check if this is an address channel (AW or AR).
+`True` for AW or AR packets.
 
 ### `is_data_channel() -> bool`
 
-Check if this is a data channel (W or R).
+`True` for W or R packets.
 
 ### `is_response_channel() -> bool`
 
-Check if this is a response channel (B or R).
+`True` for B or R packets.
 
 ### `get_address() -> Optional[int]`
 
-Get the address value for address channel packets.
+The address, for address-channel packets.
 
 **Returns:** Address value, or `None` if not an address channel.
 
 ### `get_data() -> Optional[int]`
 
-Get the data value for data or response channel packets.
+The data payload, for data or response channel packets.
 
 **Returns:** Data value, or `None` if not a data/response channel.
 
 ### `get_response() -> Optional[int]`
 
-Get the response code for response channel packets.
+The response code, for response channel packets.
 
 **Returns:** Response code, or `None` if not a response channel.
 
 ### `get_response_info() -> Dict[str, Any]`
 
-Get response information for response channel packets (B or R).
+Decodes a B or R packet's response into something readable.
 
 **Returns:** Dictionary with response details, or empty dict if not a response packet.
 
@@ -186,15 +187,16 @@ Get response information for response channel packets (B or R).
 
 ### `validate_axil4_protocol() -> Tuple[bool, str]`
 
-Validate the packet against AXIL4 protocol rules.
+Checks the packet against the Lite protocol rules.
 
 **Returns:** Tuple of `(is_valid, error_message)`.
 
-Checks performed:
-- **Address channels (AW/AR):** Address must be word-aligned (multiple of 4)
-- **Response channels (B/R):** Response code must be 0-3
-- **W channel:** Strobe pattern must not exceed data width byte count
-- **Unknown channels:** Flagged as invalid
+What it checks:
+
+- **Address channels (AW/AR):** address must be word-aligned (multiple of 4)
+- **Response channels (B/R):** response code must be 0-3
+- **W channel:** strobe pattern must fit the data width's byte count
+- **Unrecognized channels:** flagged as invalid
 
 ```python
 is_valid, msg = packet.validate_axil4_protocol()
@@ -207,6 +209,8 @@ if not is_valid:
 ## Usage Examples
 
 ### Creating and Inspecting Packets
+
+Everything starts at the factories:
 
 ```python
 from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
@@ -230,6 +234,8 @@ print(f"Is error: {info['is_error']}")       # True
 
 ### Protocol Validation
 
+The validator is cheap -- run it on anything you build or receive:
+
 ```python
 # Valid packet
 aw_valid = AXIL4Packet.create_aw_packet(addr=0x1000, prot=0)
@@ -245,6 +251,8 @@ print(msg)  # "Address 0x1002 is not word-aligned"
 
 ### Iterating Over Response Channels
 
+Response packets decode themselves:
+
 ```python
 packets = [
     AXIL4Packet.create_r_packet(data=0x100, resp=0),
@@ -259,3 +267,5 @@ for pkt in packets:
     else:
         print(f"OK: data=0x{info['data']:X}")
 ```
+
+---

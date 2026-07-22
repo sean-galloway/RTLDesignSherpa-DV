@@ -23,23 +23,23 @@
 
 # Scoreboards Overview
 
-The CocoTBFramework scoreboards directory provides a comprehensive verification infrastructure for automated transaction checking across multiple protocols. This system enables robust verification of protocol bridges, memory models, and complex multi-protocol designs through systematic comparison of expected versus actual transactions.
+This directory is the framework's checking layer. Every protocol scoreboard, every transformer, every memory adapter lives here, and they all share one idea: say what you expect, report what you saw, and let the machinery do the comparison. That machinery has to hold up for a lone APB peripheral just as well as for a protocol bridge in the middle of a multi-bus SoC.
 
 ## Framework Philosophy
 
-The scoreboard system is designed around the principles of **automated verification**, **cross-protocol support**, and **comprehensive analysis**. The framework provides:
+A few commitments shaped the design:
 
-**Automated Transaction Matching**: Intelligent queuing and comparison of expected versus actual transactions
-**Protocol Abstraction**: Common interfaces that work across different bus protocols
-**Cross-Protocol Verification**: Support for protocol bridges and mixed-protocol systems
-**Comprehensive Reporting**: Detailed error analysis, statistics, and performance metrics
-**Extensible Architecture**: Easy addition of new protocols and custom verification logic
+**Automated Transaction Matching**: expected and actual transactions queue and compare as they arrive—no end-of-test diff scripts
+**Protocol Abstraction**: one interface across bus protocols; switching protocols shouldn't mean relearning the scoreboard API
+**Cross-Protocol Verification**: bridges and mixed-protocol systems are first-class citizens, not special cases
+**Comprehensive Reporting**: when something fails, you get the field, the values, and the count—not just a red X
+**Extensible Architecture**: new protocols slot into the same base classes instead of forking the framework
 
 ## Architecture Overview
 
 ### Layered Verification Architecture
 
-The scoreboard system follows a layered architecture that separates protocol-specific logic from common verification infrastructure:
+Four layers, each talking only to the one below it. Protocol-specific logic stays out of the common machinery—which is exactly why adding a protocol doesn't mean rewriting anything shared:
 
 ```mermaid
 graph TB
@@ -78,170 +78,170 @@ graph TB
 
 ### BaseScoreboard - Foundation Infrastructure
 
-The `BaseScoreboard` class provides the fundamental verification infrastructure used by all protocol-specific scoreboards:
+`BaseScoreboard` carries the load for everything else:
 
 **Core Capabilities**:
-- **Transaction Queuing**: Automatic management of expected vs actual transaction queues using efficient deque structures
-- **Comparison Engine**: Framework for transaction matching and field-by-field validation
-- **Error Tracking**: Comprehensive error counting, categorization, and detailed reporting
-- **Statistics Generation**: Pass/fail rates, timing analysis, and performance metrics
-- **Timeout Management**: Configurable timeout handling for transaction matching
+- **Transaction Queuing**: expected/actual deques, managed for you
+- **Comparison Engine**: matching machinery with field-level validation hooks
+- **Error Tracking**: counting, categorizing, and reporting mismatches
+- **Statistics Generation**: pass/fail rates, timing analysis, performance numbers
+- **Timeout Management**: configurable limits on how long a match may wait
 
 **Advanced Features**:
-- **Transformer Integration**: Interface for protocol conversion and cross-protocol verification
-- **Memory Model Support**: Integration with memory adapters for memory-mapped verification
-- **Flexible Matching**: Support for different matching strategies (FIFO, ID-based, custom)
-- **Rich Reporting**: HTML and text-based reports with detailed analysis
+- **Transformer Integration**: the cross-protocol hook
+- **Memory Model Support**: memory adapters for memory-mapped checking
+- **Flexible Matching**: FIFO, ID-based, or your own strategy
+- **Rich Reporting**: text reports, with HTML output available
 
 ### ProtocolTransformer - Cross-Protocol Support
 
-The `ProtocolTransformer` base class enables seamless cross-protocol verification:
+For when expected and actual don't speak the same protocol:
 
 **Transformation Engine**:
-- **Bidirectional Conversion**: Transform transactions between different protocols
-- **Field Mapping**: Intelligent mapping of fields between protocol formats
-- **Timing Preservation**: Maintain timing relationships during transformation
-- **Error Handling**: Robust transformation with comprehensive failure tracking
+- **Bidirectional Conversion**: both directions supported
+- **Field Mapping**: protocol fields mapped once, not by hand per test
+- **Timing Preservation**: timestamps survive the conversion
+- **Error Handling**: failures counted and logged, not thrown into your test
 
 **Extensibility**:
-- **Custom Transformers**: Easy creation of protocol-specific transformers
-- **Chaining Support**: Multiple transformation stages for complex conversions
-- **Validation**: Built-in validation of transformation correctness
-- **Performance Tracking**: Statistics on transformation overhead and success rates
+- **Custom Transformers**: subclass and implement one method
+- **Chaining Support**: multi-hop conversions when one step isn't enough
+- **Validation**: transformation correctness checked
+- **Performance Tracking**: conversion overhead measured
 
 ## Protocol-Specific Scoreboards
 
 ### APB Scoreboard - Advanced Peripheral Bus
 
-The APB scoreboard provides comprehensive verification for ARM's Advanced Peripheral Bus protocol:
+APB is the simple end of the AMBA family, and the scoreboard keeps it that way:
 
 **Single Slave Support (`APBScoreboard`)**:
-- **Transaction Verification**: Complete APB read/write transaction checking
-- **Field Validation**: Address, data, control signal verification
-- **Protocol Compliance**: APB timing and signal relationship checking
-- **Error Categorization**: Detailed classification of different error types
+- **Transaction Verification**: full read/write checking
+- **Field Validation**: address, data, control signals
+- **Protocol Compliance**: APB timing and signal relationships
+- **Error Categorization**: failure types sorted for you
 
 **Multi-Slave Support (`APBCrossbarScoreboard`)**:
-- **Address-Based Routing**: Automatic transaction routing to appropriate slave scoreboards
-- **Configurable Address Maps**: Flexible address range configuration for each slave
-- **Aggregate Reporting**: Combined statistics across all slaves
-- **Slave-Specific Analysis**: Individual slave performance and error tracking
+- **Address-Based Routing**: transactions forwarded to the right slave scoreboard automatically
+- **Configurable Address Maps**: per-slave ranges, your choice
+- **Aggregate Reporting**: the system-level rollup
+- **Slave-Specific Analysis**: per-slave numbers when you need to zoom in
 
 ### AXI4 Scoreboard - Advanced eXtensible Interface
 
-The AXI4 scoreboard handles the complexity of the full AXI4 protocol:
+AXI4 earns its complexity budget, and the scoreboard matches it:
 
 **Advanced Transaction Management**:
-- **ID-Based Tracking**: Separate transaction queues for each AXI4 ID
-- **Channel Separation**: Independent handling of read (AR/R) and write (AW/W/B) channels
-- **Out-of-Order Support**: Proper handling of AXI4's out-of-order transaction completion
-- **Protocol Compliance**: Comprehensive AXI4 specification checking
+- **ID-Based Tracking**: a queue per AXI4 ID
+- **Channel Separation**: read (AR/R) and write (AW/W/B) channels handled independently
+- **Out-of-Order Support**: completion order doesn't have to match issue order—that's the whole point of IDs
+- **Protocol Compliance**: AXI4 spec checking built in
 
 **Performance Analysis**:
-- **Throughput Measurement**: Real-time bandwidth calculation
-- **Latency Tracking**: Per-transaction and statistical latency analysis
-- **Outstanding Transaction Monitoring**: Track inflight transactions and resource utilization
-- **Channel Utilization**: Individual channel efficiency metrics
+- **Throughput Measurement**: bandwidth as the test runs
+- **Latency Tracking**: per-transaction and statistical
+- **Outstanding Transaction Monitoring**: inflight transactions and resource usage
+- **Channel Utilization**: per-channel efficiency
 
 ### GAXI Scoreboard - Generic AXI-like Protocol
 
-The GAXI scoreboard provides verification for simplified AXI-like protocols:
+GAXI is the framework's generic AXI substrate—the layer the other AXI-family pieces build on—so this scoreboard sits at the center of most protocol checks:
 
 **Modern Architecture**:
-- **FieldConfig Integration**: Full support for the CocoTBFramework field configuration system
-- **Flexible Packet Handling**: Works with both legacy and modern packet formats
-- **Memory Model Integration**: Seamless integration with memory verification
-- **Transform Support**: Enhanced cross-protocol transformation capabilities
+- **FieldConfig Integration**: native support for the framework's field configuration system
+- **Flexible Packet Handling**: legacy and modern packet formats
+- **Memory Model Integration**: memory checking built in
+- **Transform Support**: cross-protocol conversion ready
 
 **Advanced Comparison**:
-- **Field-by-Field Analysis**: Detailed comparison with configurable field precedence
-- **Intelligent Matching**: Smart transaction correlation based on protocol semantics
-- **Performance Optimization**: Efficient comparison algorithms for high-throughput testing
+- **Field-by-Field Analysis**: configurable field precedence
+- **Intelligent Matching**: correlation that understands protocol semantics
+- **Performance Optimization**: comparison paths that hold up at high throughput
 
 ### FIFO Scoreboard - Buffer Verification
 
-The FIFO scoreboard specializes in buffer and queue verification:
+For buffers and queues:
 
 **Memory Integration**:
-- **Built-in Memory Adapter**: Direct integration with CocoTBFramework memory models
-- **Data Integrity Checking**: Automatic verification of data consistency
-- **Access Pattern Analysis**: Track read/write patterns and detect anomalies
+- **Built-in Memory Adapter**: direct tie-in to the framework's memory models
+- **Data Integrity Checking**: consistency verified automatically
+- **Access Pattern Analysis**: read/write patterns tracked for anomalies
 
 **FIFO-Specific Features**:
-- **Order Verification**: Ensure FIFO ordering semantics are maintained
-- **Depth Monitoring**: Track buffer utilization and overflow/underflow conditions
-- **Flow Control**: Verify proper handshaking and backpressure handling
+- **Order Verification**: FIFO ordering semantics enforced
+- **Depth Monitoring**: utilization, overflow, and underflow watched
+- **Flow Control**: handshaking and backpressure checked
 
 ## Cross-Protocol Verification
 
 ### APB-GAXI Bridge Scoreboard
 
-The `APBGAXIScoreboard` provides specialized verification for protocol bridge implementations:
+Bridges get their own scoreboard because they fail in ways single-protocol scoreboards can't see:
 
 **Three-Phase Verification**:
-1. **APB Transaction Receipt**: Verify APB master transaction is properly received
-2. **GAXI Command Generation**: Ensure correct transformation to GAXI format
-3. **GAXI Response Processing**: Validate response transformation back to APB
+1. **APB Transaction Receipt**: the master transaction arrived intact
+2. **GAXI Command Generation**: the conversion produced the right command
+3. **GAXI Response Processing**: the response made it back correctly
 
 **Bridge-Specific Features**:
-- **Latency Analysis**: Measure bridge processing delays and overhead
-- **Error Propagation**: Verify proper error handling across protocol boundaries
-- **Resource Utilization**: Monitor bridge internal resource usage
-- **Protocol Compliance**: Ensure both protocols remain compliant during bridging
+- **Latency Analysis**: bridge overhead measured
+- **Error Propagation**: errors must cross the protocol boundary correctly
+- **Resource Utilization**: bridge internals tracked
+- **Protocol Compliance**: both protocols stay legal through the bridge
 
 ### APB-GAXI Transformer
 
-The transformer provides bidirectional APB ↔ GAXI conversion capabilities:
+Bidirectional conversion between the two protocols:
 
 **Transformation Features**:
-- **Field Mapping**: Intelligent mapping between APB and GAXI field structures
-- **Timing Preservation**: Maintain critical timing relationships during conversion
-- **Error Handling**: Robust error detection and recovery mechanisms
-- **Adapter Classes**: High-level adapters for easy integration with existing components
+- **Field Mapping**: APB ↔ GAXI field structures
+- **Timing Preservation**: timing relationships carried across
+- **Error Handling**: detection and recovery
+- **Adapter Classes**: drop-in integration with existing components
 
 ## Advanced Verification Capabilities
 
 ### Memory Model Integration
 
-Scoreboards integrate seamlessly with CocoTBFramework memory models:
+Scoreboards plug into the framework's memory models:
 
 **Memory Adapters**:
-- **Automatic Memory Operations**: Transparent read/write operations during verification
-- **Field Mapping Configuration**: Flexible mapping between packet fields and memory addresses
-- **Data Integrity Verification**: Automatic comparison of expected vs actual memory contents
-- **Access Pattern Tracking**: Monitor memory access patterns for coverage analysis
+- **Automatic Memory Operations**: reads and writes applied during verification
+- **Field Mapping Configuration**: packet fields to memory addresses, with your naming
+- **Data Integrity Verification**: expected versus actual memory contents
+- **Access Pattern Tracking**: coverage of how memory gets used
 
 ### Statistical Analysis
 
-Comprehensive statistical capabilities provide deep insights into verification effectiveness:
+Numbers worth keeping:
 
 **Real-Time Metrics**:
-- **Transaction Throughput**: Transactions per second and bandwidth calculations
-- **Error Rates**: Real-time error rate tracking with trend analysis
-- **Latency Distribution**: Histogram analysis of transaction latencies
-- **Resource Utilization**: Memory usage and processing overhead tracking
+- **Transaction Throughput**: rate and bandwidth
+- **Error Rates**: tracked live, with trends
+- **Latency Distribution**: histograms, not just averages
+- **Resource Utilization**: memory and processing overhead
 
 **Trend Analysis**:
-- **Performance Regression**: Detection of performance degradation over time
-- **Error Trend Tracking**: Identification of systematic error patterns
-- **Coverage Metrics**: Functional and code coverage integration
-- **Comparative Analysis**: Benchmarking against previous test runs
+- **Performance Regression**: slowdowns caught across runs
+- **Error Trend Tracking**: systematic patterns surfaced
+- **Coverage Metrics**: functional and code coverage tie-in
+- **Comparative Analysis**: this run against the last
 
 ### Custom Verification Logic
 
-The framework supports extensive customization for specific verification needs:
+When the built-ins aren't enough:
 
 **Custom Comparators**:
-- **Field-Specific Logic**: Custom comparison logic for special field types
-- **Protocol Extensions**: Support for proprietary protocol extensions
-- **Application-Specific Checks**: Domain-specific verification requirements
-- **Performance Optimizations**: Custom optimizations for high-frequency testing
+- **Field-Specific Logic**: special comparison per field type
+- **Protocol Extensions**: proprietary fields and behaviors
+- **Application-Specific Checks**: your domain's rules
+- **Performance Optimizations**: tuned paths for high-frequency tests
 
 ## Integration and Usage Patterns
 
 ### Monitor Integration
 
-Scoreboards integrate naturally with CocoTBFramework monitor components:
+Monitors feed scoreboards directly, so transactions get checked as they happen—not in a cleanup pass afterward:
 
 ```python
 # Automatic transaction capture from monitors
@@ -254,7 +254,7 @@ slave_monitor.add_callback(scoreboard.add_actual)
 
 ### Test Framework Integration
 
-Seamless integration with cocotb and other test frameworks:
+In a cocotb test, the scoreboard is just another object you create, wire up, and interrogate at the end:
 
 ```python
 @cocotb.test()
@@ -275,34 +275,35 @@ async def comprehensive_verification_test(dut):
 
 ### Performance Optimization
 
-The framework includes numerous optimizations for high-performance verification:
+Built to survive high-traffic tests:
 
 **Efficient Data Structures**:
-- **Deque-Based Queues**: O(1) transaction insertion and removal
-- **Hash-Based Lookup**: Fast transaction correlation for ID-based protocols
-- **Memory-Mapped Storage**: Efficient handling of large transaction volumes
-- **Lazy Evaluation**: Deferred computation of expensive analysis metrics
+- **Deque-Based Queues**: O(1) insertion and removal at both ends
+- **Hash-Based Lookup**: fast correlation for ID-based protocols
+- **Memory-Mapped Storage**: large transaction volumes handled
+- **Lazy Evaluation**: expensive analysis deferred until asked
 
 **Parallel Processing**:
-- **Thread-Safe Operations**: Safe concurrent access to scoreboard data structures
-- **Asynchronous Processing**: Non-blocking transaction processing
-- **Pipeline Optimization**: Overlapped comparison and analysis operations
-- **Resource Pooling**: Efficient reuse of comparison and analysis resources
+- **Thread-Safe Operations**: concurrent access to scoreboard structures is safe
+- **Asynchronous Processing**: transaction handling doesn't block
+- **Pipeline Optimization**: comparison and analysis overlapped
+- **Resource Pooling**: comparison resources reused
 
 ## Future Extensibility
 
-The scoreboard architecture is designed for easy extension and customization:
+The architecture is built to grow:
 
 ### New Protocol Support
-- **Template-Based Creation**: Standard templates for new protocol scoreboards
-- **Inheritance Patterns**: Consistent inheritance from base classes
-- **Configuration Standards**: Standard configuration patterns for protocol-specific features
-- **Integration Guidelines**: Clear guidelines for framework integration
+- **Template-Based Creation**: a standard skeleton for new protocol scoreboards
+- **Inheritance Patterns**: the same base classes every time
+- **Configuration Standards**: consistent config patterns across protocols
+- **Integration Guidelines**: a documented path into the framework
 
 ### Advanced Features
-- **Machine Learning Integration**: AI-powered error pattern recognition
-- **Formal Verification**: Integration with formal verification tools
-- **Cloud-Based Analysis**: Distributed verification and analysis capabilities
-- **Real-Time Visualization**: Live dashboards and visualization tools
+Further out—more whiteboard than roadmap at this point:
+- **Machine Learning Integration**: error-pattern recognition
+- **Formal Verification**: hooks into formal tools
+- **Cloud-Based Analysis**: distributed verification and analysis
+- **Real-Time Visualization**: live dashboards
 
-The CocoTBFramework scoreboards provide a comprehensive, scalable, and extensible verification infrastructure that can handle everything from simple protocol verification to complex multi-protocol system verification with advanced analysis and reporting capabilities.
+Start with the protocol scoreboard that matches your DUT, add a transformer if it's a bridge, add a memory adapter if it's memory-mapped. The base classes carry the rest.

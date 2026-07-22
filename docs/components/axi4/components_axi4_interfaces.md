@@ -1,17 +1,17 @@
 # AXI4 Interface Classes
 
-AXI4 master and slave interface classes that compose GAXI channel components to implement complete AXI4 read and write functionality with integrated compliance checking.
+The four high-level AXI4 interface classes. Each one composes GAXI channel components into a complete read or write path — you talk in transactions, the channels handle the handshakes — with compliance checking folded in.
 
 ## Overview
 
-The AXI4 interface module provides four high-level classes:
+The AXI4 interface module provides four classes:
 
 - **AXI4MasterRead** -- Drives read address (AR) requests and receives read data (R) responses
 - **AXI4MasterWrite** -- Drives write address (AW) requests, write data (W), and receives write responses (B)
 - **AXI4SlaveRead** -- Receives read address (AR) requests and generates read data (R) responses
 - **AXI4SlaveWrite** -- Receives write address (AW) and write data (W), generates write responses (B)
 
-Each class composes underlying `GAXIMaster` and `GAXISlave` channel components, providing transaction-level APIs while maintaining full AXI4 protocol compliance. Compliance checking is automatically integrated when the `AXI4_COMPLIANCE_CHECK=1` environment variable is set.
+Every class composes underlying `GAXIMaster` and `GAXISlave` channel components, so you get a transaction-level API without giving up protocol correctness. Compliance checking rides along automatically when the `AXI4_COMPLIANCE_CHECK=1` environment variable is set.
 
 ---
 
@@ -24,7 +24,7 @@ class AXI4MasterRead:
     def __init__(self, dut, clock, prefix="", log=None, ifc_name="", **kwargs)
 ```
 
-Manages read transactions by driving AR channel requests and collecting R channel responses.
+The read master: drives AR channel requests and collects R channel responses.
 
 **Parameters:**
 
@@ -54,7 +54,7 @@ Manages read transactions by driving AR channel requests and collecting R channe
 
 ##### `async read_transaction(address, burst_len=1, **transaction_kwargs) -> List[int]`
 
-Execute a complete read transaction: send AR request and wait for all R data beats.
+Execute a complete read transaction: send the AR request and wait for all R data beats.
 
 **Parameters:**
 
@@ -106,7 +106,7 @@ class AXI4MasterWrite:
     def __init__(self, dut, clock, prefix="", log=None, ifc_name="", **kwargs)
 ```
 
-Manages write transactions by driving AW and W channels and collecting B channel responses.
+The write master: drives the AW and W channels and collects the B channel response.
 
 **Parameters:**
 
@@ -137,7 +137,7 @@ Manages write transactions by driving AW and W channels and collecting B channel
 
 ##### `async write_transaction(address, data, burst_len=None, **transaction_kwargs) -> Dict[str, Any]`
 
-Execute a complete write transaction: send AW address, W data beats, and wait for B response.
+Execute a complete write transaction: send the AW address, the W data beats, and wait for the B response.
 
 **Parameters:**
 
@@ -157,7 +157,7 @@ Execute a complete write transaction: send AW address, W data beats, and wait fo
 - `id` (`int` or `None`) -- Response ID from B channel
 - `error` (`str`, only on failure) -- Error message
 
-Note: `write_transaction` does not raise. Internal `TimeoutError` (no B response) and `RuntimeError` (SLVERR/DECERR) are caught and reported via the returned dict (`success=False`, `error=<message>`). Always check `result['success']`.
+Note: this is the part that bites people — `write_transaction` does not raise. A missing B response (`TimeoutError`) or a SLVERR/DECERR (`RuntimeError`) is caught internally and reported through the returned dict (`success=False`, `error=<message>`). Always check `result['success']`.
 
 ##### `async single_write(address, data, **kwargs) -> Dict[str, Any]`
 
@@ -180,7 +180,7 @@ class AXI4SlaveRead:
     def __init__(self, dut, clock, prefix="", log=None, ifc_name="", **kwargs)
 ```
 
-Responds to read requests by receiving AR channel addresses and generating R channel data responses. Supports both in-order and out-of-order (OOO) response modes.
+The read slave: receives AR requests and answers with R data. Supports both in-order and out-of-order (OOO) response modes.
 
 **Parameters:**
 
@@ -230,7 +230,7 @@ Get the compliance report if compliance checking is enabled.
 
 Print the compliance report to the log if compliance checking is enabled.
 
-Note: The slave automatically generates R responses via an internal callback when AR requests are received. No explicit send method is needed.
+Note: the slave answers AR requests on its own, through an internal callback. There is no send method to call.
 
 ---
 
@@ -241,7 +241,7 @@ class AXI4SlaveWrite:
     def __init__(self, dut, clock, prefix="", log=None, ifc_name="", **kwargs)
 ```
 
-Responds to write requests by receiving AW address and W data, then generating B channel responses. Properly handles the AXI4 specification requirement that W data can arrive before AW address.
+The write slave: receives the AW address and W data, then answers on B. It handles the AXI4 rule that W data may legally arrive before its AW address — that case is buffered for you.
 
 **Parameters:**
 
@@ -282,7 +282,7 @@ Get the compliance report if compliance checking is enabled.
 
 Print the compliance report to the log if compliance checking is enabled.
 
-Note: The slave automatically generates B responses via internal callbacks when both AW and W data have been received. W-before-AW buffering is handled transparently.
+Note: B responses come from internal callbacks once both the AW and its W data have landed. W-before-AW buffering is handled transparently — your master is allowed to lead with data.
 
 ---
 

@@ -23,13 +23,13 @@
 
 # FIFO Components Overview
 
-The FIFO components directory provides a comprehensive verification framework for First-In-First-Out (FIFO) protocols. These components are designed to support both simple FIFO interfaces and complex multi-field FIFO protocols with advanced timing control and verification features.
+Everything you need to verify a FIFO: from a bare `write`/`read`/`full`/`empty` interface up to multi-field packets carrying address and command fields. The same components cover the whole range — what changes is the field configuration, not the code.
 
 ## Architecture Overview
 
 ### Unified Component Design
 
-The FIFO components are built on a unified architecture that eliminates code duplication while preserving exact timing behavior:
+The family is built in layers: shared base classes on the bottom, the three components on top, and the framework's shared infrastructure underneath all of it. The layering is the point — behavior implemented once, like signal resolution or statistics, behaves identically in all three components.
 
 ```mermaid
 graph TB
@@ -65,64 +65,65 @@ graph TB
 
 ### Key Design Principles
 
-1. **Code Reuse**: Common functionality consolidated in base classes
-2. **Performance**: Optimized signal handling and data collection
-3. **Flexibility**: Support for both simple and complex FIFO protocols
-4. **Compatibility**: Maintains exact API compatibility with existing code
-5. **Observability**: Rich statistics and monitoring capabilities
+1. **Write it once**: common logic lives in the base classes. When a bug gets fixed, it's fixed for master, slave, and monitor at the same time.
+2. **Don't pay for lookups twice**: signals are resolved once and cached; data moves through the unified strategies.
+3. **Configure, don't customize**: a data-only FIFO and a multi-field command/address FIFO use the same components with different FieldConfigs.
+4. **Keep the old APIs**: the refactor preserved the original components' APIs and timing, so existing tests didn't change.
+5. **Make everything observable**: stats, violation counters, and queues are always available. You should never have to guess what the testbench did.
 
 ## Component Types
 
 ### 1. FIFOMaster - Transaction Driver
-**Purpose**: Drives write transactions into FIFO
+**Purpose**: Pushes write transactions into the FIFO
 **Inherits**: `BusDriver`, `FIFOComponentBase`
 **Key Features**:
-- Write transaction queuing and management
-- Configurable write delays and timing
-- Flow control with full signal monitoring
-- Comprehensive statistics tracking
-- Memory model integration
+- Queues and pipelines write transactions
+- Configurable or randomized gaps between writes
+- Watches `full` and backs off automatically
+- Counts everything — sent, stalls, timeouts, violations
+- Optional MemoryModel mirroring
 
 ### 2. FIFOSlave - Transaction Consumer  
-**Purpose**: Reads transactions from FIFO
-**Inherits**: `BusMonitor`, `FIFOComponentBase`
+**Purpose**: Pulls transactions out of the FIFO
+**Inherits**: `BusMonitor`, `FIFOMonitorBase`
 **Key Features**:
-- Active read signal control
-- Configurable read delays and timing
-- Empty signal monitoring
-- Transaction processing and memory storage
-- Protocol violation detection
+- Drives `read` with configurable or randomized timing
+- Watches `empty`; read-while-empty attempts counted
+- Captures and unpacks every transaction
+- MemoryModel-backed storage and checking
+- Same stats and violation detection as the monitor
 
 ### 3. FIFOMonitor - Passive Observer
-**Purpose**: Monitors FIFO transactions without interfering
-**Inherits**: `BusMonitor`, `FIFOComponentBase`
+**Purpose**: Watches either side of the FIFO without touching a signal
+**Inherits**: `BusMonitor`, `FIFOMonitorBase`
 **Key Features**:
-- Write-side or read-side monitoring
-- Protocol violation detection
-- FIFO depth estimation
-- Transaction logging and analysis
-- No signal driving (pure observation)
+- Write-side or read-side monitoring (`is_slave`)
+- Write-while-full, read-while-empty, and X/Z detection
+- Occupancy estimation given the FIFO capacity
+- Packet log via the standard `_recvQ`
+- Drives nothing — safe to attach anywhere
 
 ### 4. Support Components
 
 #### FIFOPacket
-- Protocol-specific packet with FIFO field support
-- Inherits rich formatting and validation from base Packet
-- Support for randomizer integration
+- The base Packet plus master/slave timing randomizers
+- Formatting, masking, validation, and pack/unpack all inherited
+- Delays roll once per packet and cache
 
 #### FIFOSequence  
-- Test pattern generation for comprehensive verification
-- Common patterns: incremental, walking bits, random, stress tests
-- Dependency handling and timing control
+- Pattern generation: incrementing, walking bits, random, corner cases
+- Factory methods for the common test batteries
+- No internal FIFO model — correctness checking is the scoreboard's job
 
 #### FIFOCommandHandler
-- Sequence execution and management
-- Callback support for completion handling
-- Integration with master/slave components
+- Executes sequences through a master/slave pair
+- Completion callbacks for sequencing test phases
 
 ## Protocol Support
 
 ### Basic FIFO Protocol
+The smallest interface the components talk to:
+
 ```verilog
 // Simple FIFO interface
 input  wire       clk,
@@ -136,6 +137,8 @@ output wire        empty
 ```
 
 ### Multi-Field FIFO Protocol
+The same components, with fields unpacked to their own signals:
+
 ```verilog
 // Complex FIFO with multiple fields
 input  wire       clk,
@@ -155,7 +158,8 @@ output wire        empty
 ## Signal Mapping Modes
 
 ### Multi-Signal Mode (`multi_sig=True`)
-Each packet field maps to individual signals:
+Each field becomes its own DUT signal:
+
 ```python
 field_config = FieldConfig()
 field_config.add_field(FieldDefinition("addr", 32))
@@ -167,7 +171,8 @@ master = FIFOMaster(dut, "Master", "", clock, field_config, multi_sig=True)
 ```
 
 ### Single-Signal Mode (`multi_sig=False`)
-All fields packed into single data signal:
+Everything packs into one data bus; the field config defines the layout:
+
 ```python
 # All fields packed into data_sig
 master = FIFOMaster(dut, "Master", "", clock, field_config, multi_sig=False)
@@ -176,6 +181,8 @@ master = FIFOMaster(dut, "Master", "", clock, field_config, multi_sig=False)
 ## Timing Control
 
 ### Built-in Randomization
+Components ship with sensible default randomizers. Pass your own to shape the traffic:
+
 ```python
 # Default randomizer with realistic timing
 master = create_fifo_master(dut, "Master", clock)
@@ -188,6 +195,8 @@ master = create_fifo_master(dut, "Master", clock, randomizer=custom_randomizer)
 ```
 
 ### Deterministic Timing
+Fixed delays when you want reproducibility:
+
 ```python
 # Fixed timing for reproducible tests
 deterministic_randomizer = FlexRandomizer({
@@ -198,6 +207,8 @@ deterministic_randomizer = FlexRandomizer({
 ## Memory Integration
 
 ### Automatic Memory Handling
+Attach a model to both sides and writes can be checked against reads with no scoreboard code at all:
+
 ```python
 # Components automatically handle memory operations
 master = create_fifo_master(dut, "Master", clock, memory_model=memory)
@@ -211,21 +222,22 @@ await master.send(packet)  # Automatically written to memory
 ```
 
 ### Memory Model Features
-- High-performance NumPy backend
+- NumPy backend, so big address spaces stay cheap
 - Address range checking and validation
 - Access pattern tracking and analysis
 - Coverage reporting
-- Transaction-based read/write operations
+- Transaction-based read/write helpers
 
 ## Performance Features
 
 ### Optimized Data Handling
-- **40% faster data collection** through signal caching
-- **30% faster data driving** through optimized strategies
+- **40% faster data collection** and **30% faster driving** than the pre-unification components, from cached signal handles and the unified strategies
 - **Thread-safe operations** for parallel testing
-- **Reduced CPU overhead** through unified infrastructure
+- **Lower CPU overhead** because the infrastructure isn't duplicated per component
 
 ### Statistics and Monitoring
+The numbers are always current — ask mid-test if you want:
+
 ```python
 # Comprehensive performance metrics
 stats = master.get_stats()
@@ -237,6 +249,8 @@ print(f"Average Latency: {stats['master_stats']['average_latency_ms']:.2f}ms")
 ## Factory Functions
 
 ### Simple Test Creation
+One call, working testbench:
+
 ```python
 # Minimal setup for basic testing
 components = create_simple_fifo_test(dut, clock, data_width=32)
@@ -246,6 +260,8 @@ command_handler = components['command_handler']
 ```
 
 ### Complete Test Environment
+Monitors, scoreboard, capacity awareness:
+
 ```python
 # Full environment with monitoring and verification
 components = create_fifo_test_environment(
@@ -259,6 +275,8 @@ components = create_fifo_test_environment(
 ```
 
 ### Custom Configurations
+Every knob, when you need it:
+
 ```python
 # Highly customized setup
 master = create_fifo_master(
@@ -277,6 +295,8 @@ master = create_fifo_master(
 ## Usage Patterns
 
 ### Basic Transaction Flow
+End to end in five steps:
+
 ```python
 # 1. Create components
 master = create_fifo_master(dut, "Master", clock)
@@ -293,6 +313,8 @@ assert observed[0].data == 0x12345678
 ```
 
 ### Sequence-Based Testing
+Sequences generate, the command handler executes:
+
 ```python
 # 1. Create test sequence
 sequence = FIFOSequence.create_stress_test("stress", count=100, burst_size=10)
@@ -308,7 +330,11 @@ stats = command_handler.get_stats()
 print(f"Processed {stats['master_stats']['master_stats']['transactions_completed']} transactions")
 ```
 
+One quirk worth knowing, called out in the comment above: `command_handler.get_stats()` nests each component's stats dict, so the master's counters sit at `['master_stats']['master_stats']`. Deep, but unambiguous.
+
 ### Advanced Monitoring
+Monitors on both sides plus a callback gives you live visibility into the traffic:
+
 ```python
 # Set up comprehensive monitoring
 write_monitor = create_fifo_monitor(dut, "WriteMonitor", clock, is_slave=False)
@@ -327,26 +353,28 @@ write_monitor.add_callback(analyze_transaction)
 ## Error Detection and Diagnostics
 
 ### Protocol Violation Detection
-- Write-while-full conditions
-- Read-while-empty conditions  
-- X/Z signal violations
+- Write-while-full attempts
+- Read-while-empty attempts  
+- X/Z values on control or data signals
 - Timing constraint violations
 
-### Comprehensive Logging
-- Transaction-level logging with timing
-- Protocol violation warnings
+### Logging
+- Transaction-level logging with timestamps
+- Warnings on every protocol violation
 - Performance metrics and alerts
-- Memory access tracking
+- Memory access traces
 
 ### Debug Support
 - Signal state inspection
 - Queue depth monitoring
-- Statistics breakdowns
-- Error categorization and counting
+- Statistics breakdowns by category
+- Error counting by type
 
 ## Integration Guidelines
 
 ### With Scoreboards
+Monitors feed expected/actual straight into a scoreboard:
+
 ```python
 # Scoreboard integration for end-to-end verification
 scoreboard = create_fifo_scoreboard("MainScoreboard", field_config)
@@ -357,6 +385,8 @@ read_monitor.add_callback(scoreboard.add_actual)
 ```
 
 ### With Test Frameworks
+Factories plus sequences keep the full-test pattern short:
+
 ```python
 @cocotb.test()
 async def comprehensive_fifo_test(dut):
@@ -383,21 +413,21 @@ async def comprehensive_fifo_test(dut):
 ## Best Practices
 
 ### Component Setup
-1. **Use Factory Functions**: Simplify setup and reduce errors
-2. **Configure Field Configs**: Define clear packet structures  
-3. **Set Appropriate Randomizers**: Match timing to test requirements
-4. **Enable Memory Models**: For data integrity verification
+1. **Use the factories**: fewer ways to miswire, and the wiring is the same in every test
+2. **Put effort into the FieldConfig**: everything else — packets, sequences, monitors — keys off it
+3. **Choose randomizers that match the test's intent**: throughput and stress want different delay profiles
+4. **Attach a MemoryModel** whenever data integrity is what you're actually checking
 
 ### Performance Optimization
-1. **Use Signal Caching**: Leverage pre-resolved signals
-2. **Batch Operations**: Process multiple transactions efficiently
-3. **Monitor Statistics**: Track performance metrics regularly
-4. **Optimize Test Patterns**: Use efficient sequence generators
+1. **Let the caching work**: don't re-resolve signals in your own code; use the unified methods
+2. **Batch where you can**: process packets in groups rather than one observation at a time
+3. **Watch stats during long runs**, not just at the end — trends show up before failures do
+4. **Prefer the sequence generators**: their patterns are already shaped to hit corners
 
 ### Error Handling
-1. **Check Return Values**: Verify operation success
-2. **Monitor Violations**: Watch for protocol issues
-3. **Validate Statistics**: Ensure expected performance
-4. **Use Debug Modes**: Enable detailed logging for troubleshooting
+1. **Check return values**: drives and memory operations report failure; believe them
+2. **Assert on the violation counters**: a nonzero count should fail the test, not just log
+3. **Sanity-check the stats**: compare success rate and throughput against expectations
+4. **Turn on `super_debug` when something's off**: the signal-mapping trace usually names the culprit
 
-The FIFO components provide a comprehensive, high-performance framework for FIFO protocol verification with extensive customization options and robust error detection capabilities.
+That's the family. Start with the factories, add monitors when you want visibility, and reach for the base classes only when you're writing something new.

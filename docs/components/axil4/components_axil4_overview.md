@@ -23,29 +23,29 @@
 
 # AXIL4 Components Overview
 
-The CocoTBFramework AXIL4 components provide comprehensive support for AXI4-Lite protocol verification and transaction generation. Built on the proven GAXI infrastructure, these components offer a simplified yet powerful interface for memory-mapped register protocol testing with advanced features optimized for single-transaction, lightweight AXI implementations.
+AXI4-Lite is what you reach for when the bus only needs to move registers: no bursts, no IDs, no sideband signals, one beat per transaction. The AXIL4 components in CocoTBFramework are built on the same GAXI substrate as the full AXI4 BFMs, so field configuration, memory models, statistics, and debug tooling all carry over -- what's gone is everything the Lite spec throws away.
 
 ## Framework Integration
 
 ### GAXI Infrastructure Foundation
 
-The AXIL4 components inherit from the robust GAXI framework, providing:
+AXIL4 isn't a separate stack; it's a specialization layered on GAXI. That buys you:
 
-**Unified Field Configuration**: Complete integration with the CocoTBFramework field configuration system for flexible register transaction structures
-**Memory Model Support**: Seamless integration with memory models and register models for data verification
-**Statistics Integration**: Comprehensive performance metrics and transaction tracking
-**Signal Resolution**: Automatic signal detection and mapping across different naming conventions
-**Advanced Debugging**: Multi-level debugging capabilities with detailed transaction logging
+**Unified Field Configuration**: the same field configuration system the rest of the framework uses, trimmed to Lite's smaller field sets
+**Memory Model Support**: slaves can be backed by the shared memory and register models for real read-after-write behavior
+**Statistics Integration**: transaction counts and performance metrics come straight from the GAXI monitors
+**Signal Resolution**: automatic signal detection and mapping across different naming conventions
+**Advanced Debugging**: multi-level debug with detailed transaction logging
 
 ### AXI4-Lite Protocol Specialization
 
-While inheriting GAXI's power, AXIL4 components are specifically optimized for lightweight memory-mapped protocols:
+On top of that foundation, these components are shaped specifically for Lite:
 
-**Simplified Five Channel Architecture**: Complete support for AR, R, AW, W, and B channels without burst complexity
-**Single Transaction Model**: No burst support, single outstanding transaction architecture
-**Register-Oriented Design**: Optimized for control/status register access patterns
-**Reduced Signaling**: No ID, USER, QoS, or REGION signals for simplified implementation
-**Protocol Compliance**: Integrated compliance checking for AXI4-Lite specification adherence
+**Simplified Five Channel Architecture**: AR, R, AW, W, and B, with none of the burst bookkeeping
+**Single Transaction Model**: no burst support, single outstanding transaction architecture
+**Register-Oriented Design**: the API is built around control/status register access patterns
+**Reduced Signaling**: no ID, USER, QoS, or REGION signals -- Lite doesn't have them
+**Protocol Compliance**: an integrated checker scoped to the Lite subset of the AXI4 rules
 
 ## Core Components Architecture
 
@@ -95,19 +95,9 @@ graph TB
 
 ### AXIL4MasterRead - Register Read Operations
 
-The `AXIL4MasterRead` component drives AXI4-Lite read transactions as a master:
+The read master drives AR and listens on R. On the address side it manages ARADDR and ARPROT -- and that's the whole list, since there's no ARID, ARLEN, ARSIZE, or ARBURST to worry about. Addresses are aligned automatically, and the single-transaction model keeps timing simple.
 
-**Address Request Management**:
-- **AR Channel Control**: ARADDR, ARPROT management (no ARID, ARLEN, ARSIZE, ARBURST)
-- **Single Transaction**: One outstanding transaction model for simplified timing
-- **Address Alignment**: Automatic word/byte address alignment
-- **Protection Attributes**: ARPROT signal support for access control
-
-**Read Data Reception**:
-- **R Channel Monitoring**: RDATA, RRESP processing (no RID, RLAST)
-- **Error Handling**: Complete RRESP error detection and reporting (SLVERR, DECERR)
-- **Flow Control**: RREADY signal management for backpressure
-- **Data Width Handling**: Support for 32-bit and 64-bit data widths
+On the data side it processes RDATA and RRESP (again: no RID, no RLAST), raises on SLVERR and DECERR, and manages RREADY so the DUT can apply backpressure. Both 32-bit and 64-bit data widths are supported.
 
 **Register-Oriented API**:
 ```python
@@ -119,18 +109,7 @@ values = await master_read.read_transaction(address=0x300)  # Generic method
 
 ### AXIL4MasterWrite - Register Write Operations
 
-The `AXIL4MasterWrite` component drives AXI4-Lite write transactions as a master:
-
-**Address and Data Management**:
-- **AW Channel Control**: AWADDR, AWPROT management (no AWID, AWLEN, etc.)
-- **W Channel Control**: WDATA, WSTRB coordination (no WID, WLAST)
-- **Byte Lane Control**: WSTRB-based byte-level write enable
-- **Address/Data Synchronization**: Proper ordering of address and data phases
-
-**Write Response Handling**:
-- **B Channel Processing**: BRESP response verification (no BID)
-- **Error Detection**: Complete write response error handling
-- **Transaction Completion**: Proper write transaction lifecycle management
+The write master keeps the two outgoing phases in order and checks the response. AW carries AWADDR/AWPROT, W carries WDATA/WSTRB -- no IDs, no AWLEN, no WLAST. WSTRB gives you byte-lane control over the write, and the B channel response is verified the same way RRESP is on the read side, with SLVERR/DECERR surfaced as errors.
 
 **Register-Oriented API**:
 ```python
@@ -142,19 +121,7 @@ await master_write.single_write(address=0x200, data=0xDEADBEEF)  # API consisten
 
 ### AXIL4SlaveRead - Register Read Response
 
-The `AXIL4SlaveRead` component responds to AXI4-Lite read transactions as a slave:
-
-**Address Processing**:
-- **AR Channel Monitoring**: Read address request detection and decode
-- **Address Range Checking**: Configurable address space definition
-- **Protection Processing**: ARPROT attribute handling
-- **Address Decode Logic**: Simplified decode without burst considerations
-
-**Data Response Generation**:
-- **R Channel Control**: RDATA, RRESP generation based on address decode
-- **Register Model Integration**: Direct connection to register models
-- **Error Response**: Configurable SLVERR, DECERR response generation
-- **Response Timing**: Configurable RVALID timing and latency modeling
+The read slave watches AR, decodes the address against a configurable address range, handles ARPROT, and answers on R. With no bursts to sequence, the decode logic stays genuinely simple. Response data can come straight from a register or memory model, SLVERR/DECERR generation is configurable, and RVALID timing can be delayed to model a slow register block.
 
 **Memory Model Integration**:
 ```python
@@ -167,18 +134,7 @@ slave_read = AXIL4SlaveRead(dut, clk, "s_axil_", memory_model=memory)
 
 ### AXIL4SlaveWrite - Register Write Response
 
-The `AXIL4SlaveWrite` component responds to AXI4-Lite write transactions as a slave:
-
-**Write Transaction Processing**:
-- **AW/W Channel Coordination**: Address and data phase synchronization
-- **Write Strobe Processing**: WSTRB-based byte-level write processing
-- **Register Update**: Direct register model updates based on address decode
-- **Write Protection**: Address-based write protection and access control
-
-**Write Response Generation**:
-- **B Channel Control**: BRESP response generation based on write result
-- **Error Conditions**: Configurable error response for invalid addresses
-- **Response Timing**: Realistic write response latency modeling
+The write slave coordinates the AW and W phases -- both must land before it responds -- applies WSTRB per byte, updates the backing register or memory model, and drives B with the result. Address-based write protection and configurable response latency are available.
 
 **Advanced Features**:
 ```python
@@ -193,7 +149,7 @@ slave_write.w_channel.add_callback(on_w_packet)
 
 ### AXIL4FieldConfigs - Simplified Channel Configuration
 
-The AXIL4 field configuration system provides simplified configurations optimized for AXI4-Lite:
+The field configs are where the Lite diet shows. Each channel's config contains exactly the fields the spec allows, and the helper builds them for you:
 
 **Simplified Channel Configurations**:
 ```python
@@ -221,32 +177,22 @@ w_config = AXIL4FieldConfigHelper.create_w_field_config(
 b_config = AXIL4FieldConfigHelper.create_b_field_config()
 ```
 
-**Key Simplifications**:
-- **No ID Fields**: Single outstanding transaction removes ID requirements
-- **No Burst Fields**: AWLEN, ARLEN, AWSIZE, ARSIZE, AWBURST, ARBURST omitted
-- **No USER Fields**: Simplified sideband signaling
-- **No LAST Fields**: Single transfer per transaction removes WLAST, RLAST
+The omissions are the point:
+
+- **No ID Fields**: a single outstanding transaction leaves nothing for an ID to distinguish
+- **No Burst Fields**: AWLEN, ARLEN, AWSIZE, ARSIZE, AWBURST, ARBURST simply don't exist here
+- **No USER Fields**: Lite has no sideband signaling
+- **No LAST Fields**: one beat per transaction makes WLAST and RLAST meaningless
 
 ## Advanced Features
 
 ### AXIL4ComplianceChecker - Simplified Protocol Verification
 
-The AXIL4 compliance checker focuses on AXI4-Lite specific requirements:
-
-**Protocol Compliance Checking**:
-- **Handshake Protocol**: VALID/READY signal timing verification
-- **Single Transaction**: Verification of no outstanding transaction violations
-- **Address Alignment**: Word/byte alignment requirement checking
-- **Response Consistency**: BRESP/RRESP consistency verification
-
-**Simplified Monitoring**:
-- **No Burst Checking**: Simplified verification without burst complexity
-- **No ID Tracking**: No transaction ID consistency requirements
-- **Single Outstanding**: Simple outstanding transaction limit enforcement
+The compliance checker covers the rules that survive in Lite -- VALID/READY handshake timing, payload stability, address alignment, write-strobe validity, response-code range -- and skips the ones that don't. No burst checking, no ID tracking: there are no bursts and no IDs. Concurrent read and write activity is legal in AXI4-Lite, so outstanding depth is reported as a statistic rather than flagged as a violation.
 
 ### Register Model Integration
 
-AXIL4 components provide extensive register model support:
+AXIL4 slaves pair naturally with a register map. A small definition class is enough to get readable names and access policies:
 
 **Register Definition**:
 ```python
@@ -282,6 +228,8 @@ def register_access_monitor(address, data, is_write, strobe=None):
 
 ### Basic Register Access
 
+The common case: two masters, full-word and byte-lane access.
+
 ```python
 # Create AXIL4 master interfaces
 master_read = AXIL4MasterRead(dut, clk, "m_axil_", data_width=32, addr_width=32)
@@ -297,6 +245,8 @@ await master_write.write_register(0x108, 0xFF00, strb=0x2)  # Write byte 1 only
 ```
 
 ### Configuration Space Testing
+
+The register idioms map cleanly onto PCIe-style configuration space -- write-all-ones BAR sizing and friends:
 
 ```python
 async def test_configuration_space():
@@ -319,6 +269,8 @@ async def test_configuration_space():
 ```
 
 ### Peripheral Control Interface
+
+A typical poll-until-done peripheral sequence:
 
 ```python
 async def test_peripheral_control():
@@ -345,6 +297,8 @@ async def test_peripheral_control():
 ```
 
 ### Memory-Mapped FIFO Testing
+
+A memory-mapped FIFO, exercised through its status and data registers:
 
 ```python
 async def test_memory_mapped_fifo():
@@ -376,19 +330,12 @@ async def test_memory_mapped_fifo():
 
 ### Single Transaction Benefits
 
-**Simplified State Machines**:
-- **No Outstanding Tracking**: Single transaction simplifies state management
-- **Reduced Latency**: Immediate response without queueing complexity
-- **Lower Resource Usage**: Minimal buffering requirements
-
-**Register Access Optimization**:
-- **Direct Mapping**: Address directly maps to register without burst decode
-- **Immediate Response**: Single-cycle register access patterns
-- **Simplified Arbitration**: No complex outstanding transaction arbitration
+The single-transfer model isn't just less protocol -- it's less testbench. With no bursts and one transaction in flight, there's no outstanding-transaction scoreboarding, slave state machines stay small, responses come back without queueing delay, and buffering requirements are minimal. Addresses map straight onto registers with no burst decode in between, so a read can complete in a cycle, and arbitration is trivial when there's at most one thing to arbitrate.
 
 ### Timing Optimization
 
-**Minimal Protocol Overhead**:
+Slave response latency is a construction parameter, so you can model a slow register block without touching your stimulus:
+
 ```python
 # Slave response latency is configured at construction time
 slave_read = AXIL4SlaveRead(
@@ -402,7 +349,8 @@ slave_read = AXIL4SlaveRead(
 
 ### Register Access Logging
 
-**Transaction-Level Tracing**:
+Hand the components a logger and every register access is logged at DEBUG level -- address, data, strobe patterns, response codes:
+
 ```python
 # Pass a logger at construction; all register accesses are logged at
 # DEBUG level with address, data, strobe patterns, and response codes.
@@ -410,7 +358,8 @@ master_read = AXIL4MasterRead(dut, clk, "m_axil_", log=my_logger)
 master_write = AXIL4MasterWrite(dut, clk, "m_axil_", log=my_logger)
 ```
 
-**Observing Channel Traffic**:
+If you want your own view of the traffic, callbacks on the underlying channels hand you the packets:
+
 ```python
 # Attach callbacks to the underlying channels to build custom access reports
 accesses = []
@@ -421,15 +370,18 @@ master_write.b_channel.add_callback(lambda pkt: accesses.append(('B', pkt)))
 
 ### Performance Analysis
 
-**AXIL4-Specific Metrics**:
-- **Register Access Frequency**: Per-register access statistics
-- **Response Latency**: Read and write response timing analysis
-- **Bus Utilization**: Percentage of time bus is active
-- **Error Rate**: SLVERR/DECERR response frequency
+Worth tracking on a Lite bus:
+
+- **Register Access Frequency**: per-register hit counts -- which registers are actually hot
+- **Response Latency**: read and write response timing
+- **Bus Utilization**: how much of the time the bus is actually moving data
+- **Error Rate**: how often SLVERR/DECERR shows up
 
 ## Configuration Examples
 
 ### Standard 32-bit Configuration
+
+The setup most designs want. Strobe width follows from `data_width`:
 
 ```python
 # Typical 32-bit AXIL4 configuration (strobe width derives from data_width)
@@ -445,6 +397,8 @@ master_write = AXIL4MasterWrite(dut, clk, "m_axil_", **axil_config)
 
 ### 64-bit AXIL4 Configuration
 
+Lite at 64 bits, for wider register blocks:
+
 ```python
 # 64-bit wide AXIL4 configuration for high-performance applications
 axil_64_config = {
@@ -455,4 +409,6 @@ axil_64_config = {
 master_read = AXIL4MasterRead(dut, clk, "m_axil_", **axil_64_config)
 ```
 
-The AXIL4 components provide a comprehensive, efficient, and simplified solution for AXI4-Lite protocol verification, combining the power of the GAXI infrastructure with AXI4-Lite-specific optimizations and advanced features for complete register-oriented interface testing.
+Same GAXI machinery underneath -- just a lot less protocol on the wire.
+
+---

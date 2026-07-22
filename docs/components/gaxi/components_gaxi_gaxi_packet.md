@@ -23,16 +23,15 @@
 
 # gaxi_packet.py
 
-GAXI Packet class with minimal protocol-specific extensions to the base Packet class. Provides GAXI-specific randomizer handling while inheriting all field management, masking, pack/unpack, and formatting functionality.
+GAXIPacket is thin on purpose. Everything that makes a packet useful — field validation, masking, pack/unpack, formatting — lives in the base Packet class and works here unchanged. What this subclass adds is timing: a packet can carry a master randomizer and a slave randomizer, and when a driver asks, it hands back the number of cycles to wait before touching valid or ready.
 
 ## Overview
 
 The `GAXIPacket` class provides:
-- **Minimal extension** of base Packet class for GAXI protocol
-- **GAXI-specific randomizer handling** for master and slave interfaces
-- **Inherited functionality** from base Packet for all field operations
-- **Timing delay management** for valid and ready signals
-- **Protocol-specific delay calculations** using FlexRandomizer
+- **All field operations inherited** from base Packet, unmodified
+- **Per-packet master/slave randomizers** for timing control
+- **Valid-delay and ready-delay generation** via FlexRandomizer
+- **Delays generated once and cached per packet** — reuse the packet and you reuse its delays (this is the part that surprises people)
 
 All field management, masking, pack/unpack, and formatting functionality is inherited from the base Packet class without modification.
 
@@ -64,7 +63,7 @@ class GAXIPacket(Packet):
 ### Randomizer Management
 
 #### `set_master_randomizer(randomizer)`
-Set the master randomizer for valid delay generation.
+Attach (or replace) the randomizer that produces valid delays.
 
 **Parameters:**
 - `randomizer`: FlexRandomizer instance for master timing
@@ -81,7 +80,7 @@ packet.set_master_randomizer(master_randomizer)
 ```
 
 #### `set_slave_randomizer(randomizer)`
-Set the slave randomizer for ready delay generation.
+Attach (or replace) the randomizer that produces ready delays.
 
 **Parameters:**
 - `randomizer`: FlexRandomizer instance for slave timing
@@ -98,7 +97,7 @@ packet.set_slave_randomizer(slave_randomizer)
 ### Delay Generation
 
 #### `get_master_delay()`
-Get the delay for the master interface (valid delay).
+The valid delay for this packet, in cycles. First call rolls the randomizer and caches the result; later calls return the cached value. Returns 0 if no master randomizer is set.
 
 **Returns:** Delay in cycles (0 if no randomizer)
 
@@ -109,7 +108,7 @@ print(f"Master should wait {valid_delay} cycles before asserting valid")
 ```
 
 #### `get_slave_delay()`
-Get the delay for the slave interface (ready delay).
+The ready delay for this packet, in cycles. Same caching behavior as the master side.
 
 **Returns:** Delay in cycles (0 if no randomizer)
 
@@ -180,6 +179,8 @@ print(f"Slave ready delay: {ready_delay} cycles")
 
 ### Field Operations (Inherited)
 
+Nothing here is GAXI-specific — it's the base Packet contract, shown because it's what you'll actually use most.
+
 ```python
 # All field operations inherited from base Packet class
 
@@ -201,6 +202,8 @@ print(packet.formatted(compact=True))  # Compact format
 ```
 
 ### Transaction Timing Integration
+
+How a driver might consume the packet's delay when pushing it onto the bus:
 
 ```python
 import cocotb
@@ -253,6 +256,8 @@ packet = await master.send_packet(addr=0x1000, data=0x12345678, cmd=0x2)
 ```
 
 ### Slave Timing Integration
+
+And the mirror image on the receive side — delay before raising ready:
 
 ```python
 class TimedGAXISlave:
@@ -401,6 +406,8 @@ print(f"FIFO data: {fifo_data}")
 
 ### Randomizer Delay Caching
 
+Worth understanding before it confuses you: the delay is rolled once per packet and then frozen. The cache exists so a driver can ask for the delay more than once without re-rolling — the flip side is that reusing a packet reuses its timing. New transaction, new random delay? Build a new packet.
+
 ```python
 def test_delay_caching():
     """Test that delays are cached until randomizer is reset"""
@@ -451,6 +458,9 @@ except ValueError as e:
 ```
 
 ### Missing Randomizers
+
+No randomizer attached means zero delay, not an error — a packet without timing constraints just transfers as fast as the handshake allows.
+
 ```python
 # Graceful handling when randomizers not set
 packet = GAXIPacket(field_config)
@@ -474,7 +484,10 @@ except Exception as e:
 
 ## Best Practices
 
-### 1. **Use Appropriate Randomizers for Each Interface**
+### 1. **Separate Randomizers for Each Direction**
+
+Valid timing and ready timing are different knobs. Keep them in different FlexRandomizer instances so you can tune backpressure without touching launch timing.
+
 ```python
 # Master randomizer for valid delays
 master_randomizer = FlexRandomizer({'valid_delay': ([(0, 5)], [1.0])})
@@ -487,7 +500,7 @@ packet = GAXIPacket(field_config,
                    slave_randomizer=slave_randomizer)
 ```
 
-### 2. **Leverage Inherited Functionality**
+### 2. **Use the Inherited Machinery**
 ```python
 # Use inherited field operations
 packet.addr = 0x1000           # Field validation automatic
@@ -495,7 +508,10 @@ fifo_data = packet.pack_for_fifo()  # FIFO conversion automatic
 formatted = packet.formatted()      # Rich formatting automatic
 ```
 
-### 3. **Cache Timing Delays Appropriately**
+### 3. **Respect the Delay Cache**
+
+One packet, one delay. Create a fresh packet per transaction when you want fresh randomization.
+
 ```python
 # Delays are cached per packet - appropriate for single transaction
 master_delay = packet.get_master_delay()  # Generated and cached
@@ -506,7 +522,10 @@ new_packet = GAXIPacket(field_config, master_randomizer=randomizer)
 new_delay = new_packet.get_master_delay()  # Fresh delay
 ```
 
-### 4. **Use Timing Integration in Components**
+### 4. **Let the Components Attach Timing**
+
+Masters and slaves own their randomizers; packets created through them pick up the right one automatically.
+
 ```python
 # Integrate timing into master/slave components
 class TimingAwareMaster:
@@ -520,7 +539,7 @@ class TimingAwareMaster:
         # Apply delay and send
 ```
 
-### 5. **Validate Packet Integrity**
+### 5. **Validate with the Inherited Comparison**
 ```python
 # Use inherited comparison for validation
 assert sent_packet == received_packet, "Packet data mismatch"
@@ -531,4 +550,4 @@ if sent_packet != received_packet:
     print(f"Received: {received_packet.formatted(compact=True)}")
 ```
 
-The GAXIPacket provides a minimal, focused extension to the base Packet class specifically for GAXI protocol timing requirements while leveraging all the robust field management, validation, and formatting capabilities of the base packet infrastructure.
+Use GAXIPacket like a plain Packet and only think about the randomizers when you wire up a driver. The one rule to remember is the caching: ask twice, get the same number; want a new number, build a new packet.

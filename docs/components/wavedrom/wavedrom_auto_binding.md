@@ -25,21 +25,21 @@
 
 **Version:** 2.0 (SignalResolver Integration)
 **Last Updated:** 2025-10-04
-**Status:** ✅ Production Ready
+**Status:** Production Ready
 
 ---
 
 ## Overview
 
-The WaveDrom infrastructure has been modernized to use **automatic signal discovery** via the proven SignalResolver methodology. This eliminates manual signal binding and provides robust error reporting with troubleshooting guidance.
+WaveDrom signal binding runs through SignalResolver, the same pattern-matching layer the BFMs use. Hand it a prefix and it finds the signals on your DUT; if your naming is unusual, `signal_map` gives you exact control. When discovery fails, the error message tells you which patterns it tried and which candidate signals it actually found on the DUT — you spend your time fixing the name, not hunting through hierarchy.
 
-### Key Benefits
+### What You Get
 
-✅ **Automatic Discovery**: Tries multiple naming patterns to find signals
-✅ **Manual Override**: Full control when needed via `signal_map` parameter
-✅ **Rich Visualization**: Beautiful tables showing signal mappings
-✅ **Error Guidance**: Comprehensive troubleshooting messages
-✅ **Protocol Support**: GAXI, APB, AXIS (more coming)
+- **Automatic discovery** — each logical signal is matched against a list of naming patterns until one sticks
+- **Manual override** — `signal_map` binds exactly what you say, no guessing
+- **A printed mapping table** — you can see what got bound before the test runs
+- **Errors that help** — failures list the valid-like signals present on the DUT and show the override syntax
+- **Protocol coverage** — GAXI, APB, AXIS today, more as presets land
 
 ---
 
@@ -49,6 +49,8 @@ The WaveDrom infrastructure has been modernized to use **automatic signal discov
     The protocol-specific wavedrom user examples (`GAXIWaveDromTemplate`, `APBWaveDromTemplate`, etc.) are located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository under `tbclasses/wavedrom_user/`.
 
 ### GAXI WaveDrom (Simplest Case)
+
+If your signals share a prefix, the whole setup is one constructor:
 
 ```python
 # Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
@@ -72,7 +74,11 @@ async def my_test(dut):
     gaxi_wave.get_status()
 ```
 
+Discovery, binding, constraint setup, and the WaveJSON generator are all wired up behind that call.
+
 ### APB WaveDrom
+
+Same shape, APB signals:
 
 ```python
 # Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/apb.py)
@@ -102,7 +108,7 @@ async def my_apb_test(dut):
 
 ### Pattern Matching
 
-SignalResolver tries **multiple naming patterns** for each signal:
+SignalResolver doesn't take one guess and give up — it walks a list of patterns per logical signal and uses the first that exists on the DUT:
 
 #### GAXI Example (prefix='wr_'):
 - `valid` signal: tries `wr_valid`, `wr_gaxi_valid`, `wr_m2s_valid`, etc.
@@ -114,9 +120,9 @@ SignalResolver tries **multiple naming patterns** for each signal:
 - `penable` signal: tries `apb_penable`, `apb_PENABLE`, etc.
 - `paddr` signal: tries `apb_paddr`, `apb_PADDR`, `apb_addr`, etc.
 
-### Rich Table Display
+### The Mapping Table
 
-When signals are discovered, you see a beautiful table:
+Discovery prints what it bound. Read this table once when you bring up a new bench — a wrong match here explains every strange waveform downstream:
 
 | Logical Signal | Matched Signal | Cocotb Signal | Status |
 |----------------|----------------|---------------|--------|
@@ -124,7 +130,7 @@ When signals are discovered, you see a beautiful table:
 | ready | wr_ready | ready | Found |
 | data_sig | wr_data | data | Found (Optional) |
 
-*Signal Mapping for GAXI WaveDrom (gaxi_wavedrom) - Automatic discovery*
+*Signal mapping for GAXI WaveDrom (gaxi_wavedrom), automatic discovery*
 
 ---
 
@@ -149,15 +155,15 @@ class GAXIWaveDromTemplate:
 ```
 
 **Parameters:**
-- `signal_prefix`: Signal name prefix (e.g., `'wr_'`, `'cmd_'`, `'s_'`)
-- `data_width`: Data field width
-- `preset`: Constraint preset:
-  - `'comprehensive'`: All handshake patterns (default)
-  - `'basic_handshake'`: Simple valid/ready
-  - `'performance'`: Throughput analysis
-  - `'debug'`: Debug patterns
-- `signal_map`: Manual override (see below)
-- `clock_signal`: Auto-detected if None (tries `axi_aclk`, `i_clk`, `clk`)
+- `signal_prefix`: prefix prepended to discovered names (`'wr_'`, `'cmd_'`, `'s_'`, ...)
+- `data_width`: data field width
+- `preset`: which constraint set to load:
+  - `'comprehensive'`: all handshake patterns (default)
+  - `'basic_handshake'`: plain valid/ready
+  - `'performance'`: throughput analysis
+  - `'debug'`: debug patterns
+- `signal_map`: manual override (see below)
+- `clock_signal`: auto-detected when None (tries `axi_aclk`, `i_clk`, `clk`)
 
 ### APBWaveDromTemplate
 
@@ -175,15 +181,15 @@ class APBWaveDromTemplate:
 ```
 
 **Parameters:**
-- `signal_prefix`: Signal name prefix (e.g., `'apb_'`, `'s_apb_'`, `''`)
-- `preset`: Constraint preset:
-  - `'comprehensive'`: Full APB protocol analysis (default)
-  - `'basic_rw'`: Read/write transactions only
-  - `'timing'`: Timing and wait state analysis
-  - `'debug'`: Debug patterns
-  - `'error'`: Error-focused
-- `signal_map`: Manual override
-- `clock_signal`: Auto-detected (tries `pclk`, `apb_pclk`, `i_clk`, `clk`)
+- `signal_prefix`: prefix prepended to discovered names (`'apb_'`, `'s_apb_'`, `''`)
+- `preset`: which constraint set to load:
+  - `'comprehensive'`: full APB protocol analysis (default)
+  - `'basic_rw'`: read/write transactions only
+  - `'timing'`: timing and wait state analysis
+  - `'debug'`: debug patterns
+  - `'error'`: error-focused
+- `signal_map`: manual override
+- `clock_signal`: auto-detected (tries `pclk`, `apb_pclk`, `i_clk`, `clk`)
 
 ---
 
@@ -191,11 +197,12 @@ class APBWaveDromTemplate:
 
 ### When You Need It
 
-Use `signal_map` when:
+Reach for `signal_map` when you have:
+
 - Non-standard signal naming
-- Unusual prefixes
-- Legacy designs
-- Quick override without renaming
+- A prefix the pattern lists don't cover
+- Legacy RTL you can't rename
+- Or when you just want one signal pinned without touching anything else
 
 ### GAXI Manual Override
 
@@ -238,7 +245,7 @@ apb_wave = APBWaveDromTemplate(
 
 ### Multiple Data Fields (GAXI)
 
-For protocols with packet fields:
+For packet-style interfaces, describe the fields once and discovery looks for one signal per field:
 
 ```python
 from CocoTBFramework.components.shared.field_config import FieldConfig, FieldDefinition
@@ -261,9 +268,9 @@ gaxi_wave = GAXIWaveDromTemplate(
 
 ## Error Handling
 
-### Comprehensive Error Messages
+### When a Signal Isn't Found
 
-If signal not found, you get helpful troubleshooting:
+Setup fails loudly, and the message is long on purpose: it shows the patterns tried, the valid-like signals that do exist on the DUT, and the `signal_map` line that would fix it.
 
 ```
 🚨 CRITICAL: No valid signal found for GAXI WaveDrom!
@@ -313,13 +320,13 @@ graph TB
 
 ### Signal Flow
 
-1. **Template Init**: User creates `GAXIWaveDromTemplate(dut, signal_prefix='wr_')`
-2. **Auto-Bind**: Template calls `wave_solver.auto_bind_signals('gaxi', signal_prefix='wr_')`
-3. **Wavedrom Binder**: Creates `WavedromSignalBinder` with protocol='gaxi_wavedrom'
-4. **Signal Resolver**: Uses `PROTOCOL_SIGNAL_CONFIGS['gaxi_wavedrom']` patterns
-5. **Pattern Match**: Tries all combinations: `wr_valid`, `wr_gaxi_valid`, etc.
-6. **Binding**: Found signals bound to solver via `add_signal_binding()`
-7. **Display**: Rich table shows all mappings
+1. **Template init** — you create `GAXIWaveDromTemplate(dut, signal_prefix='wr_')`
+2. **Auto-bind** — the template calls `wave_solver.auto_bind_signals('gaxi', signal_prefix='wr_')`
+3. **Wavedrom binder** — builds a `WavedromSignalBinder` with protocol='gaxi_wavedrom'
+4. **Signal resolver** — pulls its patterns from `PROTOCOL_SIGNAL_CONFIGS['gaxi_wavedrom']`
+5. **Pattern match** — tries each combination in turn: `wr_valid`, `wr_gaxi_valid`, ...
+6. **Binding** — matched signals are bound to the solver via `add_signal_binding()`
+7. **Display** — the mapping table is printed
 
 ---
 
@@ -327,7 +334,7 @@ graph TB
 
 ### Adding New Protocols
 
-To add a new protocol to automatic discovery:
+Teaching discovery a new protocol takes three edits:
 
 **1. Add patterns to `signal_mapping_helper.py`:**
 
@@ -393,7 +400,8 @@ async def test_wavedrom(dut):
 
 ### View Generated WaveJSON
 
-WaveJSON files are auto-generated:
+One WaveJSON file per matched scenario lands next to the sim output:
+
 - `wr_handshake_001.json`
 - `wr_back2back_001.json`
 - `wr_stall_001.json`
@@ -406,6 +414,8 @@ View at: https://wavedrom.com/editor.html
 ## Advanced Usage
 
 ### Custom Constraints with Auto-Binding
+
+You can drive the solver directly, write your own constraints, and still get discovery for the signals:
 
 ```python
 # Create solver with auto-binding
@@ -439,9 +449,11 @@ await wave_solver.start_sampling()
 await wave_solver.stop_sampling()
 ```
 
+Note the comment in the code — it trips people up: passing `signal_map` bypasses discovery entirely, so the map has to list every required signal, not just the one with the odd name.
+
 ### Debugging Signal Resolution
 
-Enable super-debug mode:
+If discovery is being mysterious, ask it to narrate:
 
 ```python
 wave_solver.auto_bind_signals(
@@ -456,6 +468,8 @@ wave_solver.auto_bind_signals(
 ## Migration Guide
 
 ### From Manual Binding
+
+Manual binding still works — auto-binding is just shorter:
 
 **Old approach:**
 ```python
@@ -492,21 +506,22 @@ wave = GAXIWaveDromTemplate(dut, signal_prefix='wr_', data_width=32)
 
 ### Signal Not Found
 
-**Problem:** "No valid signal found"
+**Symptom:** "No valid signal found"
 
-**Solutions:**
-1. Check signal name with `print(dir(dut))` or DUT hierarchy
-2. Verify `signal_prefix` is correct
-3. Use `signal_map` for manual override:
+**Fixes:**
+1. Look at the actual hierarchy — `print(dir(dut))` is your friend here
+2. Check that `signal_prefix` matches your naming
+3. Pin the signal manually:
    ```python
    signal_map={'valid': 'actual_signal_name'}
    ```
 
 ### Clock Not Auto-Detected
 
-**Problem:** "Could not auto-detect clock signal"
+**Symptom:** "Could not auto-detect clock signal"
 
-**Solution:** Provide clock explicitly:
+**Fix:** hand it the clock explicitly.
+
 ```python
 wave = GAXIWaveDromTemplate(
     dut,
@@ -517,29 +532,29 @@ wave = GAXIWaveDromTemplate(
 
 ### No Patterns Found
 
-**Problem:** Wavedrom runs but finds no patterns
+**Symptom:** sampling runs to completion, but nothing matches
 
-**Solutions:**
-1. Check constraints match your traffic (use `preset='debug'`)
-2. Verify signals toggling: `wave.get_status()`
-3. Check window sizes - may need larger: `max_cycles=50`
+**Fixes:**
+1. The constraint windows may not fit your traffic — try `preset='debug'`
+2. Confirm the signals are actually toggling with `wave.get_status()`
+3. Widen the window — `max_cycles=50` or more for slow patterns
 
 ---
 
 ## Best Practices
 
-### ✅ DO
+### Do
 
-- Use automatic discovery with `signal_prefix`
-- Let clock auto-detect when possible
-- Use appropriate preset for your use case
-- Check status with `wave.get_status()` after sampling
+- Use discovery with `signal_prefix` — it's the path everything else is tested against
+- Let the clock auto-detect when your naming is standard
+- Pick the preset that matches what you're actually looking for
+- Call `wave.get_status()` after sampling; it tells you what happened, not what you hoped happened
 
-### ❌ DON'T
+### Don't
 
-- Don't use manual `signal_map` unless necessary
-- Don't hardcode signal handles
-- Don't skip error messages - they have solutions!
+- Reach for `signal_map` when a prefix would do the job
+- Hardcode signal handles into tests
+- Skim past the error messages — they usually name the fix
 
 ---
 

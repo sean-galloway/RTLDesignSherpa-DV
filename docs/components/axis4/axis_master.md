@@ -23,7 +23,7 @@
 
 # AXISMaster
 
-The `AXISMaster` class provides comprehensive AXI4-Stream protocol master (source) functionality. Built on the GAXI infrastructure, it offers advanced stream data generation, flow control management, and packet-based transmission with complete sideband signal support.
+`AXISMaster` is the stream source: it drives the AXI4-Stream T channel as a master. All of the actual bus driving is done by the GAXI transmit pipeline it inherits — this class is the stream-shaped layer on top. It gives you `send_stream_data` and friends, handles TLAST so frames end where they should, and counts packets and frames as they go out.
 
 ## Class Overview
 
@@ -48,17 +48,17 @@ class AXISMaster(GAXIMaster):
 
 ### Delegation to the GAXI Pipeline
 
-All bus driving is performed by `GAXIMaster`'s structured transmit pipeline. `send_packet` queues the packet on that pipeline and awaits completion; `send_stream_data` (and therefore `send_frame`) queues **every beat up front** so they stream back-to-back — the GAXI pipeline keeps TVALID asserted between queued beats for zero-bubble operation when the slave holds TREADY high — and then waits for the pipeline to drain.
+All bus driving is performed by `GAXIMaster`'s structured transmit pipeline. `send_packet` queues one packet on that pipeline and awaits completion; `send_stream_data` (and therefore `send_frame`) queues **every beat up front** so they stream back-to-back — the GAXI pipeline keeps TVALID asserted between queued beats for zero-bubble operation when the slave holds TREADY high — and then waits for the pipeline to drain.
 
-`AXISMaster` maintains no send queue, busy flag, or drive loop of its own. `is_busy()` and `get_queue_depth()` report the state of the inherited GAXI transmit queue (`self.transmit_queue` / `self.transfer_busy`).
+`AXISMaster` keeps no send queue, busy flag, or drive loop of its own. `is_busy()` and `get_queue_depth()` report the state of the inherited GAXI transmit queue (`self.transmit_queue` / `self.transfer_busy`).
 
-**Timeout behavior**: a TREADY handshake timeout is detected and raised by the GAXI pipeline (as a cocotb `TestFailure` after `timeout_cycles`), rather than being reported as a `False` return value. The `send_*` methods return `True` on success.
+**Timeout behavior** — worth knowing before you write your first test: a TREADY handshake timeout does not come back as `False`. The GAXI pipeline detects it and raises cocotb's `TestFailure` after `timeout_cycles`. The `send_*` methods return `True` on success precisely because there is no `False` path — failure is an exception, so write your test accordingly.
 
 ## Constructor
 
 ### `__init__(dut, title, prefix, clock, **kwargs)`
 
-Initialize the AXIS Master component.
+Construct the master and resolve the bus signals sitting under `prefix`.
 
 **Parameters:**
 - **`dut`** - Device under test instance
@@ -98,7 +98,7 @@ master = AXISMaster(
 
 #### `send_stream_data(data_list, **kwargs)` (async)
 
-Send multiple data values as a stream with automatic packet management.
+The workhorse. Hand it a list of data values and it sends them down the stream as one frame, with TLAST handled for you.
 
 **Parameters:**
 - **`data_list`** (list) - List of data values to send
@@ -124,7 +124,7 @@ success = await master.send_stream_data(
 
 #### `send_packet(packet)` (async)
 
-Send a single AXIS packet with complete control over all fields.
+Send one packet exactly as you built it — every field on the wire comes from the packet object, so this is the method to use when you need control the conveniences don't give you.
 
 **Parameters:**
 - **`packet`** (AXISPacket) - Configured packet to send
@@ -146,7 +146,7 @@ success = await master.send_packet(packet)
 
 #### `send_frame(frame_data, **kwargs)` (async)
 
-Send a complete frame (multiple transfers with TLAST on final).
+Send a complete frame: multiple beats, TLAST on the final one. A thin wrapper over `send_stream_data` with frame-flavored argument names.
 
 **Parameters:**
 - **`frame_data`** (list) - List of data values for the frame
@@ -169,7 +169,7 @@ success = await master.send_frame(
 
 #### `send_single_beat(data, **kwargs)` (async)
 
-Send a single beat/transfer with full field control.
+Send one beat. TLAST defaults to asserted, so out of the box this is a complete one-beat frame — set `last=0` explicitly if more beats are coming.
 
 **Parameters:**
 - **`data`** - Data value to send
@@ -198,19 +198,19 @@ success = await master.send_single_beat(
 
 ### `is_busy()`
 
-Check if master is currently busy sending data.
+True while anything is queued or mid-transfer on the inherited transmit pipeline.
 
 **Returns:** `bool` - True if transactions are queued or active
 
 ### `get_queue_depth()`
 
-Get current send queue depth.
+How many packets are still waiting in the inherited GAXI transmit queue.
 
 **Returns:** `int` - Number of packets waiting in the inherited GAXI transmit queue
 
 ### `get_stats()`
 
-Get comprehensive transmission statistics.
+The counters, in one dict:
 
 **Returns:** `dict` - Statistics dictionary containing:
 - `packets_sent` - Total packets transmitted
@@ -232,11 +232,12 @@ print(f"Queue depth: {stats['queue_depth']}, Busy: {stats['is_busy']}")
 
 ### Flow Control and Timing
 
-The AXISMaster automatically handles:
-- **TREADY Backpressure**: Waits for slave readiness before transmission
-- **Timeout Protection**: Configurable timeout to prevent deadlocks
-- **Pipeline Control**: Efficient pipeline management for maximum throughput
-- **Timing Randomization**: Optional randomizer integration for realistic test scenarios
+Things the master handles without being asked:
+
+- **TREADY backpressure**: the pipeline holds TVALID and waits — it never drops a beat because the slave wasn't ready.
+- **Timeout protection**: if TREADY stays low for `timeout_cycles`, the pipeline raises instead of hanging your test forever.
+- **Zero-bubble streaming**: beats queued back-to-back go out back-to-back when TREADY stays high.
+- **Timing randomization**: pass a randomizer at construction if you want a less perfectly-behaved source.
 
 ### Memory Model Integration
 
@@ -253,7 +254,8 @@ await master.send_stream_data([0x1000, 0x2000, 0x3000])
 
 ### Statistics and Monitoring
 
-The component provides comprehensive statistics:
+The counters are the honest kind — they count what actually completed on the bus:
+
 - Packet and frame counters
 - Byte transfer tracking
 - Timeout and error monitoring
@@ -343,23 +345,21 @@ async def test_custom_packets():
 
 ## Error Handling
 
-The AXISMaster provides robust error handling:
-- Timeout detection and reporting
-- Exception catching and logging
-- Transaction failure tracking
-- Automatic recovery mechanisms
+Failures surface as exceptions rather than silent drops — the TREADY timeout described above is the one you'll meet first. Beyond that, the component logs what it catches, tracks failed transactions in the statistics, and recovers so the test can continue or fail cleanly.
 
 **Common error scenarios:**
-- TREADY timeout (slave not accepting data)
-- Invalid packet configuration
+- TREADY timeout — the slave never accepted a beat (usually a dead DUT, a ready-generation bug, or a slave that was never configured)
+- Invalid packet configuration — a field value that doesn't fit its configured width
 - Memory model write failures
-- Clock domain issues
+- Clock domain issues — driving from the wrong clock
 
 ## Performance Considerations
 
-- **Queue Management**: Efficient deque-based packet queuing (the inherited GAXI transmit queue)
-- **Pipeline Optimization**: Minimal cycle overhead for back-to-back transfers
-- **Memory Efficiency**: Optimized data structures for high-throughput scenarios
-- **Statistics Overhead**: Minimal performance impact from statistics collection
+- **Queueing**: the transmit queue is a deque inherited from GAXI — cheap to append, cheap to drain.
+- **Back-to-back transfers**: queued beats cost no extra cycles between them when the slave keeps TREADY high.
+- **Memory efficiency**: data structures sized for high-throughput streams.
+- **Statistics overhead**: counters increment on completion; you won't notice them in your simulation time.
 
-The AXISMaster component provides a complete solution for AXI4-Stream data generation, combining ease of use with advanced features for comprehensive verification scenarios.
+If you remember one thing from this page: `send_stream_data` is the workhorse. The other `send_*` methods are conveniences that all end up in the same queue, driven by the same pipeline — pick whichever makes your test read best.
+
+---

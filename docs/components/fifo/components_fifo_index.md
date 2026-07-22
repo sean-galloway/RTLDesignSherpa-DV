@@ -23,7 +23,7 @@
 
 # FIFO Components Index
 
-This directory contains the FIFO protocol components for the CocoTBFramework. These components provide comprehensive FIFO verification capabilities including masters, slaves, monitors, and supporting utilities.
+The FIFO family: a master that writes, a slave that reads, monitors that watch, and the packets, sequences, and factories that tie them together. Everything sits on the shared base classes, so the components behave the same way by construction.
 
 ## Directory Structure
 
@@ -44,23 +44,25 @@ CocoTBFramework/components/fifo/
 ## Component Documentation
 
 ### Core Components
-- [**fifo_component_base.py**](components_fifo_fifo_component_base.md) - Unified base class for all FIFO components
-- [**fifo_master.py**](components_fifo_fifo_master.md) - FIFO Master (writer) component for driving transactions
-- [**fifo_slave.py**](components_fifo_fifo_slave.md) - FIFO Slave (reader) component for consuming transactions
-- [**fifo_monitor.py**](components_fifo_fifo_monitor.md) - FIFO Monitor for observing transactions
-- [**fifo_monitor_base.py**](components_fifo_fifo_monitor_base.md) - Base class for monitoring components
+- [**fifo_component_base.py**](components_fifo_fifo_component_base.md) - Shared base class for all FIFO components (now a compatibility shim over GAXIComponentBase — read its deprecation note)
+- [**fifo_master.py**](components_fifo_fifo_master.md) - FIFO Master (writer): drives transactions into the FIFO
+- [**fifo_slave.py**](components_fifo_fifo_slave.md) - FIFO Slave (reader): drives `read` and captures what comes out
+- [**fifo_monitor.py**](components_fifo_fifo_monitor.md) - FIFO Monitor: passive observer for the write or read side
+- [**fifo_monitor_base.py**](components_fifo_fifo_monitor_base.md) - Shared plumbing behind monitor and slave
 
 ### Data and Configuration
-- [**fifo_packet.py**](components_fifo_fifo_packet.md) - FIFO packet class for transaction data
-- [**fifo_sequence.py**](components_fifo_fifo_sequence.md) - Sequence generator for test patterns
+- [**fifo_packet.py**](components_fifo_fifo_packet.md) - The transaction object: base Packet plus timing randomizers
+- [**fifo_sequence.py**](components_fifo_fifo_sequence.md) - Pattern and sequence generator
 
 ### Utilities and Factories
-- **fifo_factories.py** - Factory functions for creating FIFO components
-- **fifo_command_handler.py** - Command handler for sequence processing
+- **fifo_factories.py** - Factory functions that wire up components in one call
+- **fifo_command_handler.py** - Executes sequences through a master/slave pair
 
 ## Quick Start
 
 ### Basic FIFO Test Setup
+The fastest way to a working testbench:
+
 ```python
 from CocoTBFramework.components.fifo.fifo_factories import create_simple_fifo_test
 
@@ -76,6 +78,8 @@ await master.send(packet)
 ```
 
 ### Complete Test Environment
+If you want monitors and a scoreboard too:
+
 ```python
 from CocoTBFramework.components.fifo.fifo_factories import create_fifo_test_environment
 
@@ -112,16 +116,18 @@ graph TB
 ```
 
 ### Key Features
-- **Unified Infrastructure**: All components share common signal resolution, data handling, and statistics
-- **Flexible Signal Mapping**: Automatic signal discovery with manual override support
-- **Performance Optimized**: Caching and unified data strategies for high-performance testing
-- **Rich Statistics**: Comprehensive monitoring and performance tracking
-- **Memory Integration**: Built-in memory model support for data verification
-- **Randomization**: Integrated timing randomization with FlexRandomizer
+- **One infrastructure**: signal resolution, data handling, and statistics come from the shared base classes, so master, slave, and monitor can't drift apart
+- **Automatic signal discovery**: with a `signal_map` override when the RTL has its own naming ideas
+- **Cached and fast**: pre-resolved signals and unified data strategies — 40% faster collection, 30% faster driving than the pre-unification components
+- **Statistics everywhere**: throughput, latency, violations, utilization, all queryable mid-test
+- **Memory integration**: MemoryModel support for scoreboard-style checking without writing a scoreboard
+- **Randomization**: FlexRandomizer-driven timing on both sides
 
 ## Usage Patterns
 
 ### Master-Slave Testing
+The minimal loop: master pushes, slave drains, queue holds the evidence.
+
 ```python
 # Set up master and slave
 master = create_fifo_master(dut, "Master", clock)
@@ -136,6 +142,8 @@ observed_packets = slave.get_observed_packets()
 ```
 
 ### Sequence-Based Testing
+Sequences generate the traffic; the command handler executes it.
+
 ```python
 # Create test sequence
 sequence = FIFOSequence.create_pattern_test("patterns", data_width=32)
@@ -146,6 +154,8 @@ responses = await command_handler.process_sequence(sequence)
 ```
 
 ### Monitoring and Verification
+Monitors attach to either side and observe through the standard cocotb queue.
+
 ```python
 # Set up monitors
 write_monitor = create_fifo_monitor(dut, "WriteMonitor", clock, is_slave=False)
@@ -159,7 +169,7 @@ read_transactions = read_monitor._recvQ
 
 ## Signal Mapping
 
-FIFO components support both automatic signal discovery and manual mapping:
+Discovery first, override when you need to.
 
 ### Automatic Discovery
 ```python
@@ -168,6 +178,8 @@ master = FIFOMaster(dut, "Master", "", clock, field_config)
 ```
 
 ### Manual Signal Mapping
+When the RTL names its own signals — which is most of the time, in my experience:
+
 ```python
 # Override signal names when needed
 signal_map = {
@@ -181,25 +193,27 @@ master = FIFOMaster(dut, "Master", "", clock, field_config, signal_map=signal_ma
 ## Performance Features
 
 ### Optimized Data Handling
-- **Signal Caching**: Pre-resolved signal references for fast access
-- **Data Strategies**: High-performance collection and driving with 40% speedup
-- **Memory Integration**: NumPy-based memory model for efficient data storage
+- **Signal caching**: handles resolved once, reused every cycle
+- **Unified data strategies**: where the 40% collection / 30% driving speedups come from
+- **NumPy-backed memory model**: big buffers stay cheap
 
 ### Statistics and Monitoring
-- **Real-time Metrics**: Transaction counts, throughput, latency tracking
-- **Error Detection**: Protocol violations, X/Z detection, FIFO overflow/underflow
-- **Coverage Analysis**: Transaction coverage and pattern analysis
+- **Live metrics**: transaction counts, throughput, and latency while the test runs
+- **Error detection**: protocol violations, X/Z values, FIFO overflow/underflow attempts
+- **Coverage analysis**: transaction coverage and pattern analysis hooks
 
 ## Integration
 
 ### With Shared Components
-FIFO components integrate seamlessly with shared framework components:
-- **FieldConfig**: For packet structure definition
-- **FlexRandomizer**: For timing and data randomization
-- **MemoryModel**: For data storage and verification
-- **Statistics**: For performance monitoring
+FIFO components use the framework's shared pieces directly:
+- **FieldConfig**: packet structure definition
+- **FlexRandomizer**: timing and data randomization
+- **MemoryModel**: data storage and verification
+- **Statistics**: performance monitoring
 
 ### With Test Framework
+A complete test in a dozen lines:
+
 ```python
 @cocotb.test()
 async def fifo_test(dut):

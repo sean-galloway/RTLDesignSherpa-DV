@@ -23,9 +23,11 @@
 
 # AXISFieldConfigs
 
-The `AXISFieldConfigs` class provides factory methods for creating field configurations for AXI4-Stream protocol implementations. It offers standardized configurations for different AXIS parameter combinations, ensuring consistency between hardware modules and verification components.
+`AXISFieldConfigs` is the factory that builds field configurations for the AXI4-Stream components. A field configuration is the testbench-side description of your bus — how wide TDATA is, which sideband signals exist, how wide they are — and this class exists so that description gets written down exactly once. Build the config from the same parameters you gave the RTL, hand it to the master, the slave, the monitor and every packet, and a 12-bit TID in the SystemVerilog is a 12-bit TID in the scoreboard. No drift, no per-component guesswork.
 
 ## Class Overview
+
+The docstring spells out what lives on an AXIS T channel:
 
 ```python
 class AXISFieldConfigs:
@@ -45,11 +47,13 @@ class AXISFieldConfigs:
 
 ## Factory Methods
 
+Four ways to get a config, depending on how much you already know about the bus.
+
 ### Core Configuration Method
 
 #### `create_t_field_config(data_width=32, id_width=8, dest_width=4, user_width=1)`
 
-Create comprehensive field configuration for AXIS T channel with all optional fields.
+The general-purpose factory — every other method on this page is a wrapper around this one. All optional sidebands are available here; set a width to 0 for any signal your design doesn't have.
 
 **Parameters:**
 - **`data_width`** (int) - Width of TDATA field (8, 16, 32, 64, 128, 256, 512, 1024)
@@ -80,9 +84,11 @@ config = AXISFieldConfigs.create_t_field_config(
 
 ### Predefined Configurations
 
+Three shortcuts for the cases that come up over and over.
+
 #### `create_default_axis_config(data_width=32)`
 
-Create default AXIS configuration with typical parameters suitable for most applications.
+The middle-of-the-road config: 8-bit ID, 4-bit DEST, 1-bit USER. If your stream has sidebands but nothing exotic about them, start here.
 
 **Parameters:**
 - **`data_width`** (int) - Width of data field
@@ -102,7 +108,7 @@ config = AXISFieldConfigs.create_default_axis_config(data_width=64)
 
 #### `create_simple_axis_config(data_width=32)`
 
-Create simple AXIS configuration with minimal sideband signals for basic streaming.
+Data, strobe, last — nothing else. The right choice for a plain data pipe with no routing and no sideband baggage.
 
 **Parameters:**
 - **`data_width`** (int) - Width of data field
@@ -122,7 +128,7 @@ config = AXISFieldConfigs.create_simple_axis_config(data_width=512)
 
 #### `create_axis_config_from_hw_params(data_width, id_width, dest_width, user_width)`
 
-Create AXIS configuration matching hardware module parameters exactly.
+Feed it the exact parameter values from your SystemVerilog module and get back a config that matches signal-for-signal — including zero-width parameters, which is how the RTL says "this signal doesn't exist" and how the config says it too.
 
 **Parameters:**
 - **`data_width`** (int) - AXIS_DATA_WIDTH hardware parameter
@@ -153,7 +159,7 @@ config = AXISFieldConfigs.create_axis_config_from_hw_params(
 
 ## Field Definitions
 
-Each configuration includes the following field definitions:
+Every config the factory produces is built from these fields. The core three are always present; the sidebands appear only when their width is nonzero.
 
 ### Core Fields (Always Present)
 
@@ -161,19 +167,19 @@ Each configuration includes the following field definitions:
 - **Width**: Configurable (8-1024 bits)
 - **Format**: Hexadecimal
 - **Default**: 0
-- **Description**: Stream data payload
+- **Description**: Stream data payload — TDATA for the beat
 
 #### `strb` Field
 - **Width**: data_width / 8 bits
 - **Format**: Binary
 - **Default**: All bits set (all bytes enabled)
-- **Description**: Byte enables indicating valid data bytes
+- **Description**: Byte enables — one bit per byte lane, marking which bytes of `data` are valid
 
 #### `last` Field
 - **Width**: 1 bit
 - **Format**: Binary
 - **Default**: 0 (not last)
-- **Description**: End of packet/frame indicator
+- **Description**: TLAST — end of packet/frame indicator
 - **Encoding**: {0: "Not Last", 1: "Last"}
 
 ### Optional Fields (Conditionally Present)
@@ -182,19 +188,19 @@ Each configuration includes the following field definitions:
 - **Width**: Configurable (1-16 bits)
 - **Format**: Hexadecimal
 - **Default**: 0
-- **Description**: Stream identifier for routing
+- **Description**: TID — stream identifier, for when the bus carries several streams
 
 #### `dest` Field (if dest_width > 0)
 - **Width**: Configurable (1-16 bits)
 - **Format**: Hexadecimal
 - **Default**: 0
-- **Description**: Destination routing identifier
+- **Description**: TDEST — destination routing identifier
 
 #### `user` Field (if user_width > 0)
 - **Width**: Configurable (1-32 bits)
 - **Format**: Binary
 - **Default**: 0
-- **Description**: User-defined sideband data
+- **Description**: TUSER — user-defined sideband data; the BFM carries it without interpreting it
 
 ## Usage Examples
 
@@ -223,6 +229,8 @@ master = AXISMaster(dut, "Master", "m_axis_", clk, field_config=configs['axis32'
 ```
 
 ### Hardware Matching Configuration
+
+This is the pattern I'd recommend as the default: read the parameters off the DUT once, build the config from them, and never think about widths again.
 
 ```python
 # Match SystemVerilog module parameters
@@ -279,6 +287,8 @@ master = AXISMaster(dut, "RoutingMaster", "m_axis_", clk, field_config=test_conf
 ```
 
 ### Configuration Analysis and Validation
+
+Handy when a test fails and your first question is "wait, what config did this thing actually get built with?"
 
 ```python
 def analyze_axis_config(config):
@@ -350,6 +360,8 @@ for name, config in configs.items():
 
 ### Component Configuration
 
+The point of the shared config: master and slave built from it cannot disagree about the bus.
+
 ```python
 # Configure master and slave with matching configurations
 config = AXISFieldConfigs.create_default_axis_config(64)
@@ -390,4 +402,6 @@ packet.user = 0xABCD
 # All fields properly sized according to configuration
 ```
 
-The AXISFieldConfigs class provides a comprehensive and flexible system for creating standardized AXIS field configurations, ensuring compatibility between hardware implementations and verification components while supporting the full range of AXI4-Stream protocol variations.
+That's the whole class — a small factory doing a boring job, which is exactly what you want from it. The width-mismatch bugs it prevents are the kind that otherwise surface three hours into a debug session as mysteriously truncated sidebands. Build the config from the hardware parameters and those bugs simply don't happen.
+
+---

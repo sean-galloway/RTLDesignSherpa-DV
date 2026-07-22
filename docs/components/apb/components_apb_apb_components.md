@@ -23,25 +23,27 @@
 
 # apb_components.py
 
-APB Protocol Components providing Monitor, Master, and Slave implementations for comprehensive APB verification. This module contains the core protocol-level components that handle signal-level communication and protocol compliance.
+The signal-level heart of the APB family: a monitor that watches the bus, a slave that answers it, and a master that drives it. Everything else in this directory — packets, sequences, factories — exists to keep these three fed.
 
 ## Overview
 
-The `apb_components.py` module provides three main classes that implement the APB protocol:
-- **APBMonitor**: Observes and logs APB transactions
-- **APBSlave**: Responds to APB transactions with memory backing
-- **APBMaster**: Drives APB transactions with configurable timing
+Three classes, one per seat on the bus:
+- **APBMonitor**: watches the bus and turns completed transfers into `APBPacket` objects
+- **APBSlave**: answers requests from a real memory model, with tunable timing and error behavior
+- **APBMaster**: drives packets from a queue, with randomized setup/access timing
 
 ### Key Features
-- **Full APB signal support** with optional signal handling
-- **Memory model integration** for realistic slave behavior
-- **Configurable timing randomization** for stress testing
-- **Comprehensive error injection** and protocol validation
-- **Transaction queuing and pipelining** for performance testing
+- **Full APB4 signal support**, with PPROT/PSLVERR/PSTRB bound as optional so leaner DUTs still attach
+- **Memory-backed slave** — reads return what earlier writes actually wrote
+- **FlexRandomizer timing** on both ends, from "no wait states, ever" to "go find the corners"
+- **Error injection**, random or triggered by out-of-range addresses
+- **Master-side transaction queue**, so stimulus isn't gated on your testbench loop
 
 ## Constants and Mappings
 
 ### Signal Definitions
+
+The lists every component binds against, plus the PWRITE decode used in logging:
 
 ```python
 # APB PWRITE mapping
@@ -68,17 +70,17 @@ apb_optional_signals = [
 
 ### Required vs Optional Signal Binding
 
-`cocotb_bus` treats a BFM's `_signals` list as **required** — bus binding fails if the DUT is missing any of them — while `_optional_signals` are best-effort: absent signals are skipped and simply do not appear on `self.bus`.
+`cocotb_bus` draws a hard line here: anything in a BFM's `_signals` list must exist on the DUT or bus binding fails outright, while `_optional_signals` are best-effort — a signal that isn't there is skipped and simply never appears on `self.bus`.
 
-APBMonitor, APBSlave, and APBMaster therefore bind `apb_signals` as required and `apb_optional_signals` as optional. A DUT that omits PSTRB, PSLVERR, or PPROT still binds, and every access to those signals is guarded by `is_signal_present()`. The same rule applies to the APB5 BFMs, where all AMBA5 extensions (USER / WAKEUP / parity) are optional.
+APBMonitor, APBSlave, and APBMaster bind `apb_signals` as required and `apb_optional_signals` as optional. That's what lets an APB3-era DUT — no strobes, no error output, no protection bits — bind cleanly against these BFMs. Every access to the optional trio is guarded by `is_signal_present()`, so nothing blows up when they're absent. The APB5 BFMs in this framework play the same trick: all AMBA5 extensions (USER / WAKEUP / parity) are optional.
 
-Passing an explicit `signals=[...]` list overrides this: the supplied list becomes the required set with no optional signals, giving the caller full control.
+Pass an explicit `signals=[...]` list and you take over: your list becomes the required set, with no optional signals at all. Full control, full responsibility.
 
 ## Core Classes
 
 ### APBMonitor
 
-Bus monitor for observing and logging APB transactions without interfering with protocol operation.
+A passive observer — it never drives a pin. It watches for completed transfers, rebuilds each one as an `APBPacket`, and hands it to whatever callbacks you've registered.
 
 #### Constructor
 
@@ -111,7 +113,7 @@ monitor = APBMonitor(
 #### Methods
 
 ##### `is_signal_present(signal_name) -> bool`
-Check if an optional signal is present and connected.
+Returns True when the named signal actually exists on the bound bus. Call it before touching any of the optional signals — an APB3 DUT won't have PSTRB, PSLVERR, or PPROT, and the attribute simply won't be there.
 
 ```python
 if monitor.is_signal_present('PSLVERR'):
@@ -120,7 +122,7 @@ if monitor.is_signal_present('PSLVERR'):
 ```
 
 ##### `print(transaction)`
-Print formatted transaction information to log.
+Write a formatted dump of an `APBPacket` to the log.
 
 **Parameters:**
 - `transaction`: APBPacket transaction to display
@@ -131,15 +133,11 @@ monitor.print(packet)  # Logs transaction details
 
 #### Transaction Detection
 
-The monitor automatically detects valid APB transactions when:
-- `PSEL` is asserted
-- `PENABLE` is asserted  
-- `PREADY` is asserted
-- All signals have resolvable values
+A transfer is sampled on the clock edge where PSEL, PENABLE, and PREADY are all high — the moment the APB access phase completes. If any relevant signal carries an X or Z, the cycle is skipped rather than logged as garbage, which saves you from phantom transactions during reset.
 
 ### APBSlave
 
-APB slave implementation with memory backing and configurable response behavior.
+An APB responder with real storage behind it. Writes land in the memory model, reads come back out of it, and how quickly PREADY rises (and how often PSLVERR does) is yours to tune.
 
 #### Constructor
 
@@ -175,10 +173,12 @@ slave = APBSlave(
 )
 ```
 
+One sizing note: `registers` counts bytes, not words — the `[0] * 1024` above backs 256 32-bit registers.
+
 #### Methods
 
 ##### `set_randomizer(randomizer)`
-Update the timing randomizer for ready signal delays.
+Swap the FlexRandomizer that drives PREADY delay and error injection. Fine to call mid-test when you want the slave to change personalities between phases.
 
 ```python
 new_randomizer = FlexRandomizer({
@@ -189,21 +189,21 @@ slave.set_randomizer(new_randomizer)
 ```
 
 ##### `dump_registers()`
-Display current register contents to log.
+Log the entire register file. First thing to reach for when a readback comes back wrong.
 
 ```python
 slave.dump_registers()  # Shows memory dump
 ```
 
 ##### `reset_bus()`
-Reset all bus outputs to default values.
+Drive all slave outputs back to idle.
 
 ```python
 await slave.reset_bus()
 ```
 
 ##### `reset_registers()`
-Reset all registers to their preset values.
+Restore the register file to the values passed in at construction.
 
 ```python
 slave.reset_registers()
@@ -211,14 +211,14 @@ slave.reset_registers()
 
 #### Response Behavior
 
-The slave provides configurable response timing:
-- **Ready Delay**: Configurable cycles before asserting PREADY
-- **Error Injection**: Random or deterministic error generation
-- **Memory Expansion**: Automatic memory expansion on overflow
+Three knobs shape how the slave answers:
+- **Ready delay**: how many cycles PREADY holds off, drawn from the randomizer's `ready` bins
+- **Error injection**: PSLVERR generation, either random (the `error` bins) or address-triggered
+- **Memory expansion**: with `error_overflow=False` (the default), accesses past the end of the backing store grow it instead of faulting. Set `error_overflow=True` and those same accesses come back with slave errors — which is exactly what the overflow portion of the error-injection example below relies on.
 
 ### APBMaster
 
-APB master implementation that drives transactions with configurable timing and queuing.
+The driver. Hand it `APBPacket` objects and it walks each one through setup and access, with PSEL/PENABLE timing as relaxed or as nasty as your randomizer says.
 
 #### Constructor
 
@@ -252,7 +252,7 @@ master = APBMaster(
 #### Methods
 
 ##### `set_randomizer(randomizer)`
-Update the timing randomizer for transaction delays.
+Swap the FlexRandomizer that controls PSEL and PENABLE delay.
 
 ```python
 timing_randomizer = FlexRandomizer({
@@ -263,14 +263,14 @@ master.set_randomizer(timing_randomizer)
 ```
 
 ##### `reset_bus()`
-Reset all bus outputs and clear transaction queue.
+Drive all master outputs to idle and flush the transaction queue.
 
 ```python
 await master.reset_bus()
 ```
 
 ##### `send(transaction)`
-Add transaction to transmission queue.
+Queue a packet for transmission and return immediately — the driver works through the queue on its own.
 
 **Parameters:**
 - `transaction`: APBPacket to transmit
@@ -281,7 +281,7 @@ await master.send(packet)
 ```
 
 ##### `busy_send(transaction)`
-Send transaction and wait for completion.
+Queue a packet and block until it completes. Use it when the next line of your test depends on the result.
 
 ```python
 await master.busy_send(packet)  # Blocks until transaction completes
@@ -289,15 +289,17 @@ await master.busy_send(packet)  # Blocks until transaction completes
 
 #### Transaction Pipeline
 
-The master implements a transaction pipeline:
-1. **Queue Management**: Transactions queued for transmission
-2. **Signal Setup**: Configure address, data, and control signals
-3. **Protocol Phases**: Handle PSEL and PENABLE timing
-4. **Completion**: Wait for PREADY and capture response
+Every queued packet goes through the same four steps:
+1. **Queue Management**: packets wait in line; the driver pulls the next one when the bus goes idle
+2. **Signal Setup**: address, write data, and control driven for the setup phase
+3. **Protocol Phases**: PSEL first, PENABLE a cycle (or more, per the randomizer) later
+4. **Completion**: wait for PREADY, then sample PRDATA and PSLVERR into the packet
 
 ## Usage Patterns
 
 ### Basic Monitor Setup
+
+The monitor starts watching as soon as it's constructed — you register a callback and let the clock run.
 
 ```python
 import cocotb
@@ -326,6 +328,8 @@ async def monitor_test(dut):
 ```
 
 ### Master-Slave Communication
+
+Two components, two prefixes, one DUT wiring them together:
 
 ```python
 async def master_slave_test(dut):
@@ -359,6 +363,8 @@ async def master_slave_test(dut):
 ```
 
 ### Advanced Timing Configuration
+
+A timing profile is just a FlexRandomizer config, so changing personalities mid-test is a method call. Build a fast profile for bring-up and a nasty one for when you've learned to trust the DUT.
 
 ```python
 def setup_timing_profiles():
@@ -403,6 +409,8 @@ async def timing_test(dut):
 
 ### Error Injection Testing
 
+Two error sources on display here: random PSLVERR from the slave's `error` bins, and deterministic errors from `error_overflow` when addresses run past the register file.
+
 ```python
 async def error_injection_test(dut):
     # Create slave with error injection
@@ -433,6 +441,8 @@ async def error_injection_test(dut):
 
 ### Register Verification
 
+Walk patterns through the register file, then dump the slave's memory to see what actually landed:
+
 ```python
 async def register_verification(dut):
     slave = APBSlave(dut, "Register_Slave", "apb_", dut.clk, registers=[0] * 1024)
@@ -458,6 +468,8 @@ async def register_verification(dut):
 ```
 
 ### Performance Testing
+
+Pin every delay to zero and push a thousand transfers through. APB's two-phase handshake caps you at one transfer per two cycles no matter what, so this really measures your BFM/DUT loop — still useful when you're comparing configurations.
 
 ```python
 async def performance_test(dut):
@@ -495,7 +507,7 @@ async def performance_test(dut):
 
 ### Memory Model Integration
 
-The APBSlave uses the shared MemoryModel for realistic memory behavior:
+The slave doesn't fake read data — it sits on the framework's shared MemoryModel:
 
 ```python
 # Memory model provides:
@@ -508,7 +520,7 @@ The APBSlave uses the shared MemoryModel for realistic memory behavior:
 
 ### Packet Integration
 
-Components work seamlessly with APBPacket:
+Everything on the bus is an `APBPacket`, so all the base-class machinery applies:
 
 ```python
 # Automatic field extraction and validation
@@ -518,7 +530,7 @@ Components work seamlessly with APBPacket:
 
 ### Randomization Integration
 
-Uses FlexRandomizer for comprehensive timing control:
+Timing comes from FlexRandomizer, the same weighted-bin engine the other protocol families use:
 
 ```python
 # Configurable delay distributions
@@ -529,6 +541,8 @@ Uses FlexRandomizer for comprehensive timing control:
 ## Best Practices
 
 ### 1. **Use Appropriate Randomization**
+Bring tests up with delays pinned near zero — a waveform you can read beats coverage you can't explain. Turn the knobs once it passes.
+
 ```python
 # Development/debug: minimal delays
 debug_randomizer = FlexRandomizer({
@@ -546,6 +560,8 @@ stress_randomizer = FlexRandomizer({
 ```
 
 ### 2. **Handle Optional Signals**
+If the DUT doesn't export PSTRB or PSLVERR the component still binds, but the attribute won't exist. Guard every access.
+
 ```python
 # Always check signal presence
 if slave.is_signal_present('PSLVERR'):
@@ -558,6 +574,8 @@ if master.is_signal_present('PSTRB'):
 ```
 
 ### 3. **Reset Components Properly**
+Idle the buses first, then restore register state. Same order, every time.
+
 ```python
 # Reset in correct order
 await master.reset_bus()
@@ -566,6 +584,8 @@ slave.reset_registers()
 ```
 
 ### 4. **Monitor Transaction Completion**
+`busy_send()` when you need the result before moving on; `send()` plus polling `transfer_busy` when you're exercising the pipeline.
+
 ```python
 # For performance-critical tests
 await master.busy_send(packet)
@@ -577,6 +597,8 @@ while master.transfer_busy:
 ```
 
 ### 5. **Use Memory Dumps for Debug**
+When a readback mismatches, dump the slave's memory before you open the waveform viewer. Nine times out of ten the answer is already in the log.
+
 ```python
 # Regular memory verification
 slave.dump_registers()
@@ -585,4 +607,6 @@ slave.dump_registers()
 print(f"Slave processed {slave.count} transactions")
 ```
 
-The APB components provide a comprehensive foundation for APB protocol verification, from basic functional testing to advanced stress testing and performance analysis.
+Three components, one packet type, one randomizer — that's the whole toolbox. The `apb_packet.py` and `apb_sequence.py` pages cover what to feed it.
+
+---

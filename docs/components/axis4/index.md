@@ -25,22 +25,22 @@
 
 # AXIS4 Components
 
-The AXIS4 (AXI4-Stream) components provide comprehensive verification capabilities for AXI4-Stream protocol implementations. Built on the robust GAXI infrastructure, these components offer high-performance stream protocol testing with advanced packet management, flow control, and protocol compliance verification.
+Everything you need to verify an AXI4-Stream interface: drive it, sink it, watch it. The components sit on the GAXI layer, so the heavy lifting — signal resolution, pipelines, statistics — is shared with the rest of the framework, and what's here is the stream-specific part: frames, TLAST, backpressure, and sidebands.
 
 ## Component Overview
 
-The AXIS4 component ecosystem includes specialized classes for comprehensive stream protocol verification:
+The AXIS4 family:
 
 ### Core Components
 
-- **[AXISMaster](axis_master.md)** - Stream data generation and transmission
-- **[AXISSlave](axis_slave.md)** - Stream data reception and validation
+- **[AXISMaster](axis_master.md)** - Stream source: single beats, lists, or whole frames
+- **[AXISSlave](axis_slave.md)** - Stream sink with backpressure control and frame tracking
 - **AXISMonitor** - Protocol compliance monitoring and analysis. Extends `GAXIMonitor` and delegates all sampling to its receive loop; see [the overview](components_axis4_overview.md) for the `_build_packet` / `_finish_packet` extension points. *(Dedicated page planned.)*
-- **[AXISPacket](axis_packet.md)** - Data structure management and field access
+- **[AXISPacket](axis_packet.md)** - The beat object: field access, byte packing, TLAST queries
 
 ### Configuration System
 
-- **[AXISFieldConfigs](axis_field_configs.md)** - Protocol adaptation and signal mapping
+- **[AXISFieldConfigs](axis_field_configs.md)** - Builds the field configuration that keeps BFMs and RTL in agreement on signal widths
 
 ## Key Features
 
@@ -53,8 +53,8 @@ The AXIS4 component ecosystem includes specialized classes for comprehensive str
 ### GAXI Infrastructure Integration
 - Unified field configuration system
 - Memory model integration for data verification
-- Comprehensive statistics and performance metrics
-- Advanced debugging and transaction logging
+- Statistics and performance metrics maintained by the pipelines
+- Multi-level debugging and transaction logging
 - Automatic signal resolution across naming conventions
 
 ### Advanced Capabilities
@@ -91,9 +91,9 @@ await master.send_packet(packet)
 
 ## Documentation Structure
 
-- **[Overview](components_axis4_overview.md)** - Comprehensive component architecture and capabilities
-- **Component References** - Detailed documentation for each AXIS4 class
+- **[Overview](components_axis4_overview.md)** - Architecture and how the pieces fit together
+- **Component References** - Per-class details, linked above
 - **Usage Examples *(documentation planned)*** - Practical implementation patterns and scenarios
 - **Configuration Guide *(documentation planned)*** - Field configuration and customization options
 
-The AXIS4 components provide a complete solution for AXI4-Stream protocol verification, combining the power and flexibility of the GAXI infrastructure with stream-specific optimizations and advanced features for comprehensive testing scenarios.
+Start with the [overview](components_axis4_overview.md) if you want the architecture, or jump straight to the class you need — each page stands on its own.

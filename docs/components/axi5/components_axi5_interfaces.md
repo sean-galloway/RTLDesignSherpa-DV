@@ -1,10 +1,10 @@
 # AXI5 Interface Classes
 
-The AXI5 interface classes provide high-level master and slave interfaces for AXI5 protocol operations. Each class composes GAXI channel objects and coordinates transactions across related channels with full support for AXI5-specific features.
+The interface classes are where test code actually lives. Each one composes the GAXI channel objects for one side of an AXI5 interface and coordinates transactions across those channels — AR plus R for reads, AW plus W plus B for writes — with the full AXI5 signal set carried through.
 
 ## AXI5MasterRead
 
-Manages read address requests (AR) and read data responses (R) with full AXI5 signal support.
+The read half of an AXI5 master: drives AR requests out, collects R responses back.
 
 ### Class Signature
 
@@ -39,7 +39,7 @@ class AXI5MasterRead:
 
 #### `read_transaction(address, burst_len=1, **transaction_kwargs) -> List[Dict]`
 
-Perform a high-level read transaction with AXI5 features.
+A complete read in one call: the AR goes out, the burst comes back, and you get every R beat. The AXI5 fields are just keyword arguments:
 
 **Parameters**:
 
@@ -58,17 +58,17 @@ Perform a high-level read transaction with AXI5 features.
 | `chunken` | int | Enable chunking | `0` |
 | `tagop` | int | Tag operation type | `0` |
 
-**Returns**: List of response dictionaries, each containing:
-- `data`, `resp`, `last`, `id` -- standard AXI fields
-- `trace`, `poison`, `chunkv`, `chunknum`, `chunkstrb`, `tag`, `tagmatch` -- AXI5 fields
+**Returns**: a list of response dictionaries, one per beat, containing:
+- `data`, `resp`, `last`, `id` — the standard AXI fields
+- `trace`, `poison`, `chunkv`, `chunknum`, `chunkstrb`, `tag`, `tagmatch` — the AXI5 additions
 
 #### `single_read(address, **kwargs) -> int`
 
-Convenience method for a single-beat read. Returns the data value directly.
+Single-beat read with the envelope stripped off. Returns the data value directly.
 
 #### `create_ar_packet(**kwargs)`
 
-Create an AR packet with the current field configuration.
+Builds an AR packet with the current field configuration, for when you want to drive the channel yourself.
 
 ### Attributes
 
@@ -103,7 +103,7 @@ responses = await master_rd.read_transaction(
 
 ## AXI5MasterWrite
 
-Manages write address requests (AW), write data (W), and write responses (B) with full AXI5 signal support including atomic operations and memory tagging.
+The write half of an AXI5 master — AW, W, and B — and home to the two features that live mostly on the write side: atomic operations and memory tagging.
 
 ### Class Signature
 
@@ -138,7 +138,7 @@ class AXI5MasterWrite:
 
 #### `write_transaction(address, data, burst_len=None, **transaction_kwargs) -> Dict`
 
-Perform a high-level write transaction with AXI5 features.
+A complete write in one call: AW, as many W beats as the data implies, and the B response at the end.
 
 **Parameters**:
 
@@ -158,21 +158,21 @@ Perform a high-level write transaction with AXI5 features.
 | `poison` | int | Poison indicator (W channel) | `0` |
 | `tagupdate` | int | Tag update indicators (W channel) | `0` |
 
-**Returns**: Response dictionary with `success`, `response`, `id`, `trace`, `tag`, `tagmatch`.
+**Returns**: the B response as a dictionary — `success`, `response`, `id`, `trace`, `tag`, `tagmatch`.
 
 #### `single_write(address, data, **kwargs) -> Dict`
 
-Convenience method for a single-beat write.
+Single-beat convenience wrapper.
 
 #### `atomic_operation(address, data, atop, **kwargs) -> Dict`
 
-Perform an atomic operation. Sets `atop` and forces single-beat transfer.
+Runs an atomic: sets `atop` and forces a single-beat transfer, since atomics don't burst.
 
 **ATOP Encoding**:
-- `0x10` -- AtomicStore
-- `0x20` -- AtomicLoad
-- `0x30` -- AtomicSwap
-- `0x31` -- AtomicCompare
+- `0x10` — AtomicStore
+- `0x20` — AtomicLoad
+- `0x30` — AtomicSwap
+- `0x31` — AtomicCompare
 
 ### Attributes
 
@@ -206,7 +206,7 @@ result = await master_wr.write_transaction(
 
 ## AXI5SlaveRead
 
-Handles read requests from masters and generates appropriate responses with full AXI5 signal support. Supports out-of-order response reordering.
+The read half of an AXI5 slave: accepts AR requests and generates the R beats, optionally sourcing data from a memory model. The interesting knob is out-of-order response reordering — enable it and the slave shuffles its response order, which is the fastest way to find out whether a master actually tolerates OOO completion or just claims to.
 
 ### Class Signature
 
@@ -286,7 +286,7 @@ slave_rd = AXI5SlaveRead(
 
 ## AXI5SlaveWrite
 
-Handles write requests from masters and generates appropriate responses with full AXI5 signal support.
+The write half of an AXI5 slave: accepts AW and W, updates the memory model if there is one, and answers on B. ATOP-aware, so atomic writes get the responses atomics expect.
 
 ### Class Signature
 
@@ -297,13 +297,13 @@ class AXI5SlaveWrite:
 
 ### Constructor Parameters
 
-The constructor parameters mirror `AXI5SlaveRead` with the addition of:
+Same parameters as `AXI5SlaveRead`, plus one:
 
 | Parameter | Type | Description | Default |
 |-----------|------|-------------|---------|
 | `atop_width` | int | ATOP field width in bits | `6` |
 
-All other parameters are identical to `AXI5SlaveRead`.
+Everything else is identical to `AXI5SlaveRead`.
 
 ### Attributes
 
@@ -338,37 +338,39 @@ slave_wr = AXI5SlaveWrite(
 
 ## Factory Functions
 
-Factory functions provide the recommended way to create AXI5 interface components. They return dictionaries containing the interface and its constituent channel components.
+Use the factories rather than constructing channels by hand. Each one builds the channel objects and the coordinating interface in a single call, and hands back a dictionary containing both — so you can work at whichever level the test needs.
 
 ### `create_axi5_master_rd(dut, clock, prefix, log, ifc_name, **kwargs) -> Dict`
 
-Returns `{'AR': ar_channel, 'R': r_channel, 'interface': AXI5MasterRead}`.
+Builds the read side of a master. Returns `{'AR': ar_channel, 'R': r_channel, 'interface': AXI5MasterRead}`.
 
 ### `create_axi5_master_wr(dut, clock, prefix, log, ifc_name, **kwargs) -> Dict`
 
-Returns `{'AW': aw_channel, 'W': w_channel, 'B': b_channel, 'interface': AXI5MasterWrite}`.
+Builds the write side of a master. Returns `{'AW': aw_channel, 'W': w_channel, 'B': b_channel, 'interface': AXI5MasterWrite}`.
 
 ### `create_axi5_slave_rd(dut, clock, prefix, log, ifc_name, **kwargs) -> Dict`
 
-Returns `{'AR': ar_channel, 'R': r_channel, 'interface': AXI5SlaveRead}`.
+Builds the read side of a slave. Returns `{'AR': ar_channel, 'R': r_channel, 'interface': AXI5SlaveRead}`.
 
 ### `create_axi5_slave_wr(dut, clock, prefix, log, ifc_name, **kwargs) -> Dict`
 
-Returns `{'AW': aw_channel, 'W': w_channel, 'B': b_channel, 'interface': AXI5SlaveWrite}`.
+Builds the write side of a slave. Returns `{'AW': aw_channel, 'W': w_channel, 'B': b_channel, 'interface': AXI5SlaveWrite}`.
 
 ### `create_axi5_master_interface(dut, clock, prefix, log, **kwargs) -> Tuple`
 
-Returns `(AXI5MasterWrite, AXI5MasterRead)` -- both read and write master interfaces.
+Builds both master halves. Returns `(AXI5MasterWrite, AXI5MasterRead)`.
 
 ### `create_axi5_slave_interface(dut, clock, prefix, log, **kwargs) -> Tuple`
 
-Returns `(AXI5SlaveWrite, AXI5SlaveRead)` -- both read and write slave interfaces.
+Builds both slave halves. Returns `(AXI5SlaveWrite, AXI5SlaveRead)`.
 
 ### `create_complete_axi5_testbench_components(dut, clock, master_prefix, slave_prefix, log, **kwargs) -> Dict`
 
-Creates a complete set of master and slave components. Returns a dictionary with keys `'master_write'`, `'master_read'`, `'slave_write'`, `'slave_read'` (each present only if the corresponding DUT signals exist).
+Builds all four interfaces in one call. Returns a dictionary keyed `'master_write'`, `'master_read'`, `'slave_write'`, `'slave_read'`, with each entry present only when the corresponding DUT signals actually exist — so it's safe to call against a DUT that exposes just one side.
 
 ### Usage Example
+
+Pull out just the `interface`, or keep the channel components around too:
 
 ```python
 from CocoTBFramework.components.axi5 import (
@@ -392,3 +394,5 @@ all_components = create_complete_axi5_testbench_components(
     data_width=64, id_width=4
 )
 ```
+
+---

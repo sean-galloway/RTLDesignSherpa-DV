@@ -1,10 +1,10 @@
 # APB5 Components Overview
 
-The APB5 (Advanced Peripheral Bus 5) components provide a complete verification environment for the APB5 protocol, implementing the AMBA5 extensions to the APB specification. These components extend the existing APB4 infrastructure with user-defined signals, wake-up support, and parity error tracking, enabling comprehensive testing of APB5-compliant peripherals.
+APB5 is APB4 plus the AMBA5 bolt-ons: user-defined sideband signals, a wake-up request, and optional parity protection. This family covers the whole protocol — master, slave, monitor, packets, and stimulus generation — and it's built directly on the APB4 infrastructure, so if you know the APB4 BFM you're most of the way here already.
 
 ## Architecture Overview
 
-The APB5 components follow a layered architecture that extends the APB4 protocol layer with AMBA5-specific capabilities:
+The layering will look familiar if you've used any other family in the framework: tests on top, protocol components in the middle, packets and shared infrastructure underneath, with the APB4 packet as the compatibility base.
 
 ```mermaid
 graph TB
@@ -41,56 +41,63 @@ graph TB
 ## Component Categories
 
 ### Protocol Implementation
-Core APB5 protocol components that handle signal-level communication:
 
-- **APB5Master**: Drives APB5 transactions with user signal and wake-up support
-- **APB5Slave**: Responds to APB5 transactions with memory backing and randomized user signal responses
-- **APB5Monitor**: Observes and logs APB5 protocol activity including AMBA5 extensions
+The signal-level pieces:
+
+- **APB5Master**: drives transfers and owns PWAKEUP plus the request-side user signals
+- **APB5Slave**: answers from a memory-backed register array, with randomized timing, errors, and response sidebands
+- **APB5Monitor**: observes everything and drives nothing, recording the AMBA5 extensions alongside the base signals
 
 **Key Features:**
-- Full APB5 signal support including PAUSER, PWUSER, PRUSER, PBUSER, PWAKEUP
-- Backward-compatible APB4 base signals (PSEL, PENABLE, PWRITE, PADDR, etc.)
-- Configurable user signal widths (independently sized)
+
+- Full APB5 signal support: PAUSER, PWUSER, PRUSER, PBUSER, PWAKEUP
+- The APB4 base signals (PSEL, PENABLE, PWRITE, PADDR, etc.) behave exactly as they always did
+- Independently sized user signal channels
 - Optional parity signal monitoring (PWDATAPARITY, PADDRPARITY, PCTRLPARITY, etc.)
-- Memory model integration for realistic slave behavior
-- Configurable timing randomization with user signal value randomization
+- Memory model integration for the slave
+- Timing randomization with user signal value randomization
 
 ### Packet & Transaction Management
-High-level transaction abstraction for test stimulus:
 
-- **APB5Packet**: Protocol-specific packet with APB5 fields including user signals and parity
-- **APB5Transaction**: Randomized transaction generator with APB5 user signal constraints
-- **APB4 Interop**: Bidirectional conversion between APB5 and APB4 packets
+The objects your tests actually create, send, and compare:
+
+- **APB5Packet**: the transfer record — APB4 fields plus user sidebands, wake-up state, and parity flags
+- **APB5Transaction**: constrained-random generator that stamps out APB5Packets
+- **APB4 Interop**: two-way conversion between APB5 and APB4 packets
 
 **Key Features:**
-- All APB4 fields plus PAUSER, PWUSER, PRUSER, PBUSER, PWAKEUP
-- Parity error flag tracking (write data, read data, control)
-- Built-in randomization with configurable constraints for user signals
-- APB4-to-APB5 and APB5-to-APB4 packet conversion
-- Direction-aware equality comparison with user signal matching
+
+- Every APB4 field, plus PAUSER, PWUSER, PRUSER, PBUSER, and PWAKEUP
+- Parity error flags for write data, read data, and control
+- Constrained randomization whose ranges follow your configured widths
+- `to_apb4_packet()` / `from_apb4_packet()` conversion
+- Direction-aware equality that includes the user signals
 
 ### Factory Functions & Utilities
-Simplified component creation and configuration:
 
-- **create_apb5_master**: One-line master creation with user signal width configuration
-- **create_apb5_slave**: Slave creation with configurable error overflow
-- **create_apb5_monitor**: Monitor creation with user signal width support
-- **create_apb5_randomizer**: Pre-configured randomizer for APB5 slave responses
+Shortcuts that keep testbench setup to a few lines:
+
+- **create_apb5_master**: one-line master creation, user signal widths included
+- **create_apb5_slave**: slave creation with optional address-overflow errors
+- **create_apb5_monitor**: monitor creation with width support
+- **create_apb5_randomizer**: a ready-made randomizer for slave responses
 
 **Key Features:**
-- One-line component creation with sensible defaults
-- Configurable user signal widths for all four channels (AUSER, WUSER, RUSER, BUSER)
-- Pre-configured randomizer factory with ready delay and error injection
-- Automatic user signal range calculation based on configured widths
+
+- Sensible defaults throughout — override only what you care about
+- Independent widths for all four user channels (AUSER, WUSER, RUSER, BUSER)
+- A randomizer factory with ready-delay and error-injection knobs
+- User signal randomization ranges computed from the configured widths
 
 ## APB5 Protocol Support
 
 ### Protocol Features
-- **APB4 Backward Compatibility**: Full support for all APB4 signals and behavior
-- **User Signals**: Four independent user signal channels (PAUSER, PWUSER, PRUSER, PBUSER)
-- **Wake-up Support**: Requester-driven PWAKEUP signal for low-power wake-up (driven by the master, observed by slave/monitor)
-- **Parity Protection**: Optional parity signals for data, address, and control integrity
-- **Error Handling**: PSLVERR generation and detection
+
+- **APB4 Backward Compatibility**: every APB4 signal and behavior works unchanged
+- **User Signals**: four independent sideband channels (PAUSER, PWUSER, PRUSER, PBUSER)
+- **Wake-up Support**: requester-driven PWAKEUP — the master drives it; slave and monitor only observe
+- **Parity Protection**: optional parity on data, address, and control
+- **Error Handling**: PSLVERR generation on the slave side, detection everywhere
 
 ### AMBA5 Extensions
 
@@ -131,32 +138,38 @@ Simplified component creation and configuration:
 ## Design Principles
 
 ### 1. **APB4 Backward Compatibility**
-- APB5 components extend APB4 behavior transparently
-- All APB5 extension signals are optional on the bus
-- Packets can be converted between APB5 and APB4 formats
-- Tests written for APB4 can be adapted to APB5 with minimal changes
+
+- The APB5 components extend the APB4 ones rather than replacing them
+- Every AMBA5 extension signal is optional on the bus — an APB4-style DUT still binds
+- Packets convert in both directions between APB5 and APB4 formats
+- An APB4 test ports to APB5 with new constructor arguments, not a rewrite
 
 ### 2. **Configurable User Signal Widths**
-- Each user signal channel has an independently configurable width
-- Default width of 4 bits for all user channels
-- Randomizers automatically adjust to configured widths
-- Field configuration auto-generated based on width parameters
+
+- Each user channel gets its own width — PAUSER can be 8 bits while PBUSER stays at 4
+- All channels default to 4 bits
+- Randomizer ranges follow the configured widths automatically
+- The packet field configuration is generated from the same width parameters, so nothing drifts out of sync
 
 ### 3. **Realism**
-- Memory model backing for slave responses
-- Randomized user signal values on slave responses (PRUSER, PBUSER)
-- Configurable ready delays and error conditions
-- Master-side PWAKEUP policy (`wakeup_enable`) for realistic low-power scenarios
+
+- Slave responses come out of a real memory model
+- PRUSER and PBUSER are randomized per response — your DUT shouldn't get comfortable assuming they're zero
+- Configurable ready delays and error injection
+- A master-side PWAKEUP policy (`wakeup_enable`) so low-power scenarios look like the real thing
 
 ### 4. **Ease of Use**
-- Factory functions provide one-line component creation
-- Sensible defaults for all configuration parameters
-- Automatic signal presence detection for optional signals
-- Pre-built randomizer factory for common test scenarios
+
+- Factory functions collapse component creation to one line
+- Defaults are chosen so a minimal testbench needs almost no configuration
+- Optional signals are detected, not assumed
+- A pre-built randomizer factory covers the common slave behaviors
 
 ## Usage Patterns
 
 ### Basic Testbench Setup
+
+Factories, a write with user attributes, a read back — that's a working testbench:
 
 ```python
 import cocotb
@@ -186,6 +199,8 @@ async def basic_apb5_test(dut):
 
 ### User Signal Testing
 
+Widen the sidebands and put real values on them:
+
 ```python
 @cocotb.test()
 async def user_signal_test(dut):
@@ -210,6 +225,8 @@ async def user_signal_test(dut):
 
 ### APB4/APB5 Interoperability
 
+Converting between formats is explicit, and it works in both directions:
+
 ```python
 from CocoTBFramework.components.apb.apb_packet import APBPacket
 from CocoTBFramework.components.apb5 import APB5Packet
@@ -225,43 +242,51 @@ apb4_again = apb5_pkt.to_apb4_packet()
 ## Integration with Framework
 
 ### Shared Components Integration
-- **Memory Model**: Realistic slave memory backing via MemoryModel
-- **FlexRandomizer**: Advanced randomization for timing, errors, and user signal values
-- **Field Configuration**: Flexible packet field definitions via FieldConfig/FieldDefinition
-- **Base Packet**: Inherits from framework Packet class for consistent field management
+
+- **Memory Model**: backs the slave's register storage
+- **FlexRandomizer**: drives timing, error, and user-value randomization
+- **Field Configuration**: packet layouts via FieldConfig/FieldDefinition
+- **Base Packet**: APB5Packet inherits the framework's Packet field management
 
 ### APB4 Protocol Compatibility
-- Extends APB4 packet format with additional fields
-- Uses same signal names for base APB signals
-- Maintains same transaction pipeline (setup phase, access phase, response)
-- Shares PWRITE_MAP direction mapping with APB4
+
+- Extends the APB4 packet format rather than forking it
+- Same signal names for the base APB signals
+- Same transfer pipeline: setup phase, access phase, response
+- Shares the PWRITE_MAP direction mapping with APB4
 
 ## Key Features
 
 ### Transaction Management
-- **Automatic Queuing**: Transaction pipelining via sentQ deque
-- **Timing Control**: Configurable delays via FlexRandomizer
-- **User Signal Randomization**: Slave automatically randomizes PRUSER and PBUSER
-- **Wake-up Support**: Master-driven PWAKEUP via `wakeup_enable` / `set_wakeup_enable()`
+
+- **Automatic Queuing**: every component keeps a `sentQ` deque of completed transactions
+- **Timing Control**: configurable delays via FlexRandomizer
+- **User Signal Randomization**: the slave randomizes PRUSER and PBUSER on its own
+- **Wake-up Support**: master-driven PWAKEUP via `wakeup_enable` / `set_wakeup_enable()`
 
 ### Verification Support
+
 - **Protocol Checking**: APB5 specification compliance monitoring
-- **Transaction Monitoring**: Complete protocol observation including user signals
-- **Error Detection**: Slave errors, address overflow, and parity error tracking
-- **Packet Comparison**: Direction-aware equality with user signal matching
+- **Transaction Monitoring**: full bus observation, user signals included
+- **Error Detection**: slave errors, address overflow, and parity error tracking
+- **Packet Comparison**: direction-aware equality with user signal matching
 
 ## Getting Started
 
 ### Quick Setup
+
 1. **Import Components**: `from CocoTBFramework.components.apb5 import *`
-2. **Create Master/Slave**: Use factory functions with DUT signals and user signal widths
-3. **Generate Transactions**: Use APB5Transaction or create APB5Packets directly
-4. **Run Test**: Send packets via `master.send()`, `master.write()`, or `master.read()`
+2. **Create Master/Slave**: factory functions, DUT signals, and user signal widths
+3. **Generate Transactions**: APB5Transaction for random traffic, or hand-built APB5Packets
+4. **Run Test**: send packets via `master.send()`, `master.write()`, or `master.read()`
 
 ### Advanced Usage
-1. **Custom User Signal Widths**: Configure independent widths for each user channel
-2. **Wake-up Testing**: Control requester-driven PWAKEUP with `APB5Master(wakeup_enable=...)` or `master.set_wakeup_enable()`
-3. **Parity Monitoring**: Monitor parity error flags in captured packets
-4. **APB4 Migration**: Convert existing APB4 packets to APB5 using `from_apb4_packet()`
 
-Each component includes comprehensive signal presence detection to handle optional APB5 signals gracefully, allowing the same test infrastructure to work with both minimal and fully-featured APB5 interfaces.
+1. **Custom User Signal Widths**: size each user channel independently
+2. **Wake-up Testing**: toggle requester-driven PWAKEUP mid-test with `APB5Master(wakeup_enable=...)` or `master.set_wakeup_enable()`
+3. **Parity Monitoring**: check the parity error flags in captured packets
+4. **APB4 Migration**: upgrade existing APB4 stimulus with `from_apb4_packet()`
+
+One last thing worth repeating, because it's what makes mixed DUTs painless: every component detects which optional signals are actually connected instead of assuming. The same testbench runs against a stripped-down APB4-style peripheral and a fully loaded APB5 one — you just stop touching the signals that aren't there.
+
+---

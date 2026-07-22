@@ -1,22 +1,22 @@
 # AXI4 Compliance Checker
 
-Non-intrusive AXI4 protocol compliance checker that validates handshake rules, burst constraints, ID ordering, and response codes. Designed for optional integration into existing testbenches without requiring code changes.
+A passive AXI4 protocol checker that watches the bus and flags handshake violations, burst errors, ID ordering problems, and bad response codes. It bolts onto an existing testbench with zero code changes — you turn it on with an environment variable, and when it's off it never gets built.
 
 ## Overview
 
-The `AXI4ComplianceChecker` provides:
+The `AXI4ComplianceChecker` gives you:
 
-- **Environment-controlled activation** via `AXI4_COMPLIANCE_CHECK=1` -- zero code changes required
+- **Environment-controlled activation** via `AXI4_COMPLIANCE_CHECK=1` -- no code changes required
 - **Automatic signal monitoring** on all five AXI4 channels (AR, AW, W, R, B)
-- **Handshake protocol validation** (VALID/READY rules)
-- **Burst constraint checking** (length, size, boundary)
-- **Response code validation** for B and R channels
-- **RLAST/WLAST matching** against expected beat counts
+- **Handshake protocol validation** against the VALID/READY rules
+- **Burst constraint checking** -- length, size, and the 4KB boundary
+- **Response code validation** on the B and R channels
+- **RLAST/WLAST matching** against the beat count the address phase promised
 - **ID-based transaction tracking** for read and write ordering
-- **Detailed violation reporting** with per-cycle timestamps
-- **Minimal performance impact** when disabled
+- **Violation reports with per-cycle timestamps**
+- **No measurable cost when disabled** -- the factory just returns `None`
 
-The checker uses `GAXIMonitor` instances to observe each channel and runs background coroutines for continuous protocol checking.
+Under the hood it's one `GAXIMonitor` per channel, plus a set of background coroutines doing the actual checking.
 
 **Wiring:** the transaction-level checks (burst length/size, RLAST matching, response
 codes) are fed by the `GAXIMonitorBase.get_completed_packets()` drain API.
@@ -24,32 +24,31 @@ codes) are fed by the `GAXIMonitorBase.get_completed_packets()` drain API.
 and the `monitor_transactions()` coroutine drains each monitor every clock cycle and
 runs the `validate_*` checks on every observed packet. The drain queue is separate from
 the cocotb `_recvQ`, so the documented `monitor._recvQ.popleft()` verification pattern
-is unaffected.
+keeps working untouched.
 
-The `monitor_handshakes()` coroutine checks the VALID/READY rule live on DUT signals:
-once VALID is asserted it must stay asserted until the cycle where READY is also high
-(AMBA AXI A3.2.1). A VALID deassertion without a completed handshake is reported as
-`VALID_DROPPED`; deassertion after a completed handshake is recognized as legal.
+The `monitor_handshakes()` coroutine checks the VALID/READY rule live on the DUT pins:
+once VALID is asserted it must hold until the cycle where READY is also high
+(AMBA AXI A3.2.1). A VALID that drops without a completed handshake is reported as
+`VALID_DROPPED`; dropping after a completed handshake is legal and passes quietly.
 
-Outstanding reads and writes are tracked as **per-ID FIFO queues**: AXI4 permits
-multiple outstanding transactions with the same ID (they complete in order), so R beats
-are matched against the oldest outstanding read for their ID and each B response
+Outstanding reads and writes are tracked as **per-ID FIFO queues**. AXI4 allows
+multiple outstanding transactions on the same ID — they complete in order — so R beats
+are matched against the oldest outstanding read for their ID, and each B response
 retires the oldest outstanding write for its ID.
 
 ### WLAST validation and the write-data ordering rule
 
-WLAST is fully validated against the beat count declared by the corresponding AW
-command. The association between W beats and AW commands relies on a property of
-AXI4 itself: **AXI4 removed write data interleaving.** There is no `WID` signal (it
-was an AXI3 feature), so write data bursts must appear on the W channel in exactly
-the same order as their AW commands were issued -- a strict FIFO across *all* IDs,
-not per ID.
+WLAST is checked against the beat count declared by the corresponding AW command. The
+association between W beats and AW commands works because of something AXI4 took away:
+**write data interleaving.** There is no `WID` signal (that was an AXI3 feature), so
+write data bursts must appear on the W channel in exactly the order their AW commands
+were issued -- a single strict FIFO across *all* IDs, not one per ID.
 
-The checker therefore keeps a single global queue, `aw_awaiting_w`, of AW commands
-awaiting their data phase, in arrival order. Each W beat is counted against the head
-entry, and the head is popped when its data phase ends. The entries in this queue are
-the same objects held in the per-ID `outstanding_writes` queues, so beat bookkeeping
-is shared rather than duplicated.
+The checker therefore keeps one global queue, `aw_awaiting_w`, of AW commands waiting
+for their data phase, in arrival order. Each W beat is counted against the head entry,
+and the head pops when the data phase ends. The entries are the same objects held in
+the per-ID `outstanding_writes` queues, so the beat bookkeeping is shared rather than
+duplicated.
 
 The two queues advance on **different protocol events and never pop each other**:
 
@@ -66,9 +65,9 @@ Three conditions are reported as `WLAST_MISMATCH` on the `W` channel:
 | WLAST missing | The final expected beat arrived without WLAST |
 | No pending AW | A W beat arrived with no AW command awaiting write data |
 
-On a missing WLAST the checker ends the data phase at the expected beat count and
-resynchronizes to the next AW, so a single malformed burst produces one violation
-rather than one per subsequent beat.
+When WLAST goes missing, the checker ends the data phase at the expected beat count
+and resynchronizes on the next AW. That's deliberate: one malformed burst should
+produce one violation, not a cascade of follow-on errors that buries the real one.
 
 ---
 
@@ -80,7 +79,7 @@ rather than one per subsequent beat.
 class AXI4ViolationType(Enum)
 ```
 
-Enumeration of all violation types the checker can detect.
+Every violation type the checker can raise.
 
 | Value | Category | Description |
 |-------|----------|-------------|
@@ -113,7 +112,7 @@ class AXI4Violation:
     additional_data: Dict[str, Any] = field(default_factory=dict)
 ```
 
-Represents a single protocol violation with its type, channel, cycle number, descriptive message, severity level, and optional additional context.
+One recorded violation: type, channel, cycle number, message, severity, plus an optional dict of extra context.
 
 ---
 
@@ -157,7 +156,7 @@ class AXI4ComplianceChecker:
 
 ### `AXI4ComplianceChecker.create_if_enabled(dut, clock, prefix="", log=None, **kwargs) -> Optional[AXI4ComplianceChecker]`
 
-Factory method that returns `None` when compliance checking is disabled. This is the recommended way to integrate the checker.
+Factory method, and the recommended way in. It returns a live checker when the environment asks for one and `None` otherwise, so the same testbench code runs clean either way — just guard any use of the result with a truthiness check.
 
 **Returns:** `AXI4ComplianceChecker` instance if `AXI4_COMPLIANCE_CHECK=1` is set, otherwise `None`.
 
@@ -170,7 +169,7 @@ self.compliance_checker = AXI4ComplianceChecker.create_if_enabled(
 
 ### `AXI4ComplianceChecker.is_enabled() -> bool`
 
-Check if compliance checking is enabled via the `AXI4_COMPLIANCE_CHECK` environment variable.
+Returns whether compliance checking is enabled, per the `AXI4_COMPLIANCE_CHECK` environment variable.
 
 ---
 
@@ -178,11 +177,11 @@ Check if compliance checking is enabled via the `AXI4_COMPLIANCE_CHECK` environm
 
 ### `setup_monitors()`
 
-Set up `GAXIMonitor` instances for all AXI4 channels that have valid/ready signals present on the DUT. Called automatically during initialization.
+Creates `GAXIMonitor` instances for every AXI4 channel that has valid/ready signals present on the DUT. Called automatically during initialization — you shouldn't need to call it yourself.
 
 ### `record_violation(violation_type, channel, message, **kwargs)`
 
-Record a protocol violation.
+Record a protocol violation by hand. Useful when your test has its own protocol expectations on top of the built-in ones.
 
 **Parameters:**
 
@@ -196,7 +195,7 @@ Record a protocol violation.
 
 ### `get_compliance_report() -> Dict[str, Any]`
 
-Get a comprehensive compliance report.
+The full compliance report as a dictionary.
 
 **Returns:** Dictionary with the following keys:
 
@@ -211,7 +210,7 @@ Get a comprehensive compliance report.
 
 ### `print_compliance_report()`
 
-Print a formatted compliance report to the logger.
+Formats the report and writes it to the logger.
 
 ---
 
@@ -219,7 +218,7 @@ Print a formatted compliance report to the logger.
 
 ### `add_axi4_compliance_checking(testbench_class)`
 
-Class decorator that adds automatic compliance checking to an existing testbench class. Modifies `__init__` to create a checker and `finalize_test` to print the report.
+Class decorator that wires compliance checking into an existing testbench class. It wraps `__init__` to create the checker and `finalize_test` to print the report.
 
 ```python
 @add_axi4_compliance_checking

@@ -1,54 +1,54 @@
 # AXI5 Components Overview
 
-The CocoTBFramework AXI5 components provide comprehensive support for AXI5 protocol verification and transaction generation. Built on the proven GAXI infrastructure, these components offer a consistent and powerful interface for memory-mapped protocol testing with advanced features for atomic operations, memory tagging, security contexts, chunked transfers, and protocol compliance verification.
+The AXI5 component family covers transaction generation and verification for AXI5: master and slave interfaces, packets, randomization, timing profiles, and a compliance checker. All of it sits on GAXI — the same infrastructure the AXI4, AXI-Lite, and AXI-Stream components are built on — so the channel objects, memory models, and statistics behave the way they do elsewhere in the framework. What this family adds is the AXI5 signal set and everything that rides on it: atomic operations, memory tagging, security contexts, chunked transfers, poison indicators, and a compliance checker that knows the new rules.
 
 ## Key Differences from AXI4
 
-AXI5 extends AXI4 with significant new capabilities while removing some legacy signals:
+AXI5 drops a couple of signals and adds quite a few more.
 
 **Removed Signals**:
-- `ARREGION`, `AWREGION` -- region signals removed from the specification
+- `ARREGION`, `AWREGION` — the region signals are gone from the spec
 
 **Added Signals (Address Channels)**:
-- `ATOP` (AW only) -- Atomic operation type (6 bits)
-- `NSAID` -- Non-secure Access ID (4 bits)
-- `TRACE` -- Transaction tracing enable (1 bit)
-- `MPAM` -- Memory Partitioning and Monitoring (11 bits)
-- `MECID` -- Memory Encryption Context ID (16 bits)
-- `UNIQUE` -- Unique/Exclusive access indicator (1 bit)
-- `TAGOP` -- Memory Tagging operation (2 bits)
-- `TAG` -- Memory tag values (width depends on data width)
-- `CHUNKEN` (AR only) -- Chunking enable (1 bit)
+- `ATOP` (AW only) — atomic operation type (6 bits)
+- `NSAID` — Non-secure Access ID (4 bits)
+- `TRACE` — transaction tracing enable (1 bit)
+- `MPAM` — Memory Partitioning and Monitoring (11 bits)
+- `MECID` — Memory Encryption Context ID (16 bits)
+- `UNIQUE` — unique/exclusive access indicator (1 bit)
+- `TAGOP` — memory tagging operation (2 bits)
+- `TAG` — memory tag values (width depends on data width)
+- `CHUNKEN` (AR only) — chunking enable (1 bit)
 
 **Added Signals (Data/Response Channels)**:
-- `POISON` (W, R) -- Data poison indicator (1 bit)
-- `TAGUPDATE` (W) -- Tag update indicators
-- `CHUNKV`, `CHUNKNUM`, `CHUNKSTRB` (R) -- Chunked transfer response fields
-- `TAGMATCH` (B, R) -- Tag match result (1 bit)
-- `TRACE` (B) -- Transaction trace echo (1 bit)
+- `POISON` (W, R) — data poison indicator (1 bit)
+- `TAGUPDATE` (W) — tag update indicators
+- `CHUNKV`, `CHUNKNUM`, `CHUNKSTRB` (R) — chunked transfer response fields
+- `TAGMATCH` (B, R) — tag match result (1 bit)
+- `TRACE` (B) — transaction trace echo (1 bit)
 
 ## Framework Integration
 
 ### GAXI Infrastructure Foundation
 
-The AXI5 components inherit from the robust GAXI framework, providing:
+Most of the heavy lifting comes straight from GAXI:
 
-**Unified Field Configuration**: Complete integration with the CocoTBFramework field configuration system for flexible transaction structures
-**Memory Model Support**: Seamless integration with memory models for data verification and complex test scenarios
-**Statistics Integration**: Comprehensive performance metrics and transaction tracking
-**Signal Resolution**: Automatic signal detection and mapping across different naming conventions
-**Advanced Debugging**: Multi-level debugging capabilities with detailed transaction logging
+**Unified Field Configuration**: transaction field layouts come from the framework-wide field configuration system, so adapting to your RTL's widths is a parameter change, not new code
+**Memory Model Support**: slaves can source and sink data through memory models, which is what makes self-checking tests practical
+**Statistics Integration**: performance metrics and transaction tracking, built in
+**Signal Resolution**: automatic signal detection and mapping across different naming conventions
+**Advanced Debugging**: multi-level debug support with detailed transaction logging
 
 ### Memory-Mapped Protocol Specialization
 
-While inheriting GAXI's power, AXI5 components are specifically optimized for next-generation memory-mapped protocols:
+On top of that base, the AXI5 layer is shaped around what the new spec actually adds:
 
-**Five Channel Architecture**: Complete support for AR, R, AW, W, and B channels
-**Atomic Operations**: Native support for AtomicStore, AtomicLoad, AtomicSwap, and AtomicCompare
-**Memory Tagging Extension (MTE)**: Full TAG, TAGOP, TAGUPDATE, and TAGMATCH support
+**Five Channel Architecture**: AR, R, AW, W, and B, all covered
+**Atomic Operations**: AtomicStore, AtomicLoad, AtomicSwap, and AtomicCompare as first-class transactions
+**Memory Tagging Extension (MTE)**: TAG, TAGOP, TAGUPDATE, and TAGMATCH, end to end
 **Security Context Management**: NSAID, MPAM, and MECID signal handling
-**Chunked Transfer Support**: CHUNKEN/CHUNKV/CHUNKNUM/CHUNKSTRB for large data widths
-**Poison Indicators**: Data integrity marking for error propagation
+**Chunked Transfer Support**: CHUNKEN/CHUNKV/CHUNKNUM/CHUNKSTRB for wide data buses
+**Poison Indicators**: data-integrity marking that travels with the beat
 **Transaction Tracing**: TRACE signal for debug and profiling infrastructure
 
 ## Core Components Architecture
@@ -99,70 +99,69 @@ graph TB
 
 ### AXI5MasterRead - Memory Read Operations
 
-The `AXI5MasterRead` component drives AXI5 read transactions as a master:
+The `AXI5MasterRead` component drives AXI5 read transactions as a master.
 
 **Address Request Management**:
-- **AR Channel Control**: Complete ARADDR, ARLEN, ARSIZE, ARBURST, ARID management
-- **Outstanding Transactions**: Support for multiple concurrent read requests
-- **AXI5 Security Context**: NSAID, MPAM, MECID signal generation
+- **AR Channel Control**: full ARADDR, ARLEN, ARSIZE, ARBURST, ARID management
+- **Outstanding Transactions**: multiple read requests in flight at once
+- **AXI5 Security Context**: NSAID, MPAM, and MECID signal generation
 - **Tag Operations**: TAGOP signaling for Memory Tagging Extension reads
-- **Chunked Reads**: CHUNKEN support for wide data bus transfers
+- **Chunked Reads**: CHUNKEN support for wide-data-bus transfers
 
 **Read Data Reception**:
-- **R Channel Monitoring**: Automatic RDATA, RRESP, RID, RLAST processing
-- **Poison Detection**: RPOISON indicator checking and warning
+- **R Channel Monitoring**: RDATA, RRESP, RID, RLAST handled automatically
+- **Poison Detection**: RPOISON indicator checked and flagged
 - **Chunk Response Handling**: CHUNKV, CHUNKNUM, CHUNKSTRB processing
-- **Tag Match Results**: TAGMATCH result extraction from responses
+- **Tag Match Results**: TAGMATCH extracted from responses
 
 ### AXI5MasterWrite - Memory Write Operations
 
-The `AXI5MasterWrite` component drives AXI5 write transactions as a master:
+The `AXI5MasterWrite` component drives AXI5 write transactions as a master.
 
 **Address and Data Management**:
-- **AW Channel Control**: Complete AWADDR, AWLEN, AWSIZE, AWBURST management
+- **AW Channel Control**: full AWADDR, AWLEN, AWSIZE, AWBURST management
 - **Atomic Operations**: AWATOP signaling for atomic read-modify-write
-- **Memory Tagging**: AWTAGOP, AWTAG support for MTE writes
+- **Memory Tagging**: AWTAGOP and AWTAG support for MTE writes
 - **Security Context**: AWNSAID, AWMPAM, AWMECID signal generation
 
 **Write Data and Response**:
-- **W Channel Control**: WDATA, WSTRB, WLAST, WPOISON, WTAG, WTAGUPDATE coordination
+- **W Channel Control**: WDATA, WSTRB, WLAST, WPOISON, WTAG, WTAGUPDATE coordination across the burst
 - **B Channel Processing**: BRESP, BID, BTRACE, BTAGMATCH response verification
-- **Atomic Convenience**: Dedicated `atomic_operation()` method for ATOP transactions
+- **Atomic Convenience**: a dedicated `atomic_operation()` method, so you never hand-roll ATOP traffic
 
 ### AXI5SlaveRead - Memory Read Response
 
-The `AXI5SlaveRead` component responds to AXI5 read transactions as a slave:
+The `AXI5SlaveRead` component responds to AXI5 read transactions as a slave.
 
 **Address Processing**:
-- **AR Channel Monitoring**: Automatic read address request detection
-- **Out-of-Order Responses**: Configurable OOO response reordering
-- **Memory Model Integration**: Direct memory model integration for data sourcing
+- **AR Channel Monitoring**: read address requests detected automatically
+- **Out-of-Order Responses**: configurable reordering, random or deterministic
+- **Memory Model Integration**: data sourced directly from a memory model
 
 **Data Response Generation**:
 - **R Channel Control**: RDATA, RRESP, RID, RLAST generation
 - **Chunk Response**: CHUNKV, CHUNKNUM, CHUNKSTRB generation for chunked reads
-- **Poison Injection**: Configurable RPOISON response generation
+- **Poison Injection**: configurable RPOISON generation — the easy way to find out whether your master actually handles poisoned data
 
 ### AXI5SlaveWrite - Memory Write Response
 
-The `AXI5SlaveWrite` component responds to AXI5 write transactions as a slave:
+The `AXI5SlaveWrite` component responds to AXI5 write transactions as a slave.
 
 **Write Transaction Processing**:
-- **AW/W Channel Coordination**: Proper address and data phase synchronization
+- **AW/W Channel Coordination**: address and data phases kept in sync
 - **Atomic Handling**: ATOP-aware write response generation
-- **Tag Processing**: TAGOP/TAGUPDATE processing and TAGMATCH response
+- **Tag Processing**: TAGOP/TAGUPDATE in, TAGMATCH out
 
 **Write Response Generation**:
 - **B Channel Control**: BRESP, BID, BTRACE, BTAGMATCH response generation
-- **Memory Integration**: Direct memory model updates with tag awareness
+- **Memory Integration**: memory model updates with tag awareness
 
 ## Field Configuration System
 
 ### AXI5FieldConfigHelper - Channel-Specific Configuration
 
-The field configuration system enables flexible AXI5 parameter adaptation:
+Every width from the constructor tables lands in a field configuration. `AXI5FieldConfigHelper` builds them per channel, or all five in one call:
 
-**Channel-Specific Configurations**:
 ```python
 # AR Channel Configuration
 ar_config = AXI5FieldConfigHelper.create_ar_field_config(
@@ -203,11 +202,11 @@ all_configs = AXI5FieldConfigHelper.create_all_field_configs(
 
 ### AXI5ComplianceChecker - Protocol Verification
 
-The integrated compliance checker provides comprehensive AXI5 specification verification. See `components_axi5_compliance.md` for full API documentation.
+A passive protocol monitor, gated by an environment variable, that checks live traffic against the AXI5 rule set. Full API documentation lives in `components_axi5_compliance.md`.
 
 ### AXI5Randomization - Realistic Test Scenarios
 
-The randomization system provides comprehensive parameter variation with AXI5-specific profiles:
+Randomization is profile-driven: pick a profile (or a feature helper) and the manager varies the parameters that matter for it.
 
 **Transaction Randomization**:
 ```python
@@ -230,19 +229,21 @@ manager.configure_for_security_testing()
 ```
 
 **Industry-Specific Profiles**:
-- `BASIC` -- Standard randomization
-- `COMPLIANCE` -- Strict protocol adherence
-- `PERFORMANCE` -- High-throughput stress testing
-- `ATOMIC` -- Atomic operation focused
-- `MTE` -- Memory Tagging Extension focused
-- `SECURITY` -- NSAID/MPAM/MECID focused
-- `AUTOMOTIVE` -- Conservative, safety-oriented
-- `DATACENTER` -- Wide bus, high bandwidth
-- `MOBILE` -- Power-efficient, mixed workloads
+- `BASIC` — standard randomization
+- `COMPLIANCE` — strict protocol adherence
+- `PERFORMANCE` — high-throughput stress testing
+- `ATOMIC` — atomic operation focused
+- `MTE` — Memory Tagging Extension focused
+- `SECURITY` — NSAID/MPAM/MECID focused
+- `AUTOMOTIVE` — conservative, safety-oriented
+- `DATACENTER` — wide bus, high bandwidth
+- `MOBILE` — power-efficient, mixed workloads
 
 ## Usage Patterns and Integration
 
 ### Basic Read Transaction
+
+Build the interface, then read — a single beat, or a burst with the AXI5 knobs turned:
 
 ```python
 from CocoTBFramework.components.axi5 import create_axi5_master_rd
@@ -270,6 +271,8 @@ responses = await master_rd['interface'].read_transaction(
 
 ### Basic Write Transaction
 
+Same shape on the write side — a plain single write, then an atomic swap:
+
 ```python
 from CocoTBFramework.components.axi5 import create_axi5_master_wr
 
@@ -294,6 +297,8 @@ result = await master_wr['interface'].atomic_operation(
 ```
 
 ### Complete Testbench Setup
+
+One call builds all four interfaces; pull the pieces you need out of the dictionary:
 
 ```python
 from CocoTBFramework.components.axi5 import create_complete_axi5_testbench_components
@@ -320,7 +325,7 @@ slave_read = components['slave_read']['interface']
 
 ### Timing Profiles
 
-AXI5 provides specialized timing profiles for different test scenarios:
+Timing profiles bundle per-channel delays for a given scenario, and there's a helper that returns timing tuned for a specific AXI5 feature:
 
 ```python
 from CocoTBFramework.components.axi5 import (
@@ -343,6 +348,8 @@ mte_timing = get_timing_for_axi5_feature('mte')
 
 ### Hardware Parameter Matching
 
+The constructor kwargs line up one-to-one with the parameters on a SystemVerilog AXI5 interface, so matching your DUT is transcription, not translation:
+
 ```python
 # Match SystemVerilog AXI5 interface parameters
 # parameter AXI_DATA_WIDTH = 64,
@@ -364,6 +371,8 @@ master_read = create_axi5_master_rd(
 ```
 
 ### Feature-Specific Configurations
+
+If you only care about one AXI5 feature area, there are convenience factories that preconfigure for it:
 
 ```python
 from CocoTBFramework.components.axi5 import (
@@ -391,4 +400,6 @@ security_components = create_axi5_with_security(
 )
 ```
 
-The AXI5 components provide a comprehensive, high-performance, and flexible solution for AXI5 protocol verification, combining the power of the GAXI infrastructure with AXI5-specific optimizations and advanced features for complete next-generation memory-mapped interface testing.
+Coming from the AXI4 components? The channel objects, memory models, and statistics all work the same way here — start with the differences list at the top of this page, and the rest is the AXI5 fields plus the checks that ride on them.
+
+---

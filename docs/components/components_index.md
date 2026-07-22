@@ -23,41 +23,41 @@
 
 # Components Index
 
-This directory contains the core verification components for the CocoTBFramework. These components provide protocol-specific implementations for masters, slaves, monitors, and supporting utilities across multiple bus protocols.
+Everything that talks to your DUT lives here: a master, slave, and monitor for each supported protocol, plus the shared infrastructure they all stand on. Find your protocol below — each directory has its own docs with examples and API details.
 
 ## Overview
-- [**Overview**](components_overview.md) - Complete overview of the components directory and architecture
+- [**Overview**](components_overview.md) - How the components directory is put together, and the conventions every BFM in it follows
 
 ## Protocol Components
 
 ### Bus Protocols
-- [**APB Components**](apb/components_apb_index.md) - Advanced Peripheral Bus protocol components with comprehensive transaction support
-- [**APB5 Components**](apb5/components_apb5_overview.md) - APB5 (AMBA5) extensions with USER/WAKEUP signal support
-- [**AXI4 Components**](axi4/index.md) - Full AXI4 protocol components with burst transactions, outstanding operations, and compliance checking
-- [**AXI5 Components**](axi5/components_axi5_overview.md) - AMBA5-generation AXI with extended signals and compliance checking
-- [**AXIL4 Components**](axil4/index.md) - AXI4-Lite protocol components optimized for register-oriented memory-mapped interfaces
-- [**AXIS4 Components**](axis4/index.md) - AXI4-Stream protocol components for packet-based streaming data verification
-- [**AXIS5 Components**](axis5/components_axis5_overview.md) - AXI-Stream v5 protocol components
+- [**APB Components**](apb/components_apb_index.md) - APB masters, slaves, and monitors with multi-slave transaction support
+- [**APB5 Components**](apb5/components_apb5_overview.md) - APB5 (AMBA5) extensions with USER and WAKEUP signal support
+- [**AXI4 Components**](axi4/index.md) - Full AXI4: burst transactions, outstanding operations, and compliance checking
+- [**AXI5 Components**](axi5/components_axi5_overview.md) - AMBA5-generation AXI with the extended signal set and compliance checking
+- [**AXIL4 Components**](axil4/index.md) - AXI4-Lite, trimmed down for register-style memory-mapped interfaces
+- [**AXIS4 Components**](axis4/index.md) - AXI4-Stream for packet-based streaming data
+- [**AXIS5 Components**](axis5/components_axis5_overview.md) - AXI-Stream v5 components
 - [**DFI Components**](dfi/components_dfi_overview.md) - DDR PHY Interface (v2.1-v5.x) memory-controller and PHY BFMs with JEDEC timing enforcement
-- [**FIFO Components**](fifo/components_fifo_index.md) - First-In-First-Out protocol components for buffer and queue verification
-- [**GAXI Components**](gaxi/components_gaxi_index.md) - Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
+- [**FIFO Components**](fifo/components_fifo_index.md) - Buffer and queue verification with flow control
+- [**GAXI Components**](gaxi/components_gaxi_index.md) - The generic valid/ready layer the AXI and FIFO BFMs are built on — and a good lightweight choice on its own for checking small internal blocks
 
 ### Serial Protocols
-- [**SMBus Components**](smbus/components_smbus_overview.md) - System Management Bus components with open-drain modeling and CRC-8 PEC
-- [**UART Components**](uart/uart_components.md) - Universal Asynchronous Receiver/Transmitter (UART) protocol components with 8N1 support
+- [**SMBus Components**](smbus/components_smbus_overview.md) - System Management Bus with open-drain modeling and CRC-8 packet error checking
+- [**UART Components**](uart/uart_components.md) - UART transmit/receive components, 8N1
 
 ### Visualization
-- [**Wavedrom Components**](wavedrom/wavedrom_index.md) - WaveJSON timing-diagram generation from simulation signals
+- [**Wavedrom Components**](wavedrom/wavedrom_index.md) - WaveJSON timing diagrams generated straight from simulation signals
 
 ### Specialized Components
-- [**Misc Components**](misc/components_misc_index.md) - Specialized monitoring and verification components for specific use cases
+- [**Misc Components**](misc/components_misc_index.md) - Monitors that don't belong to a single protocol, like the arbiter monitor
 
 ### Shared Infrastructure
-- [**Shared Components**](shared/components_shared_index.md) - Core shared components used across all protocols including packet handling, randomization, statistics, and memory modeling
+- [**Shared Components**](shared/components_shared_index.md) - Packets, field configuration, randomization, statistics, and the memory model — used by every protocol above
 
 ## Quick Start
 
-### Basic Component Usage
+### Creating Components
 ```python
 # Import protocol-specific factory functions
 from CocoTBFramework.components.apb.apb_factories import create_apb_master, create_apb_slave
@@ -70,7 +70,7 @@ gaxi_master = create_gaxi_master(dut, "GAXI_Master", "", dut.clk, field_config)
 fifo_master = create_fifo_master(dut, "FIFO_Master", dut.clk)
 ```
 
-### Shared Component Integration
+### Wiring in the Shared Pieces
 ```python
 # Use shared components for configuration and utilities
 from CocoTBFramework.components.shared.field_config import FieldConfig, FieldDefinition
@@ -91,6 +91,8 @@ randomizer = FlexRandomizer({
 # Create memory model
 memory = MemoryModel(num_lines=256, bytes_per_line=4)
 ```
+
+Same field config, same randomizer, same memory model — every protocol uses them. Configure once, reuse everywhere.
 
 ## Architecture Overview
 
@@ -126,33 +128,37 @@ graph TB
     Specialized --> Shared
 ```
 
+Read the arrows as "builds on": protocols at the top, shared infrastructure at the bottom, specialized pieces in between.
+
 ## Key Features
 
 ### Protocol Coverage
-- **APB**: Advanced Peripheral Bus with multi-slave support and register testing
-- **AXI4**: Full AXI4 memory-mapped protocol with burst transactions and outstanding operations
-- **AXIL4**: AXI4-Lite simplified protocol optimized for register access and configuration
-- **AXIS4**: AXI4-Stream protocol for high-performance packet-based streaming data
-- **GAXI**: Lightweight valid/ready protocol for validating FIFO-based interfaces on small internal blocks
-- **FIFO**: Buffer and queue protocols with flow control
-- **Extensible**: Framework for adding new protocols
+- **APB**: ARM's peripheral bus, with multi-slave support and register testing
+- **AXI4**: full memory-mapped AXI4 — bursts and outstanding transactions
+- **AXIL4**: AXI4-Lite for register access and configuration
+- **AXIS4**: AXI4-Stream for high-throughput packet streaming
+- **GAXI**: the shared valid/ready substrate, and the quickest way to exercise a small FIFO-based block
+- **FIFO**: buffer and queue protocols with flow control
+- **Extensible**: adding a new protocol follows a short, mechanical pattern
 
 ### Shared Infrastructure
-- **Packet Management**: Protocol-agnostic packet handling with field configuration
-- **Randomization**: Advanced constrained randomization with multiple modes
-- **Statistics**: Comprehensive performance and error tracking
-- **Memory Modeling**: High-performance memory simulation with access tracking
-- **Signal Mapping**: Automatic signal discovery and manual override capabilities
+- **Packet Management**: protocol-agnostic packets driven by a field configuration
+- **Randomization**: constrained-random, weighted, sequence, and custom modes
+- **Statistics**: latency, throughput, and error tracking built into every component
+- **Memory Modeling**: NumPy-backed memory with access tracking
+- **Signal Mapping**: automatic signal discovery, with manual overrides when your naming gets creative
 
 ### Component Types
-- **Masters**: Transaction initiators with configurable timing and randomization
-- **Slaves**: Transaction responders with memory backing and error injection
-- **Monitors**: Passive observers for transaction logging and verification
-- **Utilities**: Helper components for configuration, sequence generation, and debugging
+- **Masters**: transaction initiators with configurable timing and randomization
+- **Slaves**: responders with memory backing and error injection
+- **Monitors**: passive observers for transaction logging and checking
+- **Utilities**: configuration helpers, sequence generators, and debug tools
 
 ## Integration Patterns
 
 ### Cross-Protocol Testing
+One memory model, two protocols — the fastest way to prove a bridge actually preserves data:
+
 ```python
 # Create components from different protocols
 apb_master = create_apb_master(dut, "APB_Master", "apb_", dut.clk)
@@ -165,42 +171,44 @@ gaxi_slave.set_memory_model(shared_memory)
 ```
 
 ### Factory Functions
-All protocol components provide factory functions for easy creation:
-- Sensible defaults for common use cases
+Every protocol ships factory functions, so component creation is one line instead of a constructor scavenger hunt:
+- Sensible defaults for the common cases
 - Automatic signal mapping and configuration
-- Integration with shared components
-- Consistent API across protocols
+- Shared-component integration out of the box
+- The same API shape across protocols
 
 ### Configuration Management
-- Environment variable support for parameterization
-- Field configuration system for packet structure definition
-- Randomization profiles for different test scenarios
-- Memory model integration for data tracking
+- Environment variables for test parameterization
+- FieldConfig for describing packet structure
+- Randomization profiles per test scenario
+- Memory model integration for end-to-end data tracking
 
 ## Performance Features
 
 ### Optimizations
-- **Signal Caching**: Pre-resolved signal references for faster access
-- **Thread-Safe Operations**: Parallel test execution support
+- **Signal Caching**: signal references resolved once, not on every access
+- **Thread-Safe Operations**: components can run in parallel
 - **Memory Efficiency**: NumPy-backed memory models for large data sets
-- **Reduced Overhead**: Optimized data strategies and signal handling
+- **Reduced Overhead**: optimized data strategies and signal handling
 
 ### Scalability
-- Support for large field configurations
-- Efficient memory usage in long-running tests
+- Large field configurations without a slowdown
+- Long-running tests without memory creep
 - Parallel component operation
 - Resource-conscious design
 
 ## Getting Started
 
-1. **Choose Protocol**: Select appropriate protocol components (APB, GAXI, FIFO)
-2. **Configure Fields**: Use FieldConfig for packet structure definition
-3. **Create Components**: Use factory functions for quick setup
-4. **Set Randomization**: Configure FlexRandomizer for test patterns
-5. **Integrate Memory**: Add MemoryModel for data verification
-6. **Run Tests**: Execute test sequences with monitoring and verification
+1. **Pick your protocol** — APB, GAXI, FIFO, or one of the AXI flavors
+2. **Describe your fields** with FieldConfig
+3. **Create components** with the factory functions
+4. **Set up randomization** with FlexRandomizer
+5. **Attach a MemoryModel** if you need data checking
+6. **Run** — the monitors and statistics collect themselves
 
-Each component directory includes comprehensive documentation with examples, API references, and best practices for integration into verification environments.
+Each component directory has full documentation — examples, API reference, and integration notes — so start with the one that matches your interface.
 
 ## Navigation
 - [**Back to CocoTBFramework**](../index.md) - Return to main framework index
+
+---

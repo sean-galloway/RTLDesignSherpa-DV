@@ -23,11 +23,11 @@
 
 # debug_object.py
 
-Simple debugging utilities for object inspection and detailed logging. This module provides helpful functions for examining object attributes, types, and values during development and debugging.
+Object inspection helpers for debugging — the functions you reach for when a packet or signal container isn't holding what you think it's holding.
 
 ## Overview
 
-The `debug_object.py` module contains utility functions for introspecting Python objects, making it easier to debug complex objects in verification environments. It's particularly useful for examining signal objects, packet contents, and component states.
+Every verification engineer eventually writes this file. You're staring at a component mid-test, something's off, and you need to know what attributes it actually has and what values they're carrying. `debug_object.py` is that file, already written: dump an object's attributes with types and values, print them to a logger, or print a dict without writing the same three-line loop for the hundredth time. It's most useful on signal containers, packet contents, and component state.
 
 ## Functions
 
@@ -43,8 +43,8 @@ Returns a dictionary with all attributes of the given object, including their ty
 **Features:**
 - Skips private attributes (those starting with `_`)
 - Skips methods and callable objects
-- Handles attributes that may raise exceptions when accessed
-- Provides type information for each attribute
+- Survives attributes that raise exceptions when accessed
+- Reports the type of each attribute alongside the value
 
 ```python
 # Example usage
@@ -289,6 +289,8 @@ def compare_objects(obj1, obj2, log, name1="Object1", name2="Object2"):
     }
 ```
 
+The comparative pattern earns its keep when a packet mutates somewhere between the driver and the scoreboard and you can't tell where. Snapshot both ends, diff them, and the field that changed names itself.
+
 ## Integration with CocoTB
 
 ### Signal State Debugging
@@ -334,26 +336,28 @@ def create_debug_snapshot(component, log, snapshot_name=""):
 
 ## Error Handling
 
-The debug functions include robust error handling:
+The debug functions are built to survive the objects you're most likely to throw at them:
 
-- **Attribute Access Errors**: Safely handle attributes that raise exceptions
-- **Type Conversion Errors**: Gracefully handle objects that can't be converted to strings
-- **Missing Logger**: Functions can work even if logger is None (will use print as fallback)
-- **Large Objects**: Automatic truncation of large string representations
+- **Attribute Access Errors**: Attributes that raise on access are handled safely
+- **Type Conversion Errors**: Objects that can't be stringified don't kill the dump
+- **Missing Logger**: Functions fall back to print if the logger is None
+- **Large Objects**: Long string representations are truncated automatically
 
 ## Best Practices
 
-1. **Use During Development**: Enable detailed debugging during test development, then reduce verbosity for production runs
+1. **Use During Development**: Crank up the detail while you're bringing a test up, then dial it back for regression runs — full object dumps are not cheap.
 
-2. **Snapshot Key States**: Take debug snapshots at important test milestones
+2. **Snapshot Key States**: Take snapshots at test milestones so you can compare "known good" against "whatever this is."
 
-3. **Compare Before/After**: Use object comparison to understand state changes
+3. **Compare Before/After**: Object comparison is the fastest way to find the field that moved.
 
-4. **Filter Output**: Use `max_value_length` to control output size for large objects
+4. **Filter Output**: Use `max_value_length` to keep large objects from flooding the log.
 
-5. **Conditional Debugging**: Use log levels to control when debugging is active
+5. **Conditional Debugging**: Gate the dumps behind a log level so they vanish when you don't need them:
 
 ```python
 if log.isEnabledFor(logging.DEBUG):
     print_object_details(complex_object, log, "Debug State")
 ```
+
+---

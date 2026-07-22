@@ -23,7 +23,7 @@
 
 # AXISSlave
 
-The `AXISSlave` class provides comprehensive AXI4-Stream protocol slave (sink) functionality. Built on the GAXI infrastructure, it offers advanced stream data reception, backpressure control, and automatic frame assembly with complete protocol monitoring capabilities.
+`AXISSlave` is the stream sink. It drives TREADY, captures beats as they handshake off the bus, and keeps count at the frame level — where a frame is the run of beats ending with TLAST. Like the master, it's a thin AXIS-flavored layer over the GAXI receive pipeline, which is where the real work happens.
 
 ## Class Overview
 
@@ -45,19 +45,19 @@ class AXISSlave(GAXISlave):
 
 ### Delegation to the GAXI Pipeline
 
-The inherited `GAXISlave` receive pipeline performs all handshake detection, data capture, memory-model writes, and — importantly — **all TREADY driving**, including randomized ready delays taken from the slave randomizer. `AXISSlave` does not run a competing monitor loop or drive TREADY itself, so there is no contention over the ready signal.
+The inherited `GAXISlave` receive pipeline performs all handshake detection, data capture, memory-model writes, and — importantly — **all TREADY driving**, including randomized ready delays taken from the slave randomizer. `AXISSlave` does not run a competing monitor loop or drive TREADY itself, so there is no contention over the ready signal. One driver, one owner.
 
 AXIS-level frame tracking is layered on through the standard cocotb callback mechanism: every packet the GAXI pipeline captures is also passed to `_axis_packet_callback`, which maintains `packets_received`, `frames_received`, `total_data_bytes`, and the current-frame state used by `get_current_frame_info()` and `wait_for_frame()`.
 
 `AXISSlave` sets `_default_packet_class = AXISPacket`, so the packets the pipeline hands to that callback are real `AXISPacket` objects (see `GAXIComponentBase._build_packet`). An explicit `packet_class=` argument still takes precedence.
 
-> **Note:** registering a callback changes cocotb's delivery path — `Monitor._recv()` only appends to `_recvQ` when no callback is registered. Consume `AXISSlave` traffic through `_axis_packet_callback`, your own `add_callback()`, or the frame statistics, not `slave._recvQ`. `AXISMonitor` keeps `_recvQ` intact by hooking `_finish_packet` instead of adding a callback.
+> **Note:** here's the part that bites people. Registering a callback changes cocotb's delivery path — `Monitor._recv()` only appends to `_recvQ` when no callback is registered. So consume `AXISSlave` traffic through `_axis_packet_callback`, your own `add_callback()`, or the frame statistics — not `slave._recvQ`, which will sit there looking stubbornly empty. `AXISMonitor` sidesteps this by hooking `_finish_packet` instead of adding a callback, which is why its `_recvQ` still works.
 
 ## Constructor
 
 ### `__init__(dut, title, prefix, clock, **kwargs)`
 
-Initialize the AXIS Slave component.
+Construct the slave and resolve the bus signals sitting under `prefix`.
 
 **Parameters:**
 - **`dut`** - Device under test instance
@@ -97,7 +97,7 @@ slave = AXISSlave(
 
 #### `set_ready_always(ready=True)`
 
-Force the TREADY signal to a fixed value immediately.
+Poke TREADY to a fixed value, right now.
 
 > **Note**: the GAXI receive pipeline actively manages TREADY around each
 > handshake, so this override only holds between pipeline actions (for
@@ -120,7 +120,7 @@ slave.set_ready_always(False)
 
 #### `apply_backpressure(probability=0.2, min_cycles=1, max_cycles=5)`
 
-Apply random backpressure by updating the ready-delay constraints that the GAXI receive pipeline uses when driving TREADY. This is the supported way to create sustained backpressure.
+This is how you do real backpressure. Instead of pinning TREADY yourself, you adjust the ready-delay constraints the receive pipeline consults — and the pipeline does the driving, so the backpressure survives across beats instead of being overwritten by the next pipeline action.
 
 **Parameters:**
 - **`probability`** (float) - Probability of applying backpressure (0.0 to 1.0)
@@ -141,7 +141,7 @@ slave.apply_backpressure(
 
 #### `wait_for_frame(timeout_cycles=None)` (async)
 
-Wait for a complete frame to be received (packet sequence ending with TLAST).
+Block until a complete frame lands — that is, until a beat arrives with TLAST set.
 
 **Parameters:**
 - **`timeout_cycles`** (int) - Maximum cycles to wait (uses instance default if None)
@@ -163,7 +163,7 @@ if frame_received:
 
 #### `get_current_frame_info()`
 
-Get information about the currently receiving frame.
+A snapshot of the frame currently in flight — useful for progress logging while a long frame is arriving.
 
 **Returns:** `dict` - Frame information containing:
 - `packets_in_frame` - Number of packets received in current frame
@@ -182,7 +182,7 @@ print(f"Current frame: {frame_info['packets_in_frame']} packets, "
 
 ### `get_stats()`
 
-Get comprehensive reception statistics.
+The counters, in one dict:
 
 **Returns:** `dict` - Statistics dictionary containing:
 - `packets_received` - Total packets received
@@ -203,18 +203,19 @@ print(f"Current frame: {stats['current_frame_info']['packets_in_frame']} packets
 
 ### Stream Reception Monitoring
 
-The AXISSlave automatically monitors the bus and:
-- **Handshake Detection**: Monitors TVALID/TREADY handshakes
-- **Packet Capture**: Automatically captures valid transfers
-- **Frame Assembly**: Groups packets by TLAST boundaries
-- **Statistics Tracking**: Updates counters and performance metrics
+Once constructed, the slave is already watching the bus. No explicit start, no polling loop in your test:
+
+- **Handshake detection**: the pipeline watches TVALID/TREADY and acts on completed handshakes.
+- **Packet capture**: valid transfers become `AXISPacket` objects automatically.
+- **Frame assembly**: beats are grouped by TLAST boundaries.
+- **Statistics tracking**: counters update as packets land.
 
 ### Frame Boundary Processing
 
-- **Automatic TLAST Detection**: Identifies frame boundaries
-- **Frame Statistics**: Tracks complete frame reception
-- **Multi-Frame Support**: Handles concurrent or sequential frames
-- **Frame ID Tracking**: Associates packets with frame IDs
+- **Automatic TLAST detection**: frame boundaries are recognized, not polled for.
+- **Frame statistics**: complete frames are counted as they close.
+- **Multi-frame support**: back-to-back frames are tracked without you stitching anything together.
+- **Frame ID tracking**: each frame is associated with the ID of its first beat.
 
 ### Memory Model Integration
 
@@ -233,7 +234,8 @@ slave = AXISSlave(dut, "Sink", "s_axis_", clk, memory_model=memory)
 
 ### Protocol Compliance Monitoring
 
-The component automatically:
+Along the way, the component also keeps an eye on protocol health:
+
 - Validates TVALID/TREADY handshake timing
 - Checks protocol specification compliance
 - Detects and reports protocol violations
@@ -366,15 +368,16 @@ async def test_memory_verification():
 
 ## Error Handling and Recovery
 
-The AXISSlave provides robust error handling:
-- **Timeout Detection**: Configurable timeout for operations
-- **Exception Recovery**: Graceful handling of simulation exceptions
-- **Protocol Error Detection**: Identification of protocol violations
-- **Logging Integration**: Comprehensive error reporting
+Failures surface the way they should — as timeouts you can catch and exceptions that get logged, not as silently missing data:
+
+- **Timeout detection**: configurable timeout for operations
+- **Exception recovery**: graceful handling of simulation exceptions
+- **Protocol error detection**: identification of protocol violations
+- **Logging integration**: detailed error reporting through the component logger
 
 **Common error scenarios:**
-- TVALID timeout (no data received)
-- Protocol violations (invalid handshake)
+- TVALID timeout — no data ever arrived (dead master, wrong prefix, or a DUT that never started)
+- Protocol violations — an invalid handshake sequence
 - Memory model write failures
 - Clock domain issues
 
@@ -382,11 +385,12 @@ The AXISSlave provides robust error handling:
 
 ### Reception Statistics
 
-The component tracks:
-- **Throughput**: Packets and bytes per time unit
-- **Frame Statistics**: Frame completion rates and sizes
-- **Backpressure Impact**: Ready signal timing analysis
-- **Protocol Efficiency**: Handshake success rates
+The counters give you the raw material for throughput analysis:
+
+- **Throughput**: packets and bytes received — divide by simulation time yourself, as in the example below
+- **Frame statistics**: frame completion counts and sizes
+- **Backpressure impact**: ready signal timing behavior
+- **Protocol efficiency**: handshake success rates
 
 ### Real-time Analysis
 
@@ -427,4 +431,6 @@ slave = AXISSlave(dut, "StreamSink", "s_axis_", clk)
 # Slave provides reception functionality
 ```
 
-The AXISSlave component provides a complete solution for AXI4-Stream data reception, combining automatic monitoring with flexible flow control and comprehensive statistics for verification scenarios.
+For most tests the pattern is short: construct the slave, maybe call `apply_backpressure(...)`, `await wait_for_frame()`, then check `get_stats()`. Everything else on this page is there for the day that isn't enough.
+
+---

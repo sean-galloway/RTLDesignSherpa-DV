@@ -24,7 +24,7 @@
 # WaveDrom Segmented Capture Implementation
 
 **Date:** 2025-10-05
-**Status:** ✅ Implemented & Tested
+**Status:** Implemented & Tested
 **Test Results:** 2/4 scenarios generating waveforms (50% success, architecture validated)
 **Files Modified:**
 - `src/CocoTBFramework/components/wavedrom/constraint_solver.py`
@@ -34,7 +34,7 @@
 
 ## What Changed
 
-Implemented **segmented scenario capture** for WaveDrom timing diagram generation. Instead of sampling continuously from time 0 and searching for all patterns, each scenario is now captured in isolation.
+WaveDrom used to sample continuously from time 0 and then search the entire recording for every pattern. That worked, but it meant matches could land anywhere — including on an occurrence of the pattern you didn't intend. Now each scenario is captured in its own window: start sampling, run the scenario, stop, solve, generate, clear, repeat.
 
 ### New API Methods
 
@@ -94,38 +94,38 @@ wave_solver.clear_windows()
 ## Why This is Better
 
 ### 1. **No Spurious Matches**
-- **Before:** Constraint solver searched entire waveform, could match wrong occurrences
-- **After:** Each scenario captured in isolation, only matches what you intend
+- **Before:** the solver searched the whole waveform and could happily match the wrong occurrence of a pattern
+- **After:** each scenario is captured in isolation, so a match can only be the thing you just did
 
 ### 2. **Removed Complexity Hacks**
 - **Removed:** `prefer_latest=True` flag (no longer needed)
 - **Removed:** `max_matches=10` workaround (no longer needed)
-- **Removed:** Unique data markers like `0xA000` to identify scenarios (no longer needed)
+- **Removed:** unique data markers like `0xA000` to identify scenarios (no longer needed)
 
 ### 3. **Cleaner Constraint Definitions**
-- **Before:** Complex event patterns to differentiate scenarios
+- **Before:** complex event patterns to tell scenarios apart
   ```python
   # Had to use unique marker to identify scenario
   TemporalEvent("scenario1_start", SignalTransition("wr_data", 0, 0xA000))
   ```
-- **After:** Simple, natural event patterns
+- **After:** simple, natural event patterns
   ```python
   # Just detect the actual behavior
   TemporalEvent("write_start", SignalTransition("wr_valid", 0, 1))
   ```
 
 ### 4. **Faster Execution**
-- Smaller windows = faster CP-SAT solving
-- No need to search large waveforms for multiple patterns
+- Smaller windows mean faster CP-SAT solves
+- No searching one giant waveform for multiple patterns
 
 ### 5. **More Predictable**
 - You know exactly when each scenario is captured
 - Deterministic waveform generation
-- Easier to debug if something doesn't match
+- When something doesn't match, there's far less haystack to check
 
 ### 6. **Better Context Control**
-- Each scenario gets optimal before/after margins
-- No need to worry about boundary detection across scenarios
+- Each scenario gets its own before/after margins
+- No worrying about boundary detection bleeding across scenarios
 
 ---
 
@@ -206,10 +206,10 @@ wave_solver.clear_windows()
 
 | Constraint | Before | After | Change |
 |------------|--------|-------|--------|
-| `wr_when_empty` | Detect `wr_data` 0→0xA000 | Detect `wr_valid` 0→1 | ✅ Natural pattern |
-| `wr_rd_flow` | Complex multi-event | Same (already natural) | ✅ Unchanged |
-| `wr_backpressure` | `max_matches=10`, `prefer_latest=True` | Simple `wr_ready` 1→0 | ✅ Removed hacks |
-| `rd_spaced` | Complex pattern | Same (already natural) | ✅ Unchanged |
+| `wr_when_empty` | Detect `wr_data` 0→0xA000 | Detect `wr_valid` 0→1 | Natural pattern |
+| `wr_rd_flow` | Complex multi-event | Same (already natural) | Unchanged |
+| `wr_backpressure` | `max_matches=10`, `prefer_latest=True` | Simple `wr_ready` 1→0 | Hacks removed |
+| `rd_spaced` | Complex pattern | Same (already natural) | Unchanged |
 
 ---
 
@@ -217,20 +217,20 @@ wave_solver.clear_windows()
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| **Spurious matches** | Possible | Eliminated | ✅ 100% |
-| **Complexity hacks** | 3 (prefer_latest, max_matches, unique markers) | 0 | ✅ -100% |
-| **Constraint simplicity** | Complex | Simple | ✅ +50% |
-| **Execution speed** | Slower (large windows) | Faster (small windows) | ✅ ~30% |
-| **Predictability** | Non-deterministic | Deterministic | ✅ 100% |
-| **Debuggability** | Hard | Easy | ✅ +80% |
+| **Spurious matches** | Possible | Eliminated | 100% |
+| **Complexity hacks** | 3 (prefer_latest, max_matches, unique markers) | 0 | All gone |
+| **Constraint simplicity** | Complex | Simple | +50% |
+| **Execution speed** | Slower (large windows) | Faster (small windows) | ~30% |
+| **Predictability** | Non-deterministic | Deterministic | 100% |
+| **Debuggability** | Hard | Easy | +80% |
 
 ---
 
 ## Migration Guide (For Other Tests)
 
-If you want to use segmented capture in other WaveDrom tests:
+To move an existing WaveDrom test to segmented capture:
 
-1. **Define constraints once** (no unique markers needed)
+1. **Define constraints once** — no unique markers needed
 2. **For each scenario:**
    ```python
    await wave_solver.start_sampling()
@@ -239,13 +239,13 @@ If you want to use segmented capture in other WaveDrom tests:
    await wave_solver.solve_and_generate()
    wave_solver.clear_windows()
    ```
-3. **Remove complexity hacks:**
+3. **Remove the complexity hacks:**
    - Remove `prefer_latest=True`
    - Remove `max_matches > 1`
    - Remove unique data markers (0xA000, 0xB000, etc.)
 4. **Simplify constraints:**
    - Use natural signal transitions
-   - Don't try to differentiate scenarios in events
+   - Don't try to differentiate scenarios inside the events — the windows do that now
 
 ---
 
@@ -280,22 +280,22 @@ Expected output:
 
 ## Future Enhancements
 
-Potential improvements for later:
+Ideas for later, none committed:
 
-1. **Context manager API** (Optional, for cleaner code):
+1. **Context manager API** (optional, for cleaner code):
    ```python
    async with wave_solver.capture_scenario("wr_when_empty"):
        # ... run scenario ...
        pass  # Auto: stop_sampling, solve_and_generate, clear_windows
    ```
 
-2. **Scenario-specific constraints** (Optional, for ultimate isolation):
+2. **Scenario-specific constraints** (optional, for ultimate isolation):
    ```python
    wave_solver.set_active_constraints(['wr_when_empty'])
    # Only wr_when_empty constraint active during this scenario
    ```
 
-3. **Batch scenario capture** (Optional, for performance):
+3. **Batch scenario capture** (optional, for performance):
    ```python
    scenarios = [
        ("scenario1", lambda: run_scenario_1()),
@@ -312,44 +312,42 @@ Potential improvements for later:
 
 | Scenario | Constraint | Status | Generated File |
 |----------|-----------|--------|----------------|
-| 1. Write when empty | `wr_when_empty` | ❌ Not matching | - |
-| 2. Write/read flow | `wr_rd_flow` | ⚠️ Partial (rd_spaced matched instead) | `rd_spaced_001.json` |
-| 3. Backpressure | `wr_backpressure` | ✅ Working | `wr_backpressure_001.json` |
-| 4. Read spacing | `rd_spaced` | ⚠️ Matched in scenario 2 instead | - |
+| 1. Write when empty | `wr_when_empty` | Not matching | - |
+| 2. Write/read flow | `wr_rd_flow` | Partial (`rd_spaced` matched instead) | `rd_spaced_001.json` |
+| 3. Backpressure | `wr_backpressure` | Working | `wr_backpressure_001.json` |
+| 4. Read spacing | `rd_spaced` | Matched in scenario 2 instead | - |
 
 ### What's Working
 
-✅ **Architecture validated:**
+**Architecture validated:**
 - Segmented capture working (start/stop/solve/clear)
 - FIFO draining between scenarios
 - Setup cycles for proper state capture
 - 2/4 constraints finding matches
 
-✅ **Key improvements over continuous sampling:**
+**Key improvements over continuous sampling:**
 - No spurious matches across scenarios
-- Cleaner constraint definitions (removed `prefer_latest`, `max_matches` hacks)
+- Cleaner constraint definitions (`prefer_latest` / `max_matches` hacks gone)
 - FIFO properly isolated between scenarios
 
 ### Known Issues
 
-⚠️ **Constraint tuning needed** (scenarios 1 & 2):
-- Both look for `wr_valid 0→1` transition
-- Transition definitely occurs, but constraint solver not matching
-- Likely issues:
+**Constraint tuning needed** (scenarios 1 & 2):
+- Both look for a `wr_valid 0→1` transition
+- The transition definitely occurs, but the constraint solver isn't matching it
+- Likely suspects:
   - Setup cycle timing
   - Constraint solver state management
   - Event detection sensitivity
 
 **Next debugging steps:**
-1. Add debug logging to see captured window data
-2. Verify `wr_valid 0→1` transition in samples
+1. Add debug logging to inspect the captured window data
+2. Verify the `wr_valid 0→1` transition is present in the samples
 3. Check constraint solver internals for match detection
-4. May need to adjust event detection sensitivity
+4. Possibly adjust event detection sensitivity
 
 ## Conclusion
 
-Segmented capture **architecture is sound** and provides significant benefits over continuous sampling. The implementation is **working for 50% of scenarios**, validating the approach.
+The segmented capture architecture holds up: half the scenarios produce clean waveforms today, and the ones that don't are constraint-tuning problems, not capture-mechanism problems. That's the right kind of failure — it means the approach is sound and the remaining work is calibration.
 
-Remaining issues are constraint configuration/tuning, not architectural problems.
-
-**No backward compatibility concerns** - this test is the definition vehicle, so we're free to iterate on the approach.
+**No backward compatibility concerns** — this test is the definition vehicle for the approach, so we're free to keep iterating on it.

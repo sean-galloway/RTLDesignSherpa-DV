@@ -23,19 +23,19 @@
 
 # gaxi_sequence.py
 
-Enhanced GAXI sequence generator leveraging shared infrastructure for creating complex test patterns with dependency tracking, randomization, and built-in packet field masking.
+A GAXISequence is an ordered list of transactions to play through a master — with delays between them, dependencies among them, and randomized field values if you want them. Build the sequence, generate the packets, hand them to a driver or the command handler. Field masking is the packet's job, not the sequence's, which keeps this class small.
 
 ## Overview
 
 The `GAXISequence` class provides:
-- **Enhanced sequence generation** using existing infrastructure
-- **FlexRandomizer integration** for value generation and constraints
-- **Built-in packet field masking** (no custom implementation needed)
-- **Standard dependency tracking** patterns
-- **Performance optimization** for large field configurations
-- **Multiple sequence types** (burst, pattern, randomized, dependency chains)
+- **Ordered transaction lists** with per-transaction delays
+- **Dependency tracking** — transaction N can wait on transaction M
+- **FlexRandomizer integration** for constrained random field values
+- **Pattern builders** (walking ones/zeros, alternating bits, bursts) for the classic corner cases
+- **Field masking left to the Packet class**, where it belongs
+- **Optimized initialization** for large field configurations
 
-This simplified version eliminates custom field masking and uses existing infrastructure more effectively while preserving all existing APIs.
+Earlier versions of this class did their own field masking; that code is gone, because the packet already does it right. The APIs are unchanged.
 
 ## Class
 
@@ -52,14 +52,14 @@ class GAXISequence:
 - `packet_class`: Packet class to use (defaults to GAXIPacket)
 - `log`: Logger instance
 
-**Performance Note:** The class automatically detects large field configurations (>50 bits) and uses optimized initialization to avoid performance issues.
+**Performance Note:** Field configurations wider than about 50 bits get an optimized initialization path automatically — large configs used to make sequence construction noticeably slow, and this is the fix.
 
 ## Core Methods
 
 ### Randomization Setup
 
 #### `set_randomizer(constraints_dict)`
-Set up randomizer for field value generation using FlexRandomizer.
+Attach a FlexRandomizer for field value generation. Required before any of the `add_randomized_*` calls.
 
 **Parameters:**
 - `constraints_dict`: Dictionary of field constraints for FlexRandomizer
@@ -104,7 +104,7 @@ dependent_index = sequence.add_transaction({
 ```
 
 #### `add_data_transaction(data, delay=0, depends_on=None)`
-Add a simple data transaction.
+The shorthand for "I only care about the data field."
 
 **Parameters:**
 - `data`: Data value (automatically masked by Packet class)
@@ -122,7 +122,7 @@ next_index = sequence.add_data_transaction(0x87654321, depends_on=seq_index)
 ### Pattern Generation
 
 #### `add_burst(count, start_data=0, data_step=1, delay=0, dependency_chain=False)`
-Add a burst of transactions with incrementing data.
+Add a run of transactions with incrementing data. Set `dependency_chain=True` and each one waits on its predecessor — useful when you want to force ordering through the DUT.
 
 **Parameters:**
 - `count`: Number of transactions in burst
@@ -152,7 +152,7 @@ chain_indexes = sequence.add_burst(
 ```
 
 #### `add_pattern(pattern_name, data_width=32, delay=0)`
-Add common test patterns.
+The classic bit patterns. These catch stuck bits, shorted lines, and swap wiring — the stuff random data walks past.
 
 **Parameters:**
 - `pattern_name`: Type of pattern ('walking_ones', 'walking_zeros', 'alternating')
@@ -175,7 +175,7 @@ alt_indexes = sequence.add_pattern('alternating', data_width=32, delay=0)
 ### Randomized Transactions
 
 #### `add_randomized_transaction(delay=0, depends_on=None, field_overrides=None)`
-Add a transaction with randomized field values using FlexRandomizer.
+Add a transaction whose fields come from the randomizer. Pin specific fields with `field_overrides` when you need a randomized packet with one fixed value.
 
 **Parameters:**
 - `delay`: Delay after transaction
@@ -199,7 +199,7 @@ rand_index = sequence.add_randomized_transaction(
 ```
 
 #### `generate_packets_with_randomization(count)`
-Generate packets with randomized values using FlexRandomizer.
+Generate standalone randomized packets — not added to the sequence, just returned.
 
 **Parameters:**
 - `count`: Number of packets to generate
@@ -214,6 +214,8 @@ for packet in random_packets:
 ```
 
 ### Backward Compatibility Methods
+
+Older tests used these names; they still work and do what they always did.
 
 #### `add_data_value(data, delay=0)`
 Add a transaction with a data value - backward compatibility.
@@ -270,7 +272,7 @@ alt_indexes = sequence.add_alternating_bits(data_width=24, delay=1)
 ### Dependency Management
 
 #### `add_burst_with_dependencies(count, data_start=0, data_step=1, delay=0, dependency_spacing=1)`
-Add a burst where each transaction depends on a previous one.
+A burst where each transaction waits on one earlier in the burst. `dependency_spacing=1` chains on the immediate predecessor; larger spacing lets some parallelism through.
 
 **Parameters:**
 - `count`: Number of transactions
@@ -310,7 +312,7 @@ seq, chain_indexes = sequence.add_dependency_chain(
 ## Packet Generation
 
 ### `generate_packets(count=None)`
-Generate packets from the sequence with dependency information.
+Turn the sequence into packets. Dependency information rides along as metadata on each packet.
 
 **Parameters:**
 - `count`: Number of packets to generate (None for all)
@@ -333,7 +335,7 @@ for packet in all_packets:
 ## Dependency Analysis
 
 ### `get_dependency_order()`
-Get the order in which transactions should be executed based on dependencies.
+An execution order that respects every dependency. If you're driving transactions yourself rather than going through the command handler, this is the order to use.
 
 **Returns:** List of transaction indexes in dependency-resolved order
 
@@ -350,7 +352,7 @@ for index in execution_order:
 ```
 
 ### `validate_dependencies()`
-Validate that all dependencies are resolvable.
+Check the whole graph — dangling indexes, unresolvable waits. Cheap to run; do it before the simulation, not after a hang.
 
 **Returns:** True if valid, raises ValueError if invalid
 
@@ -363,7 +365,7 @@ except ValueError as e:
 ```
 
 ### `get_dependency_graph()`
-Get a representation of the transaction dependencies.
+The raw dependency map, for when you want to see what you actually built.
 
 **Returns:** Dictionary mapping transaction indexes to their dependencies
 
@@ -376,7 +378,7 @@ print(f"Transaction count: {dep_graph['transaction_count']}")
 ## Statistics and Information
 
 ### `get_stats()`
-Get sequence generation statistics.
+Sequence shape at a glance: length, dependency count, whether randomization is in play.
 
 **Returns:** Dictionary with comprehensive statistics
 
@@ -504,6 +506,8 @@ packets = dep_sequence.generate_packets()
 
 ### Complex Mixed Sequence
 
+Phases of a real test, in one sequence: an init burst, pattern traffic that waits on it, randomized traffic, and a cleanup chain at the end.
+
 ```python
 def create_complex_test_sequence(field_config):
     """Create a complex sequence with mixed transaction types"""
@@ -558,7 +562,7 @@ print(f"Complex sequence statistics: {stats}")
 
 ### Factory Methods
 
-The class provides factory methods for common sequence types:
+The classmethods below cover the common sequence shapes in one call:
 
 #### `create_burst_sequence(name, count, start_data=0, data_step=1, field_config=None, dependency_chain=False)`
 Create a burst sequence with incrementing data.
@@ -626,7 +630,7 @@ sequence = GAXISequence("large_test", large_config)  # Uses optimized mode
 ```
 
 ### Memory Usage
-The class efficiently manages memory for large sequences:
+Long sequences stay cheap — transactions are stored compactly until you generate packets:
 
 ```python
 # Efficient for large sequences
@@ -648,6 +652,9 @@ except ValueError as e:
 ```
 
 ### Randomizer Errors
+
+Calling a randomized method without a randomizer raises immediately — set it up first.
+
 ```python
 try:
     sequence.add_randomized_transaction()
@@ -658,6 +665,9 @@ except ValueError as e:
 ```
 
 ### Field Validation
+
+Over-wide values are masked by the packet, not rejected — you get the low bits, which is almost always what a test meant.
+
 ```python
 # Field validation handled automatically by Packet class
 sequence.add_transaction({'addr': 0x123456789})  # Automatically masked
@@ -679,7 +689,10 @@ sequence.add_burst_with_dependencies(count=5, dependency_spacing=1)
 sequence.validate_dependencies()  # Catch errors early
 ```
 
-### 3. **Use Randomization for Stress Testing**
+### 3. **Constrain Randomization to What's Legal**
+
+Random data outside the DUT's address map just tests your error handling. Sometimes that's the point. Usually it isn't.
+
 ```python
 # Set up realistic randomization constraints
 sequence.set_randomizer({
@@ -696,7 +709,10 @@ packets = sequence.generate_packets()
 ordered_packets = [packets[i] for i in order]
 ```
 
-### 5. **Monitor Sequence Statistics**
+### 5. **Watch the Dependency Ratio**
+
+A sequence where everything waits on everything is a serial test wearing a parallel costume.
+
 ```python
 # Check sequence health
 stats = sequence.get_stats()
@@ -704,4 +720,4 @@ if stats['dependency_percentage'] > 50:
     print("Warning: High dependency ratio may affect parallelism")
 ```
 
-The GAXISequence provides a powerful and flexible framework for creating comprehensive test patterns with dependency management, randomization, and performance optimization for GAXI protocol verification.
+The factory classmethods cover the common shapes — burst, pattern, randomized, chain. Compose the `add_*` calls when you need something stranger, and validate the dependencies before you hand the sequence off.

@@ -23,21 +23,20 @@
 
 # fifo_scoreboard.py
 
-FIFO protocol scoreboard implementation for verifying FIFO transactions with memory model integration and field-configurable packet comparison. This module provides comprehensive verification for FIFO-based communication systems.
+FIFO traffic looks simple—data in, data out, order preserved—right up until a strobe or a channel field goes sideways. `FIFOScoreboard` compares packets field by field against your `FieldConfig`, and the companion `MemoryAdapter` ties packets to a memory model for FIFOs that are really buffering memory traffic.
 
 ## Overview
 
-The FIFO scoreboard system provides:
-- **Field-based Comparison**: Uses FieldConfig for flexible packet structure verification
-- **Memory Model Integration**: Built-in memory adapter for data consistency checking
-- **FIFO Packet Support**: Native handling of FIFO packet classes with enhanced logging
-- **Configurable Verification**: Customizable field mapping and comparison logic
+- **Field-based Comparison**: the `FieldConfig` defines the packet; comparison follows it
+- **Memory Model Integration**: built-in adapter for data-consistency checking
+- **FIFO Packet Support**: native `FIFOPacket` handling with readable mismatch logs
+- **Configurable Verification**: field mapping and comparison logic you can bend to your packet shape
 
 ## Classes
 
 ### FIFOScoreboard
 
-Core FIFO transaction verification with field-configurable comparison.
+Field-configurable FIFO verification.
 
 ```python
 class FIFOScoreboard(BaseScoreboard):
@@ -45,34 +44,34 @@ class FIFOScoreboard(BaseScoreboard):
 ```
 
 **Parameters:**
-- `name`: Scoreboard name for identification
-- `field_config`: Field configuration defining packet structure
-- `log`: Logger instance for detailed reporting
+- `name`: scoreboard name; shows up in reports
+- `field_config`: field configuration defining the packet structure
+- `log`: logger for mismatch detail
 
 **Key Features:**
-- Uses FieldConfig for flexible packet structure
-- Enhanced mismatch logging with field-by-field analysis
-- Integration with FIFOPacket class
-- Configurable comparison logic
+- FieldConfig drives the packet structure
+- Mismatch logging with field-by-field analysis
+- Works with the FIFOPacket class
+- Comparison logic you can override
 
 ## Core Methods
 
 ### Transaction Comparison
 
 #### `_compare_transactions(expected, actual)`
-Compare FIFO packets using built-in packet equality.
+Type-check, then `FIFOPacket.__eq__`—which already compares every field the config defines.
 
 **Parameters:**
-- `expected`: Expected FIFO transaction (FIFOPacket)
-- `actual`: Actual FIFO transaction (FIFOPacket)
+- `expected`: expected FIFO transaction (FIFOPacket)
+- `actual`: actual FIFO transaction (FIFOPacket)
 
 **Returns:**
-- `bool`: True if packets match, False otherwise
+- `bool`: True on match, False otherwise
 
 **Comparison Logic:**
-- Validates transaction types (must be FIFOPacket instances)
+- Both transactions must be FIFOPacket instances
 - Uses FIFOPacket's built-in `__eq__` method
-- Compares all fields defined in field_config
+- Every field in field_config is covered by that equality
 
 ```python
 # Automatic comparison when both transactions available
@@ -81,17 +80,17 @@ scoreboard.add_actual(actual_fifo_packet)  # Triggers comparison
 ```
 
 #### `_log_mismatch(expected, actual)`
-Enhanced mismatch logging with detailed field analysis.
+Prints both packets compactly, then walks the fields and names the ones that differ, values in hex. No guessing which field to look at.
 
 **Parameters:**
-- `expected`: Expected FIFO packet
-- `actual`: Actual FIFO packet
+- `expected`: expected FIFO packet
+- `actual`: actual FIFO packet
 
 **Detailed Logging:**
-- Uses packet's `formatted(compact=True)` method for readable output
+- Uses the packet's `formatted(compact=True)` method for readable output
 - Field-by-field comparison using field_config
-- Hexadecimal display for mismatched field values
-- Clear identification of specific field mismatches
+- Hex display for mismatched values
+- The guilty fields identified by name
 
 ```python
 # Example mismatch log output:
@@ -105,7 +104,7 @@ Enhanced mismatch logging with detailed field analysis.
 
 ### MemoryAdapter
 
-Adapter class for integrating FIFO packets with memory models for data consistency verification.
+Some FIFOs carry memory traffic. The adapter pulls address/data/control out of a packet—using your field names via `field_map`—and applies them to a memory model, so "did the data survive the FIFO" becomes a checkable question.
 
 ```python
 class MemoryAdapter:
@@ -113,28 +112,28 @@ class MemoryAdapter:
 ```
 
 **Parameters:**
-- `memory_model`: Memory model instance for data storage and retrieval
-- `field_map`: Dictionary mapping memory operations to packet fields
-- `log`: Logger instance for operation tracking
+- `memory_model`: memory model instance for storage and retrieval
+- `field_map`: dictionary mapping memory operations to packet fields
+- `log`: logger for operation tracking
 
 **Default Field Mapping:**
-- `'addr'`: Address field for memory operations
-- `'data'`: Data field for read/write operations
-- `'ctrl'`: Control field for operation type
+- `'addr'`: address field for memory operations
+- `'data'`: data field for read/write operations
+- `'ctrl'`: control field for operation type
 
 ### Memory Operations
 
 #### `write_to_memory(packet)`
-Write packet data to memory model based on field mapping.
+Extract the address, write the data, log the operation.
 
 **Parameters:**
-- `packet`: FIFO packet containing write data
+- `packet`: FIFO packet carrying the write data
 
 **Behavior:**
-- Extracts address from packet using field mapping
-- Writes data to memory at specified address
-- Logs write operation for debugging
-- Handles field mapping errors gracefully
+- Pulls the address out using the field mapping
+- Writes the data to memory at that address
+- Logs the write for debugging
+- Field-mapping errors handled gracefully, not raised
 
 ```python
 # Write packet to memory
@@ -143,19 +142,19 @@ adapter.write_to_memory(fifo_packet)
 ```
 
 #### `read_from_memory(packet)`
-Read data from memory model and compare with packet.
+Read back and compare.
 
 **Parameters:**
-- `packet`: FIFO packet containing expected read data
+- `packet`: FIFO packet carrying the expected read data
 
 **Returns:**
-- `bool`: True if memory data matches packet data
+- `bool`: True when memory agrees with the packet
 
 **Behavior:**
-- Extracts address from packet
-- Reads data from memory at address
-- Compares memory data with packet data field
-- Returns match result for verification
+- Pulls the address out of the packet
+- Reads memory at that address
+- Compares memory contents against the packet's data field
+- Returns the verdict
 
 ```python
 # Verify read data matches memory
@@ -165,13 +164,13 @@ if not match:
 ```
 
 #### `verify_packet_consistency(packet)`
-Comprehensive packet verification against memory state.
+The full check, returned as a results dictionary.
 
 **Parameters:**
 - `packet`: FIFO packet to verify
 
 **Returns:**
-- `dict`: Verification results with detailed status
+- `dict`: verification results with detailed status
 
 **Verification Checks:**
 - Address field validity
@@ -189,6 +188,8 @@ print(f"Details: {results['details']}")
 ## Usage Examples
 
 ### Basic FIFO Verification
+
+Define the fields, build packets, compare. The FieldConfig is doing the structural work here.
 
 ```python
 from CocoTBFramework.scoreboards.fifo_scoreboard import FIFOScoreboard
@@ -230,6 +231,8 @@ print(f"FIFO Verification: {'PASS' if error_count == 0 else 'FAIL'} ({pass_rate:
 ```
 
 ### Memory-Backed FIFO Verification
+
+Write through the adapter, then check that a read packet matches what the memory model holds.
 
 ```python
 from CocoTBFramework.scoreboards.fifo_scoreboard import MemoryAdapter
@@ -273,6 +276,8 @@ scoreboard.add_actual(actual_read_packet)
 ```
 
 ### Advanced FIFO System Verification
+
+Sixteen channels, one scoreboard each, and a burst generator so the expected traffic doesn't get written by hand.
 
 ```python
 # Multi-channel FIFO verification
@@ -349,6 +354,8 @@ async def test_multi_channel_fifo():
 
 ### Performance Analysis Integration
 
+Subclass to collect throughput and latency alongside the pass/fail data.
+
 ```python
 # FIFO performance verification
 class PerformanceFIFOScoreboard(FIFOScoreboard):
@@ -402,6 +409,8 @@ print(f"Average Latency: {stats['avg_latency']:.2f} ns")
 ```
 
 ### Custom Field Verification
+
+When strict equality is the wrong check—a tolerance band on data, a checksum that has to hold—attach validators per field.
 
 ```python
 # Custom field validation scoreboard
@@ -462,24 +471,24 @@ custom_scoreboard = CustomFIFOScoreboard(
 ## Best Practices
 
 ### Field Configuration
-- Define clear field mappings that match DUT interface
-- Use consistent field naming across components
-- Document field semantics and valid ranges
+- Field names should match the DUT interface; debugging across a rename is misery
+- Keep naming consistent across components
+- Write down what each field means and which values are legal
 
 ### Memory Model Integration
-- Configure appropriate memory size for test requirements
-- Use realistic addressing patterns
-- Clear memory state between test phases when needed
+- Size the memory model for the test you're actually running
+- Use realistic address patterns
+- Clear memory between phases when stale contents would mislead the check
 
 ### Performance Optimization
-- Use efficient field comparison for high-throughput tests
-- Monitor memory usage with large packet volumes
-- Consider batch verification for improved performance
+- Efficient field comparison matters at high throughput
+- Watch memory usage with large packet volumes
+- Batch verification if per-packet overhead starts showing up
 
 ### Error Analysis
-- Enable detailed logging for field-level mismatch analysis
-- Use custom validators for domain-specific checks
-- Preserve packet history for temporal analysis
+- Field-level logging first, waveform second
+- Custom validators for domain rules equality can't express
+- Keep packet history for temporal questions
 
 ## Integration Points
 
@@ -501,6 +510,9 @@ for packet in sequence.generate():
 ```
 
 ### Coverage Integration
+
+Field coverage falls out of the packets you've already seen:
+
 ```python
 # Field coverage analysis
 def analyze_field_coverage(scoreboard):
@@ -516,4 +528,4 @@ def analyze_field_coverage(scoreboard):
         print(f"Field '{field}' coverage: {coverage:.1f}%")
 ```
 
-The FIFO scoreboard provides comprehensive verification capabilities for FIFO-based systems with flexible field configuration, memory model integration, and extensive customization options for domain-specific verification requirements.
+Field-configurable comparison for the packets themselves, a memory adapter for the data behind them—between the two, most FIFO verification questions have an answer here.

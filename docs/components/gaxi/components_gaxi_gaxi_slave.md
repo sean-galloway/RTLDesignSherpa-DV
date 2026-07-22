@@ -23,17 +23,17 @@
 
 # gaxi_slave.py
 
-GAXI Slave with integrated structured pipeline that maintains all existing functionality and timing while adding better debugging and error recovery through structured pipeline phases.
+The receiving half of a GAXI interface — but not a passive one. The slave drives ready, so it owns backpressure, and it captures data with timing that depends on how the DUT implements its side of the interface. Pick the wrong capture mode and every packet looks shifted by a cycle; the modes exist because real FIFO interfaces genuinely differ.
 
 ## Overview
 
 The `GAXISlave` class provides:
-- **Structured receive pipeline** with enhanced debugging and error recovery
-- **Active ready signal driving** with timing control
-- **Mode-specific data capture** (skid, fifo_mux, fifo_flop)
-- **Memory model integration** using base MemoryModel directly
-- **Comprehensive statistics** including pipeline performance
-- **Optional pipeline debugging** for troubleshooting
+- **Three-phase receive pipeline** with per-phase debugging and error recovery
+- **Active ready driving** with randomized delay — this is your backpressure knob
+- **Three capture modes** matching the common DUT implementations (skid, fifo_mux, fifo_flop)
+- **Memory model integration** using the base MemoryModel directly
+- **Statistics** covering both the receive side and the pipeline internals
+- **Pipeline debugging** you can toggle at runtime
 
 Inherits from GAXIMonitorBase which provides common monitoring functionality and signal resolution.
 
@@ -71,22 +71,20 @@ class GAXISlave(GAXIMonitorBase):
 
 ## Data Capture Modes
 
-The GAXISlave supports different data capture timing based on the mode:
+The mode tells the slave when the DUT's data is actually valid relative to the handshake:
 
 ### Skid Mode (`mode='skid'`)
-- **Data capture**: Immediate (same cycle as handshake)
-- **Use case**: Standard pipeline with no delay
-- **Performance**: Fastest response time
+- **Data capture**: same cycle as the handshake
+- The common case — an elastic or skid-buffered interface has stable data at the handshake
+- Fastest response time
 
 ### FIFO MUX Mode (`mode='fifo_mux'`)
-- **Data capture**: Immediate (same cycle as handshake)
-- **Use case**: Multiplexed FIFO interface
-- **Performance**: Fast response time
+- **Data capture**: same cycle as the handshake
+- For a multiplexed FIFO interface where data is combinatorially selected
 
 ### FIFO FLOP Mode (`mode='fifo_flop'`)
-- **Data capture**: Delayed (one cycle after handshake)
-- **Use case**: Registered FIFO interface
-- **Performance**: One cycle latency for data capture
+- **Data capture**: one cycle after the handshake
+- For a registered FIFO interface — the output flop means new data shows up the cycle after the handshake, so capturing early records whatever was on the bus before
 
 ## Core Methods
 
@@ -102,7 +100,7 @@ await slave.reset_bus()
 ### Callback Management
 
 #### `add_callback(callback)`
-Add callback for received transactions.
+Register a function to run on every received transaction. This is where your checking lives.
 
 **Parameters:**
 - `callback`: Function to call when transaction is received
@@ -124,7 +122,7 @@ slave.remove_callback(transaction_handler)
 ### Data Access
 
 #### `get_observed_packets(count=None)`
-Get observed packets from the receive queue.
+Read packets out of the receive queue.
 
 **Parameters:**
 - `count`: Number of packets to return (None = all)
@@ -149,7 +147,7 @@ slave.clear_observed_packets()
 ### Pipeline Control and Debugging
 
 #### `enable_pipeline_debug(enable=True)`
-Enable or disable pipeline debugging at runtime.
+Turn pipeline debugging on or off at runtime.
 
 ```python
 # Enable detailed pipeline logging
@@ -160,7 +158,7 @@ slave.enable_pipeline_debug(False)
 ```
 
 #### `get_pipeline_stats()`
-Get pipeline-specific statistics.
+Per-phase counters, including how many captures happened immediately versus deferred — a quick sanity check that your mode matches the DUT.
 
 **Returns:** Dictionary with pipeline statistics
 
@@ -173,7 +171,7 @@ print(f"Deferred captures: {pipeline_stats['deferred_captures']}")
 ```
 
 #### `get_pipeline_debug_info()`
-Get detailed pipeline debug information.
+The detailed view: current state, phase timings, mode.
 
 ```python
 debug_info = slave.get_pipeline_debug_info()
@@ -184,7 +182,7 @@ print(f"Mode: {debug_info['mode']}")
 ### Statistics
 
 #### `get_stats()`
-Get comprehensive statistics including pipeline stats.
+Everything: slave-side counters, pipeline stats, and the base monitor stats in one dictionary.
 
 **Returns:** Dictionary containing all statistics
 
@@ -200,21 +198,19 @@ print(f"Base stats: {stats}")
 The GAXISlave uses a structured 3-phase receive pipeline:
 
 ### Phase 1: Handle Pending Transactions
-- Process deferred captures from fifo_flop mode
-- Maintain exact original timing
-- Enhanced debugging and statistics
+- Retire deferred captures from fifo_flop mode — the data from last cycle's handshake is valid now
+- Runs first so deferred work never stacks up
 
 ### Phase 2: Ready Timing Control
-- Apply `ready_delay` from randomizer
-- Deassert ready during delay periods
-- Assert ready when ready to accept data
-- Wait for falling edge for signal sampling
+- Pulls `ready_delay` from the randomizer and holds ready low for that many cycles
+- Raises ready when the delay expires
+- This phase is your backpressure generator
 
 ### Phase 3: Transaction Processing
-- Detect valid/ready handshake
-- Create packet and capture timing
-- Mode-specific data capture (immediate vs deferred)
-- Memory operations and callback triggering
+- Watches for the valid/ready handshake
+- Builds the packet and stamps the time
+- Captures data immediately or defers it, per the mode
+- Runs memory operations and fires callbacks
 
 ### Pipeline State Tracking
 ```python
@@ -279,6 +275,8 @@ async def test_gaxi_slave(dut):
 
 ### Mode-Specific Configuration
 
+Match the mode to the DUT's implementation, not to your preference:
+
 ```python
 # Skid mode - immediate capture
 skid_slave = GAXISlave(
@@ -331,6 +329,8 @@ slave = GAXISlave(
 ```
 
 ### Memory-Integrated Processing
+
+With a memory model attached, writes that arrive at the slave get stored as part of the pipeline — no callback code needed for basic storage.
 
 ```python
 @cocotb.test()
@@ -529,6 +529,9 @@ except RuntimeError as e:
 ```
 
 ### Memory Operation Errors
+
+Memory failures are logged and counted, not raised — the receive pipeline keeps running. Check the memory stats if contents look wrong.
+
 ```python
 # Memory operations handled automatically with error logging
 # Check memory statistics for error information
@@ -553,7 +556,10 @@ if pipeline_stats['error_count'] > 0:
 
 ## Best Practices
 
-### 1. **Choose Appropriate Mode for DUT**
+### 1. **Match the Mode to the DUT**
+
+The one configuration choice that actually matters. Get it wrong and your data is off by a cycle everywhere.
+
 ```python
 # Match slave mode to DUT implementation
 if dut_uses_registered_interface:
@@ -562,7 +568,7 @@ else:
     mode = 'skid'       # Immediate capture
 ```
 
-### 2. **Use Callbacks for Transaction Processing**
+### 2. **Use Callbacks, Not Polling**
 ```python
 # Prefer callbacks over polling
 slave.add_callback(process_transaction)
@@ -578,7 +584,10 @@ slave = GAXISlave(..., pipeline_debug=True)   # Development
 slave = GAXISlave(..., pipeline_debug=False)  # Production
 ```
 
-### 4. **Configure Ready Delays Appropriately**
+### 4. **Tune Ready Delays to the Test's Intent**
+
+Zero delay measures throughput; nonzero delay measures the master's manners. You need both.
+
 ```python
 # For throughput testing
 randomizer = FlexRandomizer({'ready_delay': ([(0, 0)], [1.0])})
@@ -598,4 +607,4 @@ if transaction_count % 100 == 0:
         handle_error_condition()
 ```
 
-The GAXISlave provides comprehensive transaction reception capabilities with flexible timing control, mode-specific data capture, and extensive debugging support for thorough verification of GAXI protocol implementations.
+Set the mode to match the DUT, hang your checking off `add_callback()`, and keep `pipeline_debug` off in regressions. And do use the ready delays at least some of the time — a master that only ever runs unthrottled is a master whose backpressure handling nobody has tested.

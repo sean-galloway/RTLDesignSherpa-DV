@@ -1,42 +1,43 @@
 # AXIL4 Compliance Checker
 
-Non-intrusive AXIL4 (AXI4-Lite) protocol compliance checker that validates handshake rules, address alignment, write strobe patterns, and response codes. Designed for optional integration into existing testbenches without requiring code changes.
+A passive protocol checker for AXIL4 (AXI4-Lite) that watches all five channels and flags handshake violations, misaligned addresses, bad write strobes, and out-of-range response codes. It attaches to an existing testbench with no code changes -- you enable it with an environment variable and read the report at the end of the run.
 
 ## Overview
 
-The `AXIL4ComplianceChecker` provides:
+The `AXIL4ComplianceChecker` gives you:
 
-- **Environment-controlled activation** via `AXIL4_COMPLIANCE_CHECK=1` or `AXI4_COMPLIANCE_CHECK=1` -- zero code changes required
-- **Automatic signal monitoring** on all five AXIL4 channels (AR, AW, W, R, B)
-- **Handshake protocol validation** (VALID must stay asserted until handshake; deassertion after a completed handshake is recognized as legal)
-- **Data/address stability checking** (payload must not change while VALID is asserted and the transfer has not yet been accepted; legal back-to-back transfers with VALID held high are NOT flagged)
-- **Address alignment validation** (must be aligned to data width boundary)
-- **Write strobe validation** (must be valid and non-zero)
-- **Response code validation** (must be 0-3)
-- **PROT field validation** (must be 3-bit value)
+- **Environment-controlled activation** via `AXIL4_COMPLIANCE_CHECK=1` or `AXI4_COMPLIANCE_CHECK=1` -- flip it on for a run, no testbench edits required
+- **Automatic monitoring** of all five AXIL4 channels (AR, AW, W, R, B)
+- **Handshake validation** -- VALID must hold until the transfer completes; dropping VALID *after* a completed handshake is legal and is not flagged
+- **Payload stability checking** -- address and data must not move while VALID is asserted and the transfer hasn't been accepted; legal back-to-back transfers with VALID held high are not flagged either
+- **Address alignment validation** against the data width boundary
+- **Write strobe validation** -- must be in range and non-zero
+- **Response code validation** (0-3)
+- **PROT field validation** (must fit in 3 bits)
 - **Outstanding-depth statistics** (`max_outstanding_reads` / `max_outstanding_writes`)
-- **Detailed violation reporting** with per-cycle timestamps
+- **Violation reports** with per-cycle timestamps
 
-Key differences from the AXI4 compliance checker:
-- No burst checking (single transfer only)
+Because Lite drops most of what full AXI4 carries, this checker has much less to do than the AXI4 one:
+
+- No burst checking -- every transaction is a single beat
 - No ID tracking or ordering checks
-- Simplified transaction flow validation
-- Register access pattern validation
+- Simpler transaction-flow validation
+- Checks tuned for register-access patterns
 
-> **Note on concurrency:** concurrent read and write activity (ARVALID together with
+> **A note on concurrency:** driving reads and writes at the same time (ARVALID alongside
 > AWVALID/WVALID) is **legal** in AXI4-Lite -- the read and write channels are
-> independent -- and multiple outstanding transactions are permitted by the protocol.
-> The checker therefore performs no cross-channel concurrency check and reports
+> independent -- and the protocol permits multiple outstanding transactions.
+> The checker therefore does no cross-channel concurrency check and reports
 > outstanding depth as an informational statistic only. The `CONCURRENT_TRANSACTIONS`
-> violation type is retained for API compatibility but is no longer emitted.
+> violation type still exists for API compatibility but is never emitted.
 
-**Wiring:** the packet-level checks (address alignment, PROT, strobe, response codes)
-are fed by the `GAXIMonitorBase.get_completed_packets()` drain API. `setup_monitors()`
+**How it's wired:** the packet-level checks (address alignment, PROT, strobe, response
+codes) are fed by the `GAXIMonitorBase.get_completed_packets()` drain API. `setup_monitors()`
 calls `enable_completed_packet_tracking()` on each channel monitor, and the
 `monitor_transactions()` coroutine drains each monitor every clock cycle and runs the
-`validate_*` checks on every observed packet. The drain queue is separate from the
-cocotb `_recvQ`, so the documented `monitor._recvQ.popleft()` verification pattern is
-unaffected. The signal-level checks (VALID_DROPPED, DATA_UNSTABLE) run live against
+`validate_*` checks on every packet it sees. The drain queue is separate from the
+cocotb `_recvQ`, so the usual `monitor._recvQ.popleft()` verification pattern keeps
+working. The signal-level checks (VALID_DROPPED, DATA_UNSTABLE) run live against
 DUT signals in the `monitor_handshakes()` coroutine.
 
 ---
@@ -49,7 +50,7 @@ DUT signals in the `monitor_handshakes()` coroutine.
 class AXIL4ViolationType(Enum)
 ```
 
-Enumeration of all violation types the checker can detect.
+Every violation type the checker knows about.
 
 | Value | Category | Description |
 |-------|----------|-------------|
@@ -83,7 +84,7 @@ class AXIL4Violation:
     additional_data: Dict[str, Any] = field(default_factory=dict)
 ```
 
-Represents a single protocol violation with its type, channel, cycle number, descriptive message, severity level, and optional additional context.
+One recorded violation: the type, the channel, the cycle it happened on, a message, and a severity (`'ERROR'` unless you say otherwise). `additional_data` carries whatever extra context helps you find the bug.
 
 ---
 
@@ -128,11 +129,11 @@ class AXIL4ComplianceChecker:
 
 ### `AXIL4ComplianceChecker.create_if_enabled(dut, clock, prefix="", log=None, **kwargs) -> Optional[AXIL4ComplianceChecker]`
 
-Factory method that returns `None` when compliance checking is disabled.
+The intended way to instantiate the checker. Returns a live instance when the environment asks for one, `None` otherwise -- so the rest of the testbench can just guard with `if self.compliance_checker:`.
 
 **Returns:** `AXIL4ComplianceChecker` instance if compliance checking is enabled, otherwise `None`.
 
-The checker is enabled when either `AXIL4_COMPLIANCE_CHECK=1` or `AXI4_COMPLIANCE_CHECK=1` is set in the environment.
+Either `AXIL4_COMPLIANCE_CHECK=1` or `AXI4_COMPLIANCE_CHECK=1` in the environment turns it on.
 
 ```python
 self.compliance_checker = AXIL4ComplianceChecker.create_if_enabled(
@@ -143,7 +144,7 @@ self.compliance_checker = AXIL4ComplianceChecker.create_if_enabled(
 
 ### `AXIL4ComplianceChecker.is_enabled() -> bool`
 
-Check if compliance checking is enabled via the `AXIL4_COMPLIANCE_CHECK` or `AXI4_COMPLIANCE_CHECK` environment variables.
+Reports whether compliance checking is enabled -- i.e., whether `AXIL4_COMPLIANCE_CHECK` or `AXI4_COMPLIANCE_CHECK` is set in the environment.
 
 ---
 
@@ -151,11 +152,11 @@ Check if compliance checking is enabled via the `AXIL4_COMPLIANCE_CHECK` or `AXI
 
 ### `setup_monitors()`
 
-Set up `GAXIMonitor` instances for all AXIL4 channels that have valid/ready signals present on the DUT. Called automatically during initialization.
+Creates a `GAXIMonitor` for every AXIL4 channel whose valid/ready signals are present on the DUT. You don't call this yourself -- the constructor does.
 
 ### `check_address_alignment(addr) -> bool`
 
-Check if an address is properly aligned for the configured data width.
+Returns whether an address is properly aligned for the configured data width.
 
 **Parameters:**
 
@@ -167,7 +168,7 @@ Check if an address is properly aligned for the configured data width.
 
 ### `check_write_strobes(strb, data) -> bool`
 
-Check write strobe validity: must not exceed data width byte count, and must not be zero.
+A strobe is valid if it fits in the byte count implied by the data width and isn't zero.
 
 **Parameters:**
 
@@ -180,7 +181,7 @@ Check write strobe validity: must not exceed data width byte count, and must not
 
 ### `record_violation(violation_type, channel, message, **kwargs)`
 
-Record a protocol violation.
+Adds a violation to the record. The built-in checks call this; call it from your own checks too if you add any.
 
 **Parameters:**
 
@@ -194,7 +195,7 @@ Record a protocol violation.
 
 ### `get_compliance_report() -> Dict[str, Any]`
 
-Get a comprehensive compliance report.
+Returns the full compliance report as a dictionary.
 
 **Returns:** Dictionary with the following keys:
 
@@ -224,7 +225,7 @@ Get a comprehensive compliance report.
 
 ### `print_compliance_report()`
 
-Print a formatted compliance report to the logger, including AXIL4-specific check counts.
+Logs a formatted compliance report, including the AXIL4-specific check counts.
 
 ---
 
@@ -232,7 +233,7 @@ Print a formatted compliance report to the logger, including AXIL4-specific chec
 
 ### `add_axil4_compliance_checking(testbench_class)`
 
-Class decorator that adds automatic AXIL4 compliance checking to an existing testbench class.
+Class decorator that bolts compliance checking onto an existing testbench class. The checker shows up as `self.axil4_compliance_checker`:
 
 ```python
 @add_axil4_compliance_checking
@@ -247,6 +248,8 @@ class MyAXIL4Testbench(TBBase):
 ## Usage Examples
 
 ### Conditional Integration in Testbench
+
+The pattern that makes the environment-variable switch work: always go through `create_if_enabled`, and guard every use of the result.
 
 ```python
 from CocoTBFramework.components.axil4.axil4_compliance_checker import AXIL4ComplianceChecker
@@ -269,6 +272,8 @@ class MyTestbench:
 
 ### Running Tests with Compliance Checking
 
+Nothing to rebuild -- same testbench, different environment:
+
 ```bash
 # Normal test run (compliance checking disabled)
 make test
@@ -281,6 +286,8 @@ AXI4_COMPLIANCE_CHECK=1 make test
 ```
 
 ### Inspecting the Compliance Report
+
+The report is plain data, so pull out whatever you need:
 
 ```python
 if self.compliance_checker:
@@ -301,3 +308,5 @@ if self.compliance_checker:
     for v in report['violations']:
         print(f"  [{v['channel']}] cycle {v['cycle']}: {v['message']}")
 ```
+
+---

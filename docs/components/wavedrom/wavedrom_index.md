@@ -24,23 +24,23 @@
 # WaveDrom Timing Diagram Generation
 
 **Version:** 3.1 (Enforced Boundaries + Configurable Idle Filter)
-**Status:** ✅ Production Ready
+**Status:** Production Ready
 **Last Updated:** 2026-07-21
 
 ---
 
 ## Overview
 
-The WaveDrom infrastructure provides automated timing diagram generation for digital protocols using constraint-based pattern detection and the WaveDrom JSON format. The system uses CP-SAT constraint solving to identify specific protocol behaviors and generate publication-quality timing diagrams.
+This component turns simulation runs into timing diagrams. It samples signals during a cocotb test, uses a CP-SAT constraint solver to find the protocol behaviors you described, and emits WaveDrom JSON that renders to PNG or SVG. The diagrams show what the RTL actually did — which is what makes them worth putting in front of a design review, and what makes them useful at 2 AM when the read channel is stalled and you don't know why yet.
 
 ### Key Features
 
-✅ **Automatic Signal Discovery** - Uses SignalResolver to find signals without manual binding
-✅ **Protocol-Specific Presets** - Pre-configured constraints for GAXI, APB, AXI4, AXI4-Lite, AXI-Stream
-✅ **Segmented Capture** - Isolate specific scenarios for clean, deterministic waveforms
-✅ **Field-Based Formatting** - Automatic hex/dec/bin formatting based on signal type
-✅ **Arrow Annotations** - Show signal relationships and data flow
-✅ **Labeled Groups** - Organize signals into logical interface groups
+- **Automatic signal discovery** — SignalResolver finds signals from a prefix; no manual binding in the common case
+- **Protocol presets** — pre-built constraint sets for GAXI, APB, AXI4, AXI4-Lite, and AXI-Stream
+- **Segmented capture** — isolate each scenario so matches can't bleed across tests
+- **Field-aware formatting** — hex/dec/bin chosen from the signal's field type
+- **Arrow annotations** — mark causal relationships and data flow between signals
+- **Labeled groups** — signals organized into interface groups instead of one flat list
 
 ---
 
@@ -87,7 +87,7 @@ async def my_test(dut):
     # WaveJSON files automatically generated in sim_build/
 ```
 
-**Output:** Publication-quality timing diagrams in PNG/SVG format showing protocol behavior.
+**Output:** one WaveJSON file per matched scenario, ready to render to PNG or SVG with `wavedrom-cli`.
 
 ---
 
@@ -95,13 +95,13 @@ async def my_test(dut):
 
 | Protocol | Template Class | Status | Presets Available |
 |----------|---------------|--------|-------------------|
-| **GAXI** | `GAXIWaveDromTemplate` | ✅ Production | basic_handshake, comprehensive, performance, debug |
-| **APB** | `APBWaveDromTemplate` | ✅ Production | basic_rw, comprehensive, debug, timing, error |
-| **AXI4** | `AXI4Presets` (manual setup) | ✅ Ready | write_basic, read_basic, comprehensive, debug |
-| **AXI4-Lite** | `AXIL4Presets` (manual setup) | ✅ Ready | write_basic, read_basic, comprehensive, debug |
-| **AXI-Stream** | `AXISPresets` (manual setup) | ✅ Ready | basic_handshake, comprehensive, performance, debug |
+| **GAXI** | `GAXIWaveDromTemplate` | Production | basic_handshake, comprehensive, performance, debug |
+| **APB** | `APBWaveDromTemplate` | Production | basic_rw, comprehensive, debug, timing, error |
+| **AXI4** | `AXI4Presets` (manual setup) | Ready | write_basic, read_basic, comprehensive, debug |
+| **AXI4-Lite** | `AXIL4Presets` (manual setup) | Ready | write_basic, read_basic, comprehensive, debug |
+| **AXI-Stream** | `AXISPresets` (manual setup) | Ready | basic_handshake, comprehensive, performance, debug |
 
-*Note: AXI4/AXIL4/AXIS do not yet have Template classes but use the same setup pattern with `setup_*_constraints_with_boundaries()`*
+*AXI4, AXIL4, and AXIS don't have template classes yet — they use the same solver through `setup_*_constraints_with_boundaries()`. The pattern is identical; there's just no one-line wrapper.*
 
 !!! note "Wavedrom User Examples"
     The protocol-specific wavedrom user examples (gaxi.py, apb.py, etc.) are located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository under `tbclasses/wavedrom_user/`.
@@ -131,21 +131,19 @@ graph TB
 
 ### Workflow
 
-1. **Setup** - Create template or configure solver manually
-2. **Signal Binding** - Automatic discovery via SignalResolver or manual binding
-3. **Constraint Definition** - Use presets or create custom temporal patterns
-4. **Capture** - Segmented sampling for each scenario
-5. **Solve** - CP-SAT finds matching patterns in signal data
-6. **Generate** - Create WaveJSON with formatting, arrows, groups
-7. **Render** - Convert to PNG/SVG with `wavedrom-cli`
+1. **Setup** — template class, or manual solver configuration
+2. **Signal binding** — automatic via SignalResolver, or manual
+3. **Constraint definition** — presets, or hand-written temporal patterns
+4. **Capture** — segmented sampling, one window per scenario
+5. **Solve** — CP-SAT searches the captured windows for matches
+6. **Generate** — WaveJSON with formatting, arrows, and groups
+7. **Render** — `wavedrom-cli` to PNG/SVG
 
 ---
 
 ## Transaction Boundaries & Scenario Isolation
 
-The constraint solver supports isolating a match to a single transaction using
-boundary constraints and an idle-cycle filter. Both are enforced during CP-SAT
-solving.
+Two mechanisms keep a match pinned to a single transaction: boundary constraints and an idle-cycle filter. Both are enforced inside the CP-SAT solve — they're not post-processing, so a match that would cross a transaction simply doesn't happen.
 
 ### Boundary Constraints (enforced in the solver)
 
@@ -172,8 +170,8 @@ detect/solve/flush cycle during sampling for that constraint).
 ### Idle-Cycle Filter (`boundary_min_idle_cycles`)
 
 When `TemporalConstraint.boundary_min_idle_cycles > 0`, matches are only kept if
-the N cycles before the match start are idle. What "idle" means is now
-configurable per constraint:
+the N cycles before the match start are idle. What "idle" means is configurable
+per constraint — only you know which signals matter on your DUT:
 
 ```python
 constraint = TemporalConstraint(
@@ -205,6 +203,8 @@ Resolution order:
 
 `TemporalConstraint(post_match_cycles=N)` extends the rendered window by N
 cycles after the matched sequence (in addition to `context_cycles_after`).
+Handy when the interesting part of the story is what happens right after the
+handshake.
 
 ---
 
@@ -242,7 +242,7 @@ cycles after the matched sequence (in addition to `context_cycles_after`).
 
 ## Version History
 
-- **v3.1 (2026-07)**: Boundary constraints now enforced in CP-SAT solving (matches cannot straddle a transaction boundary); configurable `idle_signals` for `boundary_min_idle_cycles` filtering (auto-derived from constraint events when unset, explicit skip otherwise); `skip_boundary_detection` / `post_match_cycles` promoted to proper `TemporalConstraint` fields; signals bound after `add_constraint()` no longer kill sampling; sampling errors are logged with tracebacks; switched to the non-deprecated `enumerate_all_solutions` CP-SAT API
+- **v3.1 (2026-07)**: Boundary constraints are now enforced in CP-SAT solving, so a match cannot straddle a transaction boundary; `boundary_min_idle_cycles` filtering gained configurable `idle_signals` (auto-derived from constraint events when unset, explicitly skipped when nothing can be derived); `skip_boundary_detection` and `post_match_cycles` promoted to proper `TemporalConstraint` fields; signals bound after `add_constraint()` no longer kill sampling; sampling errors are logged with tracebacks; switched to the non-deprecated `enumerate_all_solutions` CP-SAT API
 - **v3.0 (2025-10-06)**: Added AXI4/AXIL4/AXIS protocol presets, arrow annotations, labeled groups
 - **v2.0 (2025-10-04)**: SignalResolver auto-binding integration
 - **v1.5 (2025-10-05)**: Segmented capture implementation

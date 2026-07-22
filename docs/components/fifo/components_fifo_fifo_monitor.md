@@ -23,19 +23,18 @@
 
 # fifo_monitor.py
 
-FIFO Monitor component for passive observation of FIFO transactions. Inherits from FIFOMonitorBase for unified functionality while preserving exact timing behavior and monitoring capabilities.
+A passive observer for FIFO interfaces. FIFOMonitor never drives a signal — it watches one side of the FIFO, records what crosses, and flags protocol violations. It inherits FIFOMonitorBase, so all the shared collection and packet-handling machinery comes with it.
 
 ## Overview
 
-The `FIFOMonitor` class provides pure monitoring functionality for FIFO interfaces without interfering with signal flow. It can monitor either the write side (master interface) or read side (slave interface) of FIFO transactions, providing comprehensive protocol violation detection and transaction analysis.
+One monitor watches one side of the FIFO. With `is_slave=False` it watches the write interface; with `is_slave=True` it watches the read interface. For real coverage you usually instantiate two. Because it drives nothing, you can bolt it onto any interface without changing DUT behavior — which is the whole point of a monitor.
 
 ### Key Features
-- **Pure Monitoring**: Observes transactions without driving any signals
-- **Dual-Side Support**: Can monitor write-side or read-side operations
-- **Protocol Violation Detection**: Detects read-while-empty, write-while-full, and other violations
-- **FIFO Depth Tracking**: Estimates FIFO utilization and depth
-- **Performance Analysis**: Tracks transaction patterns and timing
-- **Rich Statistics**: Comprehensive monitoring and coverage metrics
+- **Purely passive**: drives nothing, safe to attach anywhere
+- **Either side of the FIFO**: write side (`is_slave=False`) or read side (`is_slave=True`)
+- **Violation detection**: write-while-full, read-while-empty, X/Z on the signals
+- **Depth tracking**: give it the FIFO capacity and it estimates occupancy over time
+- **Statistics**: observation counts, violations, utilization — all queryable mid-test
 
 ## Core Class
 
@@ -67,7 +66,7 @@ FIFOMonitor(dut, title, prefix, clock, field_config, is_slave=False,
 - `bus_name`: Bus/channel name
 - `pkt_prefix`: Packet field prefix
 - `multi_sig`: Whether using multi-signal mode
-- `fifo_depth`: FIFO depth for tracking (default: 16)
+- `fifo_depth`: Assumed FIFO capacity in entries, used for the occupancy estimate (default: 16)
 - `log`: Logger instance
 - `super_debug`: Enable detailed debugging
 - `signal_map`: Optional manual signal mapping
@@ -103,7 +102,7 @@ read_monitor = FIFOMonitor(
 
 #### `set_fifo_capacity(capacity)`
 
-Set the assumed FIFO capacity for depth tracking.
+Tell the monitor how deep the FIFO actually is. If this number is wrong, the utilization stats are fiction — everything else still works.
 
 **Parameters:**
 - `capacity`: FIFO capacity in entries
@@ -117,7 +116,7 @@ monitor.set_fifo_capacity(64)
 
 #### `get_observed_packets(count=None)`
 
-Get observed transactions from the standard cocotb receive queue.
+Pull packets out of the standard cocotb receive queue. With `count=None` you get everything observed so far.
 
 **Parameters:**
 - `count`: Number of packets to return (None = all)
@@ -138,7 +137,7 @@ for packet in all_packets:
 
 #### `clear_queue()`
 
-Clear the observed transactions queue.
+Throw away accumulated observations. Do this between test phases or per-phase counts will contaminate each other.
 
 ```python
 # Clear accumulated observations
@@ -147,7 +146,7 @@ monitor.clear_queue()
 
 #### `create_packet(**field_values)`
 
-Create a packet with specified field values for comparison.
+Build a packet for comparison against observed traffic.
 
 **Parameters:**
 - `**field_values`: Field values to set in packet
@@ -163,7 +162,7 @@ expected = monitor.create_packet(data=0x12345678)
 
 #### `get_stats()`
 
-Get comprehensive statistics including monitoring and FIFO-specific metrics.
+Everything the monitor knows: observation counts, violation counters, depth estimate, utilization.
 
 **Returns:** Dictionary containing all statistics
 
@@ -188,7 +187,7 @@ print(f"Utilization: {stats['utilization_percentage']:.1f}%")
 
 ### Write-Side Monitoring (`is_slave=False`)
 
-Monitors the write interface of a FIFO:
+Watches `write`, `full`, and the data lines. A write-side monitor sees every write attempt — including the illegal ones that hit a full FIFO:
 
 ```python
 # Write-side monitor observes:
@@ -211,7 +210,7 @@ write_monitor = FIFOMonitor(
 
 ### Read-Side Monitoring (`is_slave=True`)
 
-Monitors the read interface of a FIFO:
+Watches `read`, `empty`, and the data lines. This is where read-while-empty violations get caught:
 
 ```python
 # Read-side monitor observes:
@@ -236,6 +235,8 @@ read_monitor = FIFOMonitor(
 
 ### Basic Transaction Monitoring
 
+Two monitors, one per side, then let the test run:
+
 ```python
 # Set up write and read monitors
 field_config = FieldConfig.create_data_only(32)
@@ -257,6 +258,8 @@ assert len(write_packets) >= len(read_packets), "More reads than writes detected
 ```
 
 ### Protocol Violation Detection
+
+The monitors count violations as they happen. This wrapper polls the counters over a window and timestamps what it finds:
 
 ```python
 class ProtocolChecker:
@@ -337,6 +340,8 @@ print(checker.generate_compliance_report(violations))
 
 ### FIFO Depth and Utilization Analysis
 
+Give both monitors the real capacity and sample utilization over the run. Congestion shows up as sustained high occupancy:
+
 ```python
 class FIFOAnalyzer:
     def __init__(self, dut, clock, field_config, fifo_capacity):
@@ -413,6 +418,8 @@ print(f"Congestion events: {len(congestion)}")
 
 ### Multi-Field Transaction Analysis
 
+With `multi_sig=True` the monitor unpacks each field, so per-field analysis like command histograms is straightforward:
+
 ```python
 # Configure multi-field monitoring
 field_config = FieldConfig()
@@ -456,6 +463,8 @@ if addresses:
 ```
 
 ### Performance Monitoring
+
+Sample the observed counts at a fixed interval and you get rates over time:
 
 ```python
 class PerformanceMonitor:
@@ -529,6 +538,8 @@ print(f"Performance metrics: {performance}")
 
 ### Real-Time Transaction Callbacks
 
+`add_callback` fires on every observed packet, while the sim is still running. That's the right place for checks that shouldn't wait until end-of-test to tell you something went wrong at cycle 400:
+
 ```python
 class CallbackMonitor:
     def __init__(self, dut, clock, field_config):
@@ -578,7 +589,7 @@ timeline = callback_monitor.get_transaction_timeline()
 
 ### Automatic Protocol Violation Detection
 
-The FIFOMonitor automatically detects various protocol violations:
+The monitor counts these on its own. You just have to look:
 
 ```python
 # Check for violations after test run
@@ -602,6 +613,8 @@ if monitor_stats['x_z_violations'] > 0:
 ```
 
 ### Custom Violation Checking
+
+For anything the monitor doesn't know about — data patterns, inter-transaction timing — walk the observed packets yourself:
 
 ```python
 def check_custom_violations(monitor, packets):
@@ -635,6 +648,7 @@ if custom_violations:
 ## Best Practices
 
 ### 1. **Use Appropriate Side Monitoring**
+Monitor the side you care about — or both. Monitors are cheap; you can usually afford the pair:
 ```python
 # Monitor write side for write-related issues
 write_monitor = FIFOMonitor(dut, "WriteMonitor", "", clock, field_config, is_slave=False)
@@ -644,18 +658,21 @@ read_monitor = FIFOMonitor(dut, "ReadMonitor", "", clock, field_config, is_slave
 ```
 
 ### 2. **Set Correct FIFO Capacity**
+Depth tracking is only as good as the number you give it:
 ```python
 # Set accurate FIFO capacity for depth tracking
 monitor.set_fifo_capacity(actual_fifo_depth)
 ```
 
 ### 3. **Use Callbacks for Real-Time Analysis**
+Anything you want checked while the sim runs belongs in a callback:
 ```python
 # Add callback for immediate processing
 monitor.add_callback(real_time_processor)
 ```
 
 ### 4. **Regular Statistics Checking**
+In long tests, poll instead of waiting for the end:
 ```python
 # Check statistics periodically
 async def periodic_check():
@@ -667,9 +684,10 @@ async def periodic_check():
 ```
 
 ### 5. **Clear Queues Between Test Phases**
+Old observations contaminate per-phase counts:
 ```python
 # Reset between test phases
 monitor.clear_queue()
 ```
 
-The FIFOMonitor provides comprehensive passive monitoring capabilities with automatic protocol violation detection, performance analysis, and flexible configuration options for thorough FIFO interface verification.
+Bolt one onto each side of the FIFO and let it run. The violation counters will tell you things your directed stimulus never would.

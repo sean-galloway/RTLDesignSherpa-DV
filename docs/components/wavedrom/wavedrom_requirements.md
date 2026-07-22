@@ -29,13 +29,15 @@
 
 ---
 
+These are the rules the wavedrom tests in this repo follow. Every one of them exists because a diagram that breaks it looked wrong in a review and eroded trust in all the others. A waveform a designer can't read in five seconds is worse than no waveform.
+
 ## Critical Requirements
 
-### 1. **Clock Signal - ALWAYS Required**
+### 1. **Clock Signal — ALWAYS Required**
 
 **Rule:** Every waveform MUST include the clock signal as the first signal.
 
-**Rationale:** Designers need a timing reference to understand when events occur relative to clock edges.
+**Rationale:** A waveform without a timing reference is abstract art. The clock is what turns "valid went high" into "valid went high three cycles after reset deasserted."
 
 **Implementation:**
 ```python
@@ -57,11 +59,11 @@ signals_to_show=['clk', 'rst_n', ...]  # clk first
 ]
 ```
 
-### 2. **Initial Setup Cycles - Never Start at Time 0**
+### 2. **Initial Setup Cycles — Never Start at Time 0**
 
 **Rule:** Waveforms MUST have 2-3 cycles of stable initial state before events begin.
 
-**Rationale:** Designers need to see stable initial conditions. Starting events at time 0 makes it impossible to distinguish initial state from transitions.
+**Rationale:** If the first transition happens at cycle 0, nobody can tell initial state from the first event. Give the reader a baseline.
 
 **Implementation:**
 ```python
@@ -81,25 +83,25 @@ dut.signal1.value = 1
 ...
 ```
 
-**Context Cycles:** The `context_cycles_before` parameter adds dead cycles BEFORE the matched pattern. To ensure arrows never start at cycle 0:
-- **Initial setup (3 cycles):** Stable state at start of entire simulation
-- **Context before (≥3):** MUST be at least 3 to push pattern start beyond initial cycles
-- **Example:** `context_cycles_before=5` ensures patterns start at cycle 8+ (3 setup + 5 context)
+**Context Cycles:** The `context_cycles_before` parameter adds dead cycles BEFORE the matched pattern. To keep arrows from starting at cycle 0:
+- **Initial setup (3 cycles):** stable state at the start of the whole simulation
+- **Context before (≥3):** MUST be at least 3, to push the pattern start beyond the initial cycles
+- **Example:** `context_cycles_before=5` puts the pattern start at cycle 8 or later (3 setup + 5 context)
 
 ### 3. **Arrows Must Show Meaningful Relationships**
 
-**Rule:** Arrows MUST connect events that have causal or temporal relationships.
+**Rule:** Arrows MUST connect events that have a causal or temporal relationship. An arrow asserts "this caused that" — if the relationship is just how the handshake normally works, the arrow mislabels normal behavior as a problem.
 
-**Examples of GOOD arrow usage:**
-- ✅ `psel → penable` (APB: setup causes enable)
-- ✅ `wr_valid → wr_ready` (GAXI: write request causes ready response)
-- ✅ `fifo_full → backpressure` (Full condition causes flow control)
-- ✅ `write → read_valid` (Data written propagates to read)
+**Good arrow usage:**
+- Good: `psel → penable` (APB: setup causes enable)
+- Good: `wr_valid → wr_ready` (GAXI: write request causes ready response)
+- Good: `fifo_full → backpressure` (full condition causes flow control)
+- Good: `write → read_valid` (data written propagates to the read side)
 
-**Examples of BAD arrow usage:**
-- ❌ `ready asserted → valid asserts` (This is normal handshake, not a stall)
-- ❌ Arrows on unrelated signals
-- ❌ Arrows without clear meaning
+**Bad arrow usage:**
+- Bad: `ready asserted → valid asserts` (that's a normal handshake, not a stall)
+- Bad: arrows between unrelated signals
+- Bad: arrows without a clear meaning
 
 **Implementation:**
 ```python
@@ -114,14 +116,14 @@ TemporalEvent("then_write", SignalTransition("wr_valid", 0, 1)),
 # Sequence = write after ready = NORMAL, not a problem!
 ```
 
-### 4. **Arrow Types - Use Appropriately**
+### 4. **Arrow Types — Use Appropriately**
 
 **Available Arrow Types:**
-- `~>` - Squiggly: Async/handshake relationships (GAXI, AXI)
-- `->` - Direct: Sequential/causal relationships (APB, state machines)
-- `<->` - Bidirectional: Duration/span of sequence
-- `->>` - Double: Strong dependency (use sparingly)
-- `=>` - Thick: Critical path (use sparingly)
+- `~>` - Squiggly: async/handshake relationships (GAXI, AXI)
+- `->` - Direct: sequential/causal relationships (APB, state machines)
+- `<->` - Bidirectional: duration/span of a sequence
+- `->>` - Double: strong dependency (use sparingly)
+- `=>` - Thick: critical path (use sparingly)
 
 **Auto-Selection Logic:**
 ```python
@@ -136,9 +138,9 @@ else:
     arrow = f"{start}<->{end} Sequence: {duration} cycles"
 ```
 
-### 5. **Internal Signals - Show Critical State**
+### 5. **Internal Signals — Show Critical State**
 
-**Rule:** Include internal signals that explain behavior.
+**Rule:** Include the internal signals that explain the behavior.
 
 **Critical Internals to Show:**
 - **FIFO/Buffer:** `count`, `full`, `empty`, `wr_ptr`, `rd_ptr`
@@ -156,13 +158,13 @@ wave_solver.add_signal_binding('full', 'fifo_full')
 signals_to_show=['clk', 'wr_valid', 'wr_ready', 'count', 'full']
 ```
 
-**Rationale:** Internal signals show WHY interface signals behave as they do.
+**Rationale:** Interface signals show *what* happened. Internals show *why* — and "why" is the question anyone looking at a waveform is actually asking.
 
-### 6. **Signal Naming - Preserve Interface Prefixes**
+### 6. **Signal Naming — Preserve Interface Prefixes**
 
-**Rule:** Signal names MUST preserve interface prefixes (wr_, rd_, etc.) for clarity.
+**Rule:** Signal names MUST keep their interface prefixes (`wr_`, `rd_`, etc.) so `wr_valid` and `rd_valid` don't collapse into two traces both called "valid."
 
-**Implementation:** Signal display names now automatically preserve prefixes:
+**Implementation:** Display names preserve prefixes automatically:
 ```python
 # Binding creates unique display names
 wave_solver.add_signal_binding('wr_valid', 'wr_valid')
@@ -189,9 +191,9 @@ signals_to_show=['clk', 'rst_n', '|', 'wr_valid', 'wr_ready', '|', 'count']
 # Separators help organize: Clock/Reset | Write Interface | Internals
 ```
 
-### 7. **Reset Signal - Include for Clocked Blocks**
+### 7. **Reset Signal — Include for Clocked Blocks**
 
-**Rule:** For synchronous designs, include reset signal.
+**Rule:** Synchronous designs show their reset.
 
 **Implementation:**
 ```python
@@ -202,14 +204,14 @@ wave_solver.add_signal_binding('rst', 'reset')      # Active-high reset
 signals_to_show=['clk', 'rst_n', ...]  # After clock, before data
 ```
 
-### 8. **Trim/Context Margins - Configurable**
+### 8. **Trim/Context Margins — Configurable**
 
-**Rule:** Provide configurable context cycles, with sensible defaults.
+**Rule:** Context cycles are configurable, with sensible defaults.
 
 **Options:**
-- **Minimal (1,1):** Tight waveforms for simple patterns
-- **Moderate (3,3):** Balanced view with some context
-- **Default (None,None):** Auto-calculate (~25% of window)
+- **Minimal (1,1):** tight waveforms for simple patterns
+- **Moderate (3,3):** balanced view with some context
+- **Default (None,None):** auto-calculate (~25% of window)
 
 **Implementation:**
 ```python
@@ -224,22 +226,22 @@ constraint = TemporalConstraint(
 )
 ```
 
-### 9. **Signal Grouping - MANDATORY for ALL Waveforms**
+### 9. **Signal Grouping — MANDATORY for ALL Waveforms**
 
 **Rule:** ALL signals MUST be grouped logically by function/bus using WaveDrom labeled groups.
 
 **Rationale:**
-- Groups make waveforms easier to read and understand
-- Logical grouping shows relationship between signals
-- Consistent grouping aids comparison across different scenarios
+- Groups make waveforms faster to read
+- Logical grouping shows which signals belong together
+- Consistent grouping across scenarios makes them comparable at a glance
 
 **Group Order (Standard):**
-1. **Clock/Reset** - Timing reference (ALWAYS FIRST)
-2. **Control Signals** - Transaction control (psel, penable, valid, ready, etc.)
-3. **Address** - Address information
-4. **Data** - Data payload (separate write/read if applicable)
-5. **Qualifiers/Status** - Additional control (strb, prot, error flags, etc.)
-6. **Internal State** - Debug/observability (count, state, pointers, etc.)
+1. **Clock/Reset** — timing reference (ALWAYS FIRST)
+2. **Control Signals** — transaction control (psel, penable, valid, ready, etc.)
+3. **Address** — address information
+4. **Data** — data payload (separate write/read if applicable)
+5. **Qualifiers/Status** — additional control (strb, prot, error flags, etc.)
+6. **Internal State** — debug/observability (count, state, pointers, etc.)
 
 **Implementation:**
 ```python
@@ -280,38 +282,37 @@ constraint = TemporalConstraint(
 ```
 
 **Key Requirements:**
-- ✅ ALL waveforms in a test MUST use the SAME grouped signal list
-- ✅ Clock/Reset group ALWAYS included FIRST
-- ✅ All signals MUST be in a labeled group (no ungrouped signals)
-- ✅ Use `'|'` separators between groups for visual clarity
-- ✅ Define signal grouping ONCE, reuse for all constraints in test
+- ALL waveforms in a test MUST use the SAME grouped signal list
+- The Clock/Reset group ALWAYS comes first
+- Every signal lives in a labeled group — no orphans
+- Use `'|'` separators between groups for visual clarity
+- Define the grouping ONCE per test, reuse it for every constraint
 
-### 10. **Quality Over Quantity - Focus on Meaningful Scenarios**
+### 10. **Quality Over Quantity — Focus on Meaningful Scenarios**
 
-**Rule:** Generate 3-4 high-quality waveforms that clearly illustrate key behaviors, rather than 12+ waveforms where most don't make sense.
+**Rule:** Generate 3-4 waveforms that each tell a clear story, rather than 12+ where most are noise.
 
 **Rationale:**
-- Too many waveforms overwhelm the user
-- Each waveform should tell a clear story about the design
-- Poor quality waveforms (wrong constraints, nonsensical patterns) are worse than no waveforms
+- A pile of waveforms overwhelms the reader; each one should earn its place
+- A waveform built on a wrong constraint — one that matches something nonsensical — is worse than none, because it teaches the wrong thing
 
 **Selection Criteria for Scenarios:**
-1. **Coverage:** Does it show a unique aspect of the design?
-2. **Clarity:** Will a designer immediately understand what's being shown?
-3. **Relevance:** Does it demonstrate normal operation OR an important edge case?
-4. **Completeness:** Does it show the full transaction (not just fragments)?
+1. **Coverage:** does it show an aspect of the design the others don't?
+2. **Clarity:** will a designer understand what's being shown without a caption?
+3. **Relevance:** does it show normal operation OR an edge case that matters?
+4. **Completeness:** does it show the full transaction, not a fragment?
 
 **Good Scenario Examples:**
-- ✅ APB Write with wait states (shows backpressure handling)
-- ✅ APB Read with immediate response (shows zero-wait operation)
-- ✅ Back-to-back transactions (shows back-pressure release and transaction pipelining)
-- ✅ FIFO full→empty sequence (shows complete buffer cycle)
+- Good: APB write with wait states (shows backpressure handling)
+- Good: APB read with immediate response (shows zero-wait operation)
+- Good: back-to-back transactions (shows back-pressure release and pipelining)
+- Good: FIFO full→empty sequence (shows a complete buffer cycle)
 
 **Bad Scenario Examples:**
-- ❌ Partial transactions (missing setup or completion)
-- ❌ Nonsensical signal transitions (constraints don't match reality)
-- ❌ Redundant scenarios (showing the same thing multiple ways)
-- ❌ Scenarios that never occur in normal operation
+- Bad: partial transactions (missing setup or completion)
+- Bad: signal transitions that can't occur (constraint doesn't match reality)
+- Bad: redundant scenarios (the same behavior three ways)
+- Bad: scenarios that never occur in normal operation
 
 **Implementation Checklist:**
 ```python
@@ -327,7 +328,7 @@ constraint = TemporalConstraint(
 **Recommended Scenario Count:**
 - Simple modules (FIFO, skid buffer): **3-4 scenarios**
 - Complex modules (AXI, APB): **4-6 scenarios**
-- Maximum for any module: **8 scenarios** (only if truly necessary)
+- Maximum for any module: **8 scenarios** (and only if you can defend every one)
 
 ---
 
@@ -379,6 +380,8 @@ signals_to_show=['clk', 'psel', 'penable', 'pready', 'pwrite', 'paddr', 'pwdata'
 
 ### Pattern 3: Backpressure/Stall
 
+Note the events here: backpressure is valid high *while* ready is low, captured as concurrent events. Ready-then-valid is just a handshake.
+
 ```python
 # Show TRUE backpressure: valid high while ready low
 TemporalConstraint(
@@ -396,13 +399,13 @@ TemporalConstraint(
 
 ## Integration with All Tests
 
-**Goal:** Eventually add wavedrom to ALL tests in the repository.
+**Goal:** wavedrom coverage on every test in the repository, eventually.
 
 **Approach:**
-1. Start with critical tests (GAXI, APB, AXI4)
-2. Use test_gaxi_wavedrom_example.py as template
-3. Follow these requirements for consistency
-4. Add wavedrom to existing tests incrementally
+1. Start with the critical tests (GAXI, APB, AXI4)
+2. Use test_gaxi_wavedrom_example.py as the template
+3. Follow the requirements above so every waveform looks like it came from the same hand
+4. Add wavedrom to existing tests incrementally — don't boil the ocean
 
 **Checklist for Adding WaveDrom to a Test:**
 - [ ] Clock signal bound and shown first
@@ -419,7 +422,7 @@ TemporalConstraint(
 
 ## Anti-Patterns to Avoid
 
-### ❌ Anti-Pattern 1: Starting at Time 0
+### Anti-Pattern 1: Starting at Time 0
 ```python
 # BAD
 await wave_solver.start_sampling()
@@ -435,7 +438,7 @@ await RisingEdge(dut.clk)
 dut.valid.value = 1  # Now event
 ```
 
-### ❌ Anti-Pattern 2: Missing Clock
+### Anti-Pattern 2: Missing Clock
 ```python
 # BAD
 signals_to_show=['valid', 'ready', 'data']  # No clock!
@@ -446,7 +449,7 @@ signals_to_show=['valid', 'ready', 'data']  # No clock!
 signals_to_show=['clk', 'valid', 'ready', 'data']  # Clock first
 ```
 
-### ❌ Anti-Pattern 3: Meaningless Arrows
+### Anti-Pattern 3: Meaningless Arrows
 ```python
 # BAD: Normal handshake labeled as problem
 TemporalEvent("ready_first", SignalTransition("ready", 0, 1)),
@@ -461,7 +464,7 @@ TemporalEvent("blocked", SignalTransition("valid", 1, 1)),
 # Arrow: "stall~>blocked" shows backpressure
 ```
 
-### ❌ Anti-Pattern 4: Duplicate Names
+### Anti-Pattern 4: Duplicate Names
 ```python
 # BAD
 wave_solver.add_signal_binding('valid', 'wr_valid')
@@ -480,15 +483,15 @@ wave_solver.add_signal_binding('rd_valid', 'rd_valid')
 
 **When Adding New Features:**
 1. Update this requirements document
-2. Update test_gaxi_wavedrom_example.py as reference
-3. Ensure backward compatibility with existing tests
-4. Add new arrow types or patterns to Common Patterns section
+2. Update test_gaxi_wavedrom_example.py as the reference
+3. Keep backward compatibility with existing tests
+4. Add new arrow types or patterns to the Common Patterns section
 
 **Version History:**
 - v1.2 (2025-10-07): Mandatory grouping and quality requirements
   - **BREAKING:** ALL waveforms MUST use signal grouping (labeled groups)
-  - Clock/Reset MUST be in first group (ALWAYS included)
-  - Quality over quantity: 3-4 meaningful scenarios better than 12 nonsensical ones
+  - Clock/Reset MUST be the first group (ALWAYS included)
+  - Quality over quantity: 3-4 meaningful scenarios beat 12 nonsensical ones
   - Scenario selection criteria and checklist added
   - Maximum recommended scenario counts by module complexity
 - v1.1 (2025-10-05): Signal naming and grouping improvements

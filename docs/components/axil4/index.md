@@ -25,11 +25,11 @@
 
 # AXIL4 Components
 
-The AXIL4 (AXI4-Lite) components provide comprehensive verification capabilities for AXI4-Lite protocol implementations. Built on the robust GAXI infrastructure, these components offer simplified memory-mapped transaction generation, protocol compliance checking, and comprehensive verification features optimized for lightweight AXI4-Lite implementations.
+AXI4-Lite is the register-access dialect of AXI: five channels, single beats, no IDs, nothing extra. These components give you masters and slaves for it, built on the shared GAXI infrastructure, with protocol compliance checking included.
 
 ## Component Overview
 
-The AXIL4 component ecosystem includes specialized interfaces for simplified AXI4-Lite protocol verification:
+The AXIL4 family, at a glance:
 
 ### Core Interface Components
 
@@ -52,25 +52,27 @@ The AXIL4 component ecosystem includes specialized interfaces for simplified AXI
 ## Key Features
 
 ### AXI4-Lite Protocol Support
-- Simplified 5-channel implementation (AR, R, AW, W, B) without bursts
+- All five channels (AR, R, AW, W, B), no burst machinery
 - Master and slave interface support
 - Single outstanding transaction architecture
-- Simplified signaling (no ID, USER, QOS, REGION signals)
+- None of the signals Lite doesn't have: no ID, USER, QoS, or REGION
 
 ### GAXI Infrastructure Integration
-- Unified field configuration system
+- The framework's unified field configuration system
 - Memory model integration for data verification
-- Comprehensive statistics and performance metrics
-- Advanced debugging and transaction logging
+- Statistics and performance metrics from the GAXI monitors
+- Transaction-level debug logging
 - Automatic signal resolution across naming conventions
 
 ### AXI4-Lite Specific Optimizations
-- Single transaction focus (no burst support)
-- Simplified address decode logic
-- Register-oriented API methods
-- Lightweight compliance checking
+- Single transfers only -- no burst support to trip over
+- Simple address decode logic
+- An API shaped for registers (`read_register`, `write_register`)
+- A compliance checker scoped to the Lite rule set
 
 ## Getting Started
+
+Two masters -- one per direction -- and you're talking to registers:
 
 ```python
 from CocoTBFramework.components.axil4.axil4_interfaces import AXIL4MasterRead, AXIL4MasterWrite
@@ -101,7 +103,7 @@ await master_write.write_register(address=0x1000, data=0x12345678)
 
 ## Protocol Architecture
 
-AXI4-Lite implements a simplified 5-channel protocol without burst support:
+Five channels, and the read and write halves only meet at the slave:
 
 ```mermaid
 graph TB
@@ -128,11 +130,11 @@ graph TB
 ## Key Differences from AXI4-Full
 
 ### Simplified Signaling
-- **No Burst Support**: Fixed length of 1 transfer per transaction
-- **No ID Signals**: Single outstanding transaction model
-- **No User Signals**: Simplified sideband signaling
-- **No QoS/Region**: Basic memory access only
-- **Fixed Size**: Transfer size matches data width
+- **No Burst Support**: fixed length of one transfer per transaction
+- **No ID Signals**: single outstanding transaction, so nothing to tag
+- **No User Signals**: no sideband at all
+- **No QoS/Region**: plain memory access only
+- **Fixed Size**: transfer size always matches the data width
 
 ### Register-Oriented Interface
 ```python
@@ -146,8 +148,8 @@ await master_write.write_register(0x108, 0xFF, strb=0x1)  # Write byte 0 only
 
 ## Documentation Structure
 
-- **[Overview](components_axil4_overview.md)** - Comprehensive component architecture and capabilities
-- **Interface References** - Detailed documentation for each AXIL4 interface class
+- **[Overview](components_axil4_overview.md)** - Component architecture and capabilities in depth
+- **Interface References** - Per-class documentation for each AXIL4 interface
 - **Usage Examples** - See code examples above
 - **Configuration Guide** - Field configuration and customization options
 - **Compliance Guide** - Protocol compliance checking and verification
@@ -155,6 +157,9 @@ await master_write.write_register(0x108, 0xFF, strb=0x1)  # Write byte 0 only
 ## Common Use Cases
 
 ### Register Map Verification
+
+Walk a register map and check every location reads back:
+
 ```python
 # Define register map
 register_map = {
@@ -178,6 +183,9 @@ for addr, name in register_map.items():
 ```
 
 ### Memory-Mapped Peripheral Testing
+
+Emulate the DUT side instead -- back both slave halves with one memory model and they behave like real register storage:
+
 ```python
 from CocoTBFramework.components.axil4.axil4_interfaces import AXIL4SlaveRead, AXIL4SlaveWrite
 from CocoTBFramework.components.shared.memory_model import MemoryModel
@@ -191,6 +199,9 @@ slave_write = AXIL4SlaveWrite(dut, clk, "s_axil_", memory_model=memory)
 ```
 
 ### Configuration Space Access
+
+PCIe-style configuration accesses run through the same calls:
+
 ```python
 # PCIe-style configuration space accesses through the master interfaces
 await master_write.write_register(0x1004, 0x00000006)  # Command register
@@ -200,12 +211,14 @@ device_id = await master_read.read_register(0x1000)     # Device ID
 ## Performance Considerations
 
 ### Single Transaction Focus
-- **Simplified State Machines**: No burst or outstanding transaction complexity
-- **Lower Latency**: Reduced protocol overhead for single transfers
-- **Register Access Optimized**: Optimized for control/status register patterns
+- **Simple state machines**: no burst or outstanding-transaction bookkeeping
+- **Low latency**: minimal protocol overhead per transfer
+- **Register access tuned**: the control/status pattern is the fast path
 
 ### Memory Efficiency
-- **Lightweight Structures**: Minimal memory overhead per transaction
-- **Simple Queuing**: Single outstanding transaction simplifies queuing
+- **Small footprint**: very little per-transaction state
+- **Trivial queuing**: one outstanding transaction doesn't need much of a queue
 
-The AXIL4 components provide a complete solution for AXI4-Lite protocol verification, offering simplified yet comprehensive functionality for memory-mapped register interface testing with the reliability and features of the GAXI infrastructure.
+If your DUT talks registers over AXI4-Lite, this is the toolkit: the same GAXI machinery the full AXI4 BFMs use, wearing a much lighter protocol.
+
+---

@@ -1,30 +1,30 @@
 # smbus_components.py
 
-SMBus/I2C Bus Functional Model components providing Monitor, Master, Slave, and CRC implementations for comprehensive SMBus protocol verification. This module handles bit-level bus communication using tristate (open-drain) signal interfaces and supports all SMBus 2.0 transaction types.
+SMBus/I2C bus functional models: a passive monitor, an active master, an active slave, and the CRC-8 used for Packet Error Checking. Everything in this module works at the bit level over tristate (open-drain) signal interfaces, so the DUT sees a bus that behaves like the real thing — pull-ups, wired-AND, mid-byte repeated STARTs and all. Every SMBus 2.0 transaction type is covered.
 
 ## Overview
 
-The `smbus_components.py` module provides four main classes:
-- **SMBusCRC**: CRC-8 calculator for Packet Error Checking (PEC)
-- **SMBusMonitor**: Passive bus monitor for transaction capture
-- **SMBusSlave**: Active slave device emulation with memory-mapped registers
-- **SMBusMaster**: Active master device emulation for initiating transactions
+Four classes live in `smbus_components.py`:
+- **SMBusCRC**: the CRC-8 calculator behind Packet Error Checking (PEC)
+- **SMBusMonitor**: passive bus monitor — it listens and captures, and never drives a pin
+- **SMBusSlave**: slave device model backed by a memory-mapped register file
+- **SMBusMaster**: master device model that initiates transactions
 
 ### Key Features
-- **Tristate signal interface** modeling open-drain bus behavior
-- **Bit-level protocol implementation** for accurate bus timing
+- **Tristate signal interface** modeling open-drain behavior (you pull low or you let go — nobody drives high)
+- **Bit-level protocol implementation**, so bus timing is real bus timing
 - **All SMBus 2.0 transaction types** (Quick, Byte, Word, Block)
-- **START/STOP/Repeated START** condition generation and detection
+- **START/STOP/Repeated START** generation and detection, including conditions that land mid-byte
 - **ACK/NAK handling** with proper bus release semantics
-- **Memory-mapped register model** for slave responses
+- **Memory-mapped register model** behind the slave
 - **CRC-8 PEC support** for data integrity checking
-- **Clock stretching** capability for slave-paced transactions
+- **Clock stretching** for slave-paced transactions
 
 ## Core Classes
 
 ### SMBusCRC
 
-CRC-8 calculator implementing the SMBus PEC (Packet Error Checking) polynomial.
+The CRC-8 behind SMBus Packet Error Checking. One polynomial, one static method — nothing to configure.
 
 #### Class Attributes
 
@@ -34,7 +34,7 @@ CRC-8 calculator implementing the SMBus PEC (Packet Error Checking) polynomial.
 
 ##### `calculate(data) -> int` [Static]
 
-Calculate CRC-8 for SMBus PEC over a list of bytes.
+Run the CRC-8 over a list of bytes. The result is the value you append as the PEC byte; running the calculation again over data-plus-PEC yields zero, which is how you check a received PEC.
 
 **Parameters:**
 
@@ -58,7 +58,7 @@ assert SMBusCRC.calculate(data_with_pec) == 0
 
 ### SMBusMonitor
 
-Passive bus monitor that captures SMBus transactions by observing the SCL and SDA input signals without driving any bus signals.
+A passive listener. It watches the SCL and SDA inputs, reconstructs transactions bit by bit, and never drives the bus — there are no `_o`/`_t` connections on this class at all.
 
 #### Constructor
 
@@ -83,6 +83,8 @@ SMBusMonitor(entity, title,
 | `log` | Logger | None | Logger instance (default: auto-created) |
 | `callback` | callable | None | Callback function invoked on each captured packet |
 
+A monitor with a callback, printing each transaction as it lands:
+
 ```python
 from CocoTBFramework.components.smbus import SMBusMonitor
 
@@ -103,7 +105,7 @@ monitor.start()
 #### Properties
 
 ##### `recv_queue -> deque`
-Queue of received SMBusPacket objects. New packets are appended as they are captured.
+Captured packets land here as they complete. It's a plain deque — pop them out and do what you like with them.
 
 ```python
 # Check captured transactions
@@ -113,7 +115,7 @@ while monitor.recv_queue:
 ```
 
 ##### `transaction_count -> int`
-Total number of transactions captured since the monitor started.
+Running count of transactions captured since the monitor started.
 
 ```python
 print(f"Captured {monitor.transaction_count} transactions")
@@ -122,14 +124,14 @@ print(f"Captured {monitor.transaction_count} transactions")
 #### Methods
 
 ##### `start()`
-Start the monitor. Launches the internal monitoring coroutine that watches for START conditions and captures transactions.
+Launch the monitoring coroutine. From this point it watches for START conditions and captures whatever crosses the bus.
 
 ```python
 monitor.start()  # Begin monitoring
 ```
 
 ##### `stop()`
-Stop the monitor. Kills the monitoring coroutine and releases resources.
+Kill the monitoring coroutine and release its resources.
 
 ```python
 monitor.stop()  # Stop monitoring
@@ -137,22 +139,16 @@ monitor.stop()  # Stop monitoring
 
 #### Transaction Detection
 
-The monitor detects transactions through the following process:
-1. **Wait for START**: SDA falling edge while SCL is high
-2. **Receive address byte**: 7-bit address + R/W bit with ACK
-3. **Receive data bytes**: Continue receiving until STOP or repeated START
-4. **Parse transaction**: Determine transaction type from byte count and direction
-5. **Finalize**: Timestamp, queue, log, and invoke callback
+A capture runs like this:
+1. **Wait for START**: SDA falling while SCL is high — the only time an SDA edge means "start of something"
+2. **Receive the address byte**: 7-bit address plus R/W bit, then the ACK
+3. **Receive data bytes**: keep going until a STOP or repeated START shows up
+4. **Classify**: determine the transaction type from byte count and direction
+5. **Finalize**: timestamp, queue, log, fire the callback
 
-Bus conditions are attributed edge-accurately: every clock phase of a
-byte (including the SCL-high phase after a bit or ACK is sampled) races
-the expected SCL edge against SDA edges, so a mid-byte STOP or repeated
-START is detected the moment it occurs. A condition that interrupts a
-byte aborts that byte (the partial bits are discarded) and the packet is
-finalized; a repeated START immediately begins capture of the next
-transaction without waiting for a fresh START edge.
+The part worth understanding is how bus conditions get attributed. Every clock phase of a byte — including the SCL-high phase after a bit or ACK has been sampled — races the expected SCL edge against any SDA edge. That's how the monitor catches a STOP or repeated START the moment it happens, even mid-byte, instead of discovering it a byte later. A condition that interrupts a byte kills that byte (the partial bits are discarded) and finalizes the packet; a repeated START rolls straight into capturing the next transaction without waiting for a fresh START edge.
 
-Transaction type is automatically determined from the number of data bytes and the R/W direction:
+Transaction type is inferred from the number of data bytes and the R/W direction:
 
 | Data Bytes After Address | Write Type | Read Type |
 |--------------------------|------------|-----------|
@@ -162,9 +158,11 @@ Transaction type is automatically determined from the number of data bytes and t
 | 3 | WRITE_WORD | READ_WORD |
 | 4+ | BLOCK_WRITE | BLOCK_READ |
 
+One consequence of shape-based inference: a block write carrying a single data byte is wire-identical to a word write, so that's how it gets classified. If a captured packet's type surprises you, check it against this table before you blame the DUT.
+
 ### SMBusSlave
 
-Active slave device emulation that responds to master transactions with a memory-mapped register model and configurable clock stretching.
+An active slave: it ACKs its own address, serves reads and writes out of a memory-mapped register model, and will stretch the clock if you ask it to.
 
 #### Constructor
 
@@ -197,6 +195,8 @@ SMBusSlave(entity, title,
 | `support_pec` | bool | `False` | Enable PEC support |
 | `log` | Logger | None | Logger instance (default: auto-created) |
 
+A 256-byte slave at 0x50, pre-loaded and started:
+
 ```python
 from CocoTBFramework.components.smbus import SMBusSlave
 
@@ -227,21 +227,21 @@ slave.start()
 #### Methods
 
 ##### `start()`
-Start the slave. Releases the bus and launches the main processing loop.
+Release the bus and launch the main loop — from here the slave watches for START and answers when its address comes up.
 
 ```python
 slave.start()
 ```
 
 ##### `stop()`
-Stop the slave. Kills the processing coroutine and releases the bus.
+Kill the processing coroutine and release the bus.
 
 ```python
 slave.stop()
 ```
 
 ##### `write_memory(addr, data)`
-Pre-load data into slave memory. Addresses wrap around at `memory_size`.
+Pre-load bytes into the register model. Addresses wrap around at `memory_size`.
 
 **Parameters:**
 
@@ -259,7 +259,7 @@ slave.write_memory(0x10, [0x01])
 ```
 
 ##### `read_memory(addr, length=1) -> list[int]`
-Read data from slave memory. Returns `0xFF` for uninitialized addresses.
+Read back what the slave would return. Addresses that were never written come back as `0xFF`.
 
 **Parameters:**
 
@@ -276,7 +276,7 @@ print(f"Memory: {[f'0x{b:02X}' for b in data]}")
 ```
 
 ##### `clear_memory()`
-Clear all memory contents.
+Wipe the register model.
 
 ```python
 slave.clear_memory()
@@ -284,17 +284,17 @@ slave.clear_memory()
 
 #### Slave Behavior
 
-The slave processes transactions through the following flow:
-1. **Wait for START**: Detect SDA falling while SCL high
-2. **Address Match**: Receive address byte, compare with `slave_addr`, send ACK if match
-3. **Write Handling**: First data byte becomes command/register address; subsequent bytes written to memory with auto-increment. Byte reception is raced against SDA edges, so a STOP or repeated START between (or within) bytes terminates the write cleanly instead of consuming the next transaction's address byte as data
-4. **Read Handling**: Send bytes from memory starting at current address; continue until master sends NAK
-5. **Repeated START**: A repeated START ending a write phase flows directly into re-addressing (e.g. the read phase of Read Byte Data / Block Read), without waiting for a fresh START edge
-6. **Bus Release**: Release SDA/SCL after each operation
+The transaction flow, from the slave's side of the wire:
+1. **Wait for START**: SDA falling while SCL is high
+2. **Address match**: receive the address byte, compare against `slave_addr`, ACK on a match
+3. **Writes**: the first data byte becomes the command/register address; later bytes go into memory with auto-increment. Byte reception races SDA edges, so a STOP or repeated START that lands between bytes — or inside one — terminates the write cleanly instead of swallowing the next transaction's address byte as data
+4. **Reads**: send memory contents starting at the current address and keep going until the master NAKs
+5. **Repeated START**: a repeated START that closes a write phase flows straight into re-addressing — the read phase of Read Byte Data or Block Read, say — with no fresh START edge required
+6. **Bus release**: SDA and SCL are released after each operation
 
 ### SMBusMaster
 
-Active master device emulation that generates SMBus transactions with configurable clock timing.
+The initiator. It generates SMBus transactions with a configurable SCL period — 10000 ns is the classic 100 kHz, or run faster if your DUT is up to it.
 
 #### Constructor
 
@@ -322,6 +322,8 @@ SMBusMaster(entity, title,
 | `clock_period_ns` | int | `10000` | SCL clock period in nanoseconds (10000 = 100kHz) |
 | `support_pec` | bool | `False` | Enable PEC support |
 | `log` | Logger | None | Logger instance (default: auto-created) |
+
+The default 100 kHz master, and a quicker 400 kHz one:
 
 ```python
 from CocoTBFramework.components.smbus import SMBusMaster
@@ -353,7 +355,7 @@ fast_master = SMBusMaster(
 
 ##### `quick_command(slave_addr, read=False) -> SMBusPacket`
 
-Execute a Quick Command transaction (address-only, no data).
+Address-only transaction — no data at all. The R/W bit is the entire payload.
 
 **Parameters:**
 
@@ -375,7 +377,7 @@ result = await master.quick_command(slave_addr=0x50, read=True)
 
 ##### `write_byte_data(slave_addr, command, data) -> SMBusPacket`
 
-Execute a Write Byte Data transaction (command + 1 data byte).
+Command byte plus one data byte — the everyday register write.
 
 **Parameters:**
 
@@ -397,7 +399,7 @@ print(f"Write completed: {result.completed}, ACK: {result.ack_received}")
 
 ##### `read_byte_data(slave_addr, command) -> SMBusPacket`
 
-Execute a Read Byte Data transaction (command phase + read phase with repeated START).
+Command phase, repeated START, read phase. The byte you asked for lands in `packet.data[0]`.
 
 **Parameters:**
 
@@ -419,7 +421,7 @@ if result.ack_received:
 
 ##### `block_write(slave_addr, command, data) -> SMBusPacket`
 
-Execute a Block Write transaction (command + byte count + data bytes).
+Command byte, byte count, then the data.
 
 **Parameters:**
 
@@ -442,7 +444,7 @@ print(f"Wrote {len(data)} bytes, ACK: {result.ack_received}")
 
 ##### `block_read(slave_addr, command, max_bytes=32) -> SMBusPacket`
 
-Execute a Block Read transaction (command phase + read phase with byte count).
+Command phase, repeated START, then the slave's count byte and data. The data ends up in `packet.data`.
 
 **Parameters:**
 
@@ -465,18 +467,20 @@ print(f"Read {len(result.data)} bytes: "
 
 #### Transaction Protocol
 
-All master transactions follow this general flow:
-1. **Generate START**: SDA falls while SCL high
-2. **Send Address Byte**: 7-bit address + R/W bit, check for ACK
-3. **Send/Receive Data**: Command byte, data bytes with ACK handling
-4. **Repeated START** (for reads): Re-address with read bit
-5. **Generate STOP**: SDA rises while SCL high
+Every master transaction runs the same general sequence:
+1. **START**: SDA falls while SCL is high
+2. **Address byte**: 7-bit address plus R/W, then check for ACK
+3. **Data**: command byte, then data bytes, with ACK handling throughout
+4. **Repeated START** (for reads): re-address with the read bit set
+5. **STOP**: SDA rises while SCL is high
 
-For read transactions (read_byte_data, block_read), the master uses a repeated START to switch from write mode (for the command phase) to read mode (for the data phase).
+For the read transactions (`read_byte_data`, `block_read`) the master inserts the repeated START itself, switching from the write-mode command phase to the read-mode data phase. You just ask for the register.
 
 ## Usage Patterns
 
 ### Complete Testbench with Monitor Verification
+
+Master drives, slave answers, monitor records — the shape most of your tests will have:
 
 ```python
 import cocotb
@@ -524,6 +528,8 @@ async def full_smbus_test(dut):
 
 ### Multi-Slave Environment
 
+Slaves share a bus happily as long as the addresses differ. Here an EEPROM at 0x50 and a sensor at 0x48 coexist while the master talks to each in turn:
+
 ```python
 @cocotb.test()
 async def multi_slave_test(dut):
@@ -549,6 +555,8 @@ async def multi_slave_test(dut):
 
 ### PEC Verification
 
+With `support_pec=True` on both ends, the expected PEC for a write is just the CRC over the address byte, command, and data:
+
 ```python
 @cocotb.test()
 async def pec_test(dut):
@@ -566,7 +574,9 @@ async def pec_test(dut):
 
 ## Best Practices
 
-### 1. **Start Slaves Before Masters**
+### 1. Start slaves before masters
+If the master talks before anything is listening, the transaction NAKs into the void. Start the responders first:
+
 ```python
 # Always start responders first
 slave.start()
@@ -576,7 +586,9 @@ monitor.start()
 result = await master.write_byte_data(0x50, 0x10, 0xAB)
 ```
 
-### 2. **Use Consistent Signal Names**
+### 2. Define the signal names once
+Six signal names per component is twelve chances to typo something — I've burned an afternoon on exactly that. Put them in dicts and splat them in:
+
 ```python
 # Define signal names once
 SCL_SIGNALS = dict(scl_i='smb_scl_i', scl_o='smb_scl_o', scl_t='smb_scl_t')
@@ -586,7 +598,9 @@ master = SMBusMaster(dut, "Master", **SCL_SIGNALS, **SDA_SIGNALS)
 slave = SMBusSlave(dut, "Slave", **SCL_SIGNALS, **SDA_SIGNALS, slave_addr=0x50)
 ```
 
-### 3. **Clean Up After Tests**
+### 3. Clean up after the test
+Stopped components release the bus; ones left running can hold lines into whatever runs next. `finally` is your friend:
+
 ```python
 # Stop components to release bus
 try:
@@ -596,7 +610,9 @@ finally:
     slave.stop()
 ```
 
-### 4. **Check Transaction Status**
+### 4. Check the status packet
+The returned packet tells you how the transfer actually went — look at it. A NAK is a lot easier to diagnose when you assert on it immediately:
+
 ```python
 result = await master.write_byte_data(0x50, 0x10, 0xAB)
 
@@ -607,7 +623,9 @@ assert not result.timeout, "Transaction timed out"
 assert not result.arbitration_lost, "Lost arbitration"
 ```
 
-### 5. **Use Monitor for Protocol Debug**
+### 5. Debug with the monitor
+When a transaction goes sideways, the monitor's detailed format shows you every byte and condition that hit the wire:
+
 ```python
 monitor = SMBusMonitor(dut, "Debug_Monitor",
     callback=lambda pkt: print(pkt.formatted(compact=False)))
@@ -615,4 +633,4 @@ monitor.start()
 # Multi-line output shows full transaction details
 ```
 
-The SMBus components provide a comprehensive foundation for SMBus/I2C protocol verification, from basic byte-level transactions to complex block transfers with PEC integrity checking, supporting both directed and monitor-based testing methodologies.
+That's the whole toolkit: CRC for integrity, the monitor for the record, master and slave for the two ends of the wire. Start with one of each and add pieces as the testbench grows.

@@ -29,6 +29,8 @@
 
 ## Prerequisites
 
+WaveJSON is just text — you need `wavedrom-cli` to turn it into images:
+
 ```bash
 # Install wavedrom-cli for PNG/SVG generation
 npm install -g wavedrom-cli
@@ -43,6 +45,8 @@ wavedrom-cli --version
     The protocol-specific wavedrom user examples (gaxi.py, apb.py, etc.) are located in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repository under `tbclasses/wavedrom_user/`.
 
 ## Method 1: Template Class (Easiest)
+
+The template classes wrap discovery, binding, constraint setup, and generation in one object. If your signal names follow a prefix convention, the constructor is the entire setup.
 
 ### GAXI Protocol
 
@@ -88,9 +92,11 @@ async def gaxi_test(dut):
     gaxi_wave.get_status()
 ```
 
-**Output:** WaveJSON files in `sim_build/` directory
+**Output:** WaveJSON files in `sim_build/`
 
 ### APB Protocol
+
+Same shape, APB signals:
 
 ```python
 # Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/apb.py)
@@ -117,7 +123,11 @@ async def apb_test(dut):
 
 ## Method 2: Manual Setup (More Control)
 
+If you need control the template doesn't expose, drive the solver directly. Six steps, each one small.
+
 ### Step 1: Create Field Config
+
+Describe the data fields once — everything downstream uses this:
 
 ```python
 # Import from the RTLDesignSherpa main repo (tbclasses/wavedrom_user/gaxi.py)
@@ -145,6 +155,8 @@ wave_generator = create_gaxi_wavejson_generator(
 ```
 
 ### Step 3: Create Constraint Solver
+
+The solver owns the sampling, the CP-SAT solve, and (through the generator) the output:
 
 ```python
 from CocoTBFramework.components.wavedrom.constraint_solver import TemporalConstraintSolver
@@ -202,7 +214,7 @@ wave_solver.debug_status()
 
 ### Script Method (Batch Processing)
 
-Create `wd_cmd.sh`:
+The repo uses a small shell script to render everything in the build tree — create `wd_cmd.sh`:
 
 ```bash
 #!/bin/bash
@@ -234,7 +246,7 @@ wavedrom-cli -i waveform.json -p waveform.png -s waveform.svg
 
 ## Segmented Capture Pattern
 
-For clean, isolated scenario waveforms:
+Sampling the whole test in one run lets matches bleed across scenario boundaries. Capturing each scenario in its own window avoids that:
 
 ```python
 # Scenario 1
@@ -252,10 +264,10 @@ await wave_solver.solve_and_generate()
 wave_solver.clear_windows()
 ```
 
-**Benefits:**
-- No spurious matches across scenarios
-- Cleaner, more deterministic waveforms
-- Faster CP-SAT solving (smaller windows)
+**Why bother:**
+- No spurious matches spanning two scenarios
+- Deterministic waveforms — you know exactly what each window contains
+- Smaller windows, so CP-SAT solves faster
 
 ---
 
@@ -267,8 +279,8 @@ wave_solver.clear_windows()
 |--------|-------------|----------|
 | `basic_handshake` | handshake | Verify valid/ready works |
 | `comprehensive` | handshake, back2back, stall, idle | Full behavior analysis |
-| `performance` | handshake, back2back, stall (extended) | Throughput optimization |
-| `debug` | All with extended windows | Debugging stuck interfaces |
+| `performance` | handshake, back2back, stall (extended) | Throughput work |
+| `debug` | All with extended windows | Stuck interfaces |
 
 ### APB Presets
 
@@ -286,17 +298,16 @@ wave_solver.clear_windows()
 
 ### No waveforms generated?
 
+Work through it in order:
+
 1. Check constraint solver status:
    ```python
    wave_solver.debug_status()
    ```
 
-2. Verify signals were bound:
-   ```python
-   # Should see table with "✓ Found" status
-   ```
+2. Verify signals were bound — the setup table should show "Found" for everything.
 
-3. Check if patterns were detected:
+3. Check whether any patterns matched at all:
    ```python
    await wave_solver.stop_sampling()
    results = wave_solver.get_results()
@@ -305,7 +316,7 @@ wave_solver.clear_windows()
 
 ### Signals not found?
 
-Use manual signal map:
+Pin them by hand with a signal map:
 
 ```python
 gaxi_wave = GAXIWaveDromTemplate(
@@ -321,7 +332,7 @@ gaxi_wave = GAXIWaveDromTemplate(
 
 ### Wrong data captured?
 
-Adjust window sizes:
+Windows that are too tight clip the pattern. Give the solver more cycles:
 
 ```python
 setup_gaxi_constraints_with_boundaries(

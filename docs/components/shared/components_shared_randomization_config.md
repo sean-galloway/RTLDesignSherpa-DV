@@ -23,18 +23,18 @@
 
 # randomization_config.py
 
-Randomization Configuration for Protocol Verification that provides a flexible configuration framework for controlling randomization behavior in protocol verification environments, using FlexRandomizer as the underlying randomization engine.
+A configuration layer on top of FlexRandomizer for protocol verification — per-field randomization modes, field dependencies, field groups, and seed control, so complex stimulus setups read as configuration instead of as a pile of constraint tuples.
 
 ## Overview
 
-The `randomization_config.py` module provides a high-level configuration framework for managing complex randomization scenarios. It supports multiple randomization modes, field dependencies, and adaptive configuration patterns while leveraging FlexRandomizer for the underlying randomization engine.
+FlexRandomizer is happy to take a raw constraints dictionary, and for a handful of fields that's fine. But protocol stimulus tends to grow: the address field is constrained random, the burst length is a sequence, the data depends on the size, and half the timing fields want to change together when the test switches phases. `RandomizationConfig` is the layer that keeps that manageable — name the protocol, configure each field's mode, declare dependencies explicitly, group fields that move together, and generate values for a whole transaction in dependency order. It uses FlexRandomizer underneath; you're not giving anything up.
 
 ### Key Features
 - **Multiple randomization modes**: Deterministic, constrained, directed, sequence, and custom
-- **Field dependency management**: Handle complex inter-field relationships
-- **Adaptive configuration**: Dynamic randomization based on test conditions
-- **Protocol independence**: Works across GAXI, FIFO, APB, AXI4, etc.
-- **Integration with FlexRandomizer**: Leverages proven randomization engine
+- **Field dependency management**: Declare inter-field relationships explicitly
+- **Adaptive configuration**: Change randomization behavior as test conditions change
+- **Protocol independence**: Same API across GAXI, FIFO, APB, AXI4
+- **Built on FlexRandomizer**: The proven engine does the actual generation
 
 ## Enums and Data Classes
 
@@ -209,6 +209,8 @@ config.configure_group(
 )
 ```
 
+Groups are the feature you'll use more than you expect. Test phases tend to change a *family* of behavior — all the timing fields together, all the addressing fields together — and reconfiguring a group is one call instead of a diff you have to get right.
+
 ## Value Generation
 
 ### `generate_value(field_name: str) -> Any`
@@ -246,6 +248,8 @@ values = config.generate_values(field_names)
 print(f"Generated values: {values}")
 # Output: {'base_field': 10, 'dependent_field': 25, 'addr': 0x1500, 'data': 0xDEADBEEF}
 ```
+
+This is the call you'll use most: hand it the fields of a transaction and it produces them in dependency order, so a generator that reads `base_field` never runs before `base_field` exists.
 
 ## Control Methods
 
@@ -525,6 +529,8 @@ class FIFORandomizationConfig(RandomizationConfig):
         self.create_custom_config("data", data_based_on_utilization)
 ```
 
+Subclassing per protocol, as above, keeps the protocol knowledge in one place: the GAXI subclass knows what valid/ready timing should look like, the FIFO subclass knows write/read intervals, and the test just asks for a traffic pattern by name.
+
 ### Test Framework Integration
 
 ```python
@@ -679,6 +685,8 @@ class AdaptiveRandomizer:
 ## Best Practices
 
 ### 1. **Use Appropriate Randomization Modes**
+Pick the mode that matches the intent, not just one that produces values:
+
 ```python
 # Deterministic for debug (fixed value via DETERMINISTIC mode)
 config.configure_field("debug_field", FieldRandomizationConfig(
@@ -697,6 +705,8 @@ config.create_custom_config("complex_field", complex_generator)
 ```
 
 ### 2. **Handle Dependencies Carefully**
+Declare them. The dependency list is what lets `generate_values()` order the generation correctly — an undeclared dependency works right up until generation order changes:
+
 ```python
 # Always list dependencies
 dependent_config = FieldRandomizationConfig(
@@ -707,12 +717,16 @@ dependent_config = FieldRandomizationConfig(
 ```
 
 ### 3. **Use Seeds for Reproducibility**
+A failing random test you can't replay is a bug report nobody can act on. Seed everything, and log the seed:
+
 ```python
 # Always set seed for reproducible tests
 config = RandomizationConfig("Protocol", seed=12345)
 ```
 
 ### 4. **Group Related Fields**
+If fields change together when the test changes, they belong in a group:
+
 ```python
 # Group related fields for easier management
 config.add_to_group("timing", "setup_delay")
@@ -721,6 +735,8 @@ config.configure_group("timing", mode=RandomizationMode.SEQUENCE, sequence=[0, 1
 ```
 
 ### 5. **Monitor and Adapt**
+Sample the output occasionally. A config that quietly collapses to a handful of distinct values isn't doing much verification:
+
 ```python
 # Monitor randomization effectiveness
 def check_randomization_coverage():
@@ -734,4 +750,6 @@ def check_randomization_coverage():
         log.warning("Low randomization diversity")
 ```
 
-The RandomizationConfig provides a powerful framework for managing complex randomization scenarios while maintaining clarity and control over the verification process.
+RandomizationConfig doesn't replace FlexRandomizer — it organizes it. If your constraints fit on one screen, use FlexRandomizer directly. When they stop fitting, this is the layer that keeps them honest.
+
+---

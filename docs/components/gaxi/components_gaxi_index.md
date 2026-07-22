@@ -23,24 +23,24 @@
 
 # GAXI Components Index
 
-This directory contains the GAXI (Generic AXI) protocol components for the CocoTBFramework. GAXI provides a lightweight valid/ready handshake protocol for validating individual FIFO-based interfaces on very small internal blocks. Interfaces can carry data packed into fields within a single bus, or have many discrete signals — GAXI handles both.
+GAXI (Generic AXI) is the framework's base layer: a valid/ready handshake protocol plus the components that drive it, receive it, and watch it. It was built for validating FIFO-based interfaces on small internal blocks, where the interface might be one bus with fields packed into it or a pile of discrete signals — the field configuration system covers both. It's also the layer the AXI4/AXI5, AXI-Lite, AXI-Stream and FIFO BFMs are built on, so most of what happens anywhere in this framework passes through code in this directory.
 
 ## Directory Structure
 
 ### Core Components
-- [**gaxi_component_base.py**](components_gaxi_gaxi_component_base.md) - Unified base class for all GAXI components
-- [**gaxi_master.py**](components_gaxi_gaxi_master.md) - GAXI Master with integrated structured pipeline
-- [**gaxi_slave.py**](components_gaxi_gaxi_slave.md) - GAXI Slave with integrated structured pipeline
-- [**gaxi_monitor.py**](components_gaxi_gaxi_monitor.md) - GAXI Monitor implementation
-- [**gaxi_monitor_base.py**](components_gaxi_gaxi_monitor_base.md) - Base class for GAXI monitoring functionality
+- [**gaxi_component_base.py**](components_gaxi_gaxi_component_base.md) - Base class every GAXI component inherits from
+- [**gaxi_master.py**](components_gaxi_gaxi_master.md) - The driver: sends packets, applies valid timing
+- [**gaxi_slave.py**](components_gaxi_gaxi_slave.md) - The receiver: drives ready, captures data per mode
+- [**gaxi_monitor.py**](components_gaxi_gaxi_monitor.md) - Passive observer for either side of the interface
+- [**gaxi_monitor_base.py**](components_gaxi_gaxi_monitor_base.md) - Shared observe-side machinery for slave and monitor
 
 ### Data and Protocol Support
-- [**gaxi_packet.py**](components_gaxi_gaxi_packet.md) - GAXI Packet class with protocol-specific extensions
-- [**gaxi_sequence.py**](components_gaxi_gaxi_sequence.md) - GAXI sequence generator for test patterns
-- [**gaxi_command_handler.py**](components_gaxi_gaxi_command_handler.md) - Enhanced command handler for transactions
+- [**gaxi_packet.py**](components_gaxi_gaxi_packet.md) - Packet class: fields from base Packet, timing randomizers added
+- [**gaxi_sequence.py**](components_gaxi_gaxi_sequence.md) - Build transaction sequences with delays, dependencies, randomization
+- [**gaxi_command_handler.py**](components_gaxi_gaxi_command_handler.md) - Connects a master and slave: forwards traffic or generates responses
 
 ### Factory and Utilities
-- [**gaxi_factories.py**](components_gaxi_gaxi_factories.md) - Factory functions for creating GAXI components
+- [**gaxi_factories.py**](components_gaxi_gaxi_factories.md) - One-call creation of components and whole systems
 
 ## Quick Start
 
@@ -76,62 +76,61 @@ packets = sequence.generate_packets()
 ## Component Overview
 
 ### GAXIMaster
-- Drives GAXI transactions with configurable timing
-- Supports multi-signal and single-signal modes
-- Integrated pipeline debugging and statistics
-- Memory model integration for read/write operations
+- Drives transactions with randomized valid timing
+- Single-signal and multi-signal field modes
+- Three-phase send pipeline with debugging and per-phase statistics
+- Memory model helpers for testbench-side read/write
 
 ### GAXISlave  
-- Receives GAXI transactions with configurable ready delays
-- Supports different modes (skid, fifo_mux, fifo_flop)
-- Automatic memory operations and response generation
-- Pipeline debugging and error recovery
+- Receives transactions and drives ready with randomized delay
+- Three capture modes (skid, fifo_mux, fifo_flop) to match the DUT's implementation
+- Automatic memory storage for received writes
+- Callbacks into your test when packets land
 
 ### GAXIMonitor
-- Observes GAXI transactions on master or slave side
-- Protocol violation detection
-- Statistics collection and reporting
-- Integration with scoreboards
+- Watches either side of the interface, drives nothing
+- Mode-aware sampling (fifo_flop captures one cycle late, on purpose)
+- Protocol violation and X/Z tracking
+- Plugs straight into scoreboards via callbacks
 
 ### Supporting Classes
-- **GAXIPacket**: Protocol-specific packet with field management
-- **GAXISequence**: Test pattern generation with dependencies
-- **GAXICommandHandler**: Transaction coordination and memory operations
-- **GAXIComponentBase**: Common functionality for all components
+- **GAXIPacket**: base Packet fields plus per-packet timing randomizers
+- **GAXISequence**: ordered transactions with delays, dependencies, and randomized values
+- **GAXICommandHandler**: master/slave coordination, response generation, memory fallback
+- **GAXIComponentBase**: signal resolution, data strategies, memory access, statistics — the shared core
 
 ## Features
 
 ### Signal Resolution
-- Automatic signal discovery using pattern matching
-- Manual signal mapping override capability
-- Support for different signal naming conventions
-- Multi-signal and single-signal field modes
+- Automatic signal discovery by pattern matching
+- Manual `signal_map` override for creative DUT naming
+- Conventional prefix conventions recognized out of the box
+- Single-signal (packed fields) and multi-signal (discrete) modes
 
-### Performance Optimization
-- Cached signal references for high-performance operation
-- Thread-safe operation for parallel testing
-- Optimized data collection and driving strategies
-- Reduced signal lookup overhead
+### Performance
+- Signals resolved once and cached — not re-looked-up per transaction
+- Thread-safe caching for parallel test execution
+- Data collection and driving go through pre-built strategies, not per-call discovery
 
-### Debugging Support
-- Pipeline state tracking and transition logging
-- Comprehensive statistics collection
-- Protocol violation detection and reporting
-- Memory operation tracking and validation
+### Debugging
+- Pipeline state tracking with transition logging
+- Statistics at the component, pipeline, and memory levels
+- Protocol violation and X/Z counters
+- Debug output you can toggle at runtime and leave off in regressions
 
 ### Flexibility
-- Configurable field definitions and packet structures
-- Multiple randomization modes and constraints
-- Dependency tracking in test sequences
-- Memory model integration for transaction processing
+- Field definitions you configure, packet structure follows
+- FlexRandomizer constraints for timing and data
+- Dependency tracking in sequences
+- Memory model integration everywhere it makes sense
 
 ## Integration
 
-The GAXI components integrate seamlessly with:
-- **Shared Components**: Field configuration, memory models, statistics
-- **Scoreboards**: Automatic transaction recording and comparison
-- **Randomization**: FlexRandomizer for timing and data generation
-- **CocoTB**: Standard BusDriver/BusMonitor interfaces
+The GAXI components build on and plug into:
+- **Shared infrastructure**: field configuration, memory models, statistics, randomization
+- **Scoreboards**: expected/actual wiring via monitor callbacks
+- **CocoTB**: standard BusDriver/BusMonitor inheritance
+- **The protocol BFMs**: AXI4/AXI5, AXI-Lite, AXI-Stream and FIFO components delegate to these pipelines
 
 ## Navigation
 - [**Overview**](components_gaxi_overview.md) - Detailed component overview and architecture

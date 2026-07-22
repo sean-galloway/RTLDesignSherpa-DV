@@ -23,21 +23,23 @@
 
 # APB Components Index
 
-This directory contains the APB (Advanced Peripheral Bus) protocol components for the CocoTBFramework. These components provide comprehensive support for APB protocol verification with masters, slaves, monitors, and testing utilities.
+Everything APB lives in this directory: the protocol BFMs, the packet and transaction layer, sequence generation, and the factory helpers that wire it all together.
 
 ## Overview
-- [**Overview**](components_apb_overview.md) - Complete overview of the APB components directory
+- [**Overview**](components_apb_overview.md) - Architecture, protocol coverage, and usage patterns for the APB family — start here
 
 ## Core Components
 
 ### Protocol Implementation
-- [**apb_components.py**](components_apb_apb_components.md) - APB Monitor, Master, and Slave implementations
-- [**apb_packet.py**](components_apb_apb_packet.md) - APB packet and transaction classes with randomization
-- [**apb_sequence.py**](components_apb_apb_sequence.md) - APB test sequence generation and management
+- [**apb_components.py**](components_apb_apb_components.md) - APB Monitor, Master, and Slave — the signal-level core
+- [**apb_packet.py**](components_apb_apb_packet.md) - APB packet and transaction classes, with constrained randomization
+- [**apb_sequence.py**](components_apb_apb_sequence.md) - List-driven test pattern generation with packet assembly
 
 ### Factory Functions & Utilities
-- **apb_factories.py** - Factory functions for creating and configuring APB components *(documentation planned)*
+- **apb_factories.py** - One-call creation and configuration of APB components *(documentation planned)*
 
 ## Navigation
 - [**Back to Components**](../components_index.md) - Return to main components index
 - [**Back to CocoTBFramework**](../components_index.md) - Return to main framework index
+
+---

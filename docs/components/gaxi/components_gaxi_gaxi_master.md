@@ -23,17 +23,17 @@
 
 # gaxi_master.py
 
-GAXI Master with integrated structured pipeline that maintains all existing functionality and timing while adding better debugging and error recovery through structured pipeline phases.
+The driving half of a GAXI interface. You hand it packets; it gets them onto the bus — honoring your timing randomizer and the ready/valid handshake — and it tells you afterwards what happened. The send path runs as a structured three-phase pipeline, which buys you per-phase statistics and clean timeout recovery without changing the timing of anything.
 
 ## Overview
 
 The `GAXIMaster` class provides:
-- **Structured pipeline** with enhanced debugging and error recovery
-- **Exact timing compatibility** with existing code
-- **Signal resolution** and data driving from GAXIComponentBase
-- **Memory model integration** using base MemoryModel directly
-- **Comprehensive statistics** including pipeline performance
-- **Optional pipeline debugging** for troubleshooting
+- **Three-phase send pipeline** with per-phase stats and debugging
+- **Timing identical to the legacy master** — the pipeline is structure, not behavior change
+- **Signal resolution and data driving** inherited from GAXIComponentBase
+- **Memory model read/write helpers** for testbench-side storage
+- **Timeout handling** that cleans up after itself instead of wedging the bus
+- **Pipeline debugging** you can toggle at runtime
 
 Inherits common functionality from GAXIComponentBase and extends CocoTB BusDriver.
 
@@ -160,7 +160,7 @@ if success:
 ### Pipeline Control and Debugging
 
 #### `enable_pipeline_debug(enable=True)`
-Enable or disable pipeline debugging at runtime.
+Turn pipeline debugging on or off at runtime. Off costs nothing; leave it off in regressions.
 
 **Parameters:**
 - `enable`: Enable debugging flag
@@ -174,7 +174,7 @@ master.enable_pipeline_debug(False)
 ```
 
 #### `get_pipeline_stats()`
-Get pipeline-specific statistics.
+Per-phase counters and current pipeline state.
 
 **Returns:** Dictionary with pipeline statistics
 
@@ -186,7 +186,7 @@ print(f"Phase counts: P1={pipeline_stats['phase1_count']}")
 ```
 
 #### `get_pipeline_debug_info()`
-Get detailed pipeline debug information.
+The detailed view — phase timings and per-state statistics. This is where you look when a handshake stalls.
 
 **Returns:** Dictionary with debug information
 
@@ -199,7 +199,7 @@ print(f"Statistics: {debug_info['phase_statistics']}")
 ### Statistics
 
 #### `get_stats()`
-Get comprehensive statistics including pipeline stats.
+Everything: master counters, base component stats, and pipeline stats in one dictionary.
 
 **Returns:** Dictionary containing all statistics
 
@@ -215,21 +215,19 @@ print(f"Pipeline stats: {stats['pipeline_stats']}")
 The GAXIMaster uses a structured 3-phase pipeline:
 
 ### Phase 1: Apply Delays
-- Apply `valid_delay` from randomizer
-- Deassert valid and clear data during delay
-- Maintains exact original timing
+- Pulls `valid_delay` from the randomizer and waits that many cycles
+- Holds valid deasserted and the data bus cleared for the duration
+- This is where your timing constraints actually land
 
 ### Phase 2: Drive and Handshake
-- Drive signals for transaction
-- Assert valid signal
-- Wait for ready handshake (with timeout)
-- Enhanced error recovery on timeout
+- Drives the transaction's fields and raises valid
+- Waits for ready, up to `timeout_cycles`
+- A timeout here isn't fatal — the pipeline recovers, counts it, and moves on
 
 ### Phase 3: Complete Transfer
-- Capture completion time
-- Deassert valid
-- Clear data bus
-- Move to sent queue
+- Drops valid and clears the data bus
+- Records the completion time
+- Moves the packet to the sent queue
 
 ### Pipeline State Tracking
 ```python
@@ -416,6 +414,8 @@ async def test_error_recovery(dut):
 
 ### Performance Monitoring
 
+One way to structure a performance soak, using the stats the master already collects:
+
 ```python
 async def monitor_performance(master, duration_ms=1000):
     """Monitor master performance over time"""
@@ -489,7 +489,10 @@ master = GAXIMaster(..., pipeline_debug=True)  # Development
 master = GAXIMaster(..., pipeline_debug=False) # Production
 ```
 
-### 2. **Use Appropriate Timeout Values**
+### 2. **Size the Timeout to the Test**
+
+A short timeout fails fast when the slave never answers; a long one rides out real backpressure. Pick based on which failure you're hunting.
+
 ```python
 # Short timeout for fast testing
 master = GAXIMaster(..., timeout_cycles=100)
@@ -506,7 +509,7 @@ if transaction_count % 100 == 0:
     check_performance_requirements(stats)
 ```
 
-### 4. **Handle Reset Properly**
+### 4. **Reset Before You Drive, and Again After an Error**
 ```python
 # Reset before starting transactions
 await master.reset_bus()
@@ -527,4 +530,4 @@ await master.write_to_memory(packet)
 success, data = await master.read_from_memory(packet)
 ```
 
-The GAXIMaster provides a robust, high-performance foundation for GAXI transaction generation with comprehensive debugging, error recovery, and performance monitoring capabilities.
+The master is the component your tests will talk to most. `create_packet()`, `send()`, and `get_stats()` cover the common cases; flip `pipeline_debug` on when a handshake misbehaves and off again before the regression run.

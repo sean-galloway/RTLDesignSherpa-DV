@@ -23,22 +23,21 @@
 
 # apb_scoreboard.py
 
-APB (Advanced Peripheral Bus) scoreboard implementation for verifying APB transactions. This module provides both single-slave and multi-slave APB verification capabilities with comprehensive transaction matching and protocol transformation support.
+Two scoreboards live here. `APBScoreboard` handles the single-slave case; `APBCrossbarScoreboard` handles systems where an address decoder steers each transaction to one of several slaves. There's also an APB→GAXI transformer kept here for backward compatibility.
 
 ## Overview
 
-The APB scoreboard system provides:
-- **Single-Slave Verification**: Basic APB transaction verification for single-slave systems
-- **Multi-Slave Support**: Automatic transaction routing for multi-slave APB systems
-- **Direction-Aware Comparison**: Separate handling of read and write transactions
-- **Enhanced Error Reporting**: Field-by-field mismatch analysis
-- **Protocol Transformation**: APB to GAXI conversion support
+- **Single-Slave Verification**: straightforward expected-vs-actual checking for one APB slave
+- **Multi-Slave Support**: address-based routing to a per-slave scoreboard
+- **Direction-Aware Comparison**: reads and writes compared on the fields that matter to each
+- **Enhanced Error Reporting**: mismatches logged field by field
+- **Protocol Transformation**: APB → GAXI conversion support
 
 ## Classes
 
 ### APBScoreboard
 
-Core APB transaction verification for single-slave systems.
+The single-slave workhorse. Queueing and reporting come from `BaseScoreboard`; what this class adds is APB-aware comparison and mismatch logging that actually tells you which field broke.
 
 ```python
 class APBScoreboard(BaseScoreboard):
@@ -46,35 +45,35 @@ class APBScoreboard(BaseScoreboard):
 ```
 
 **Parameters:**
-- `name`: Scoreboard name for identification
-- `addr_width`: Address bus width in bits (default: 32)
-- `data_width`: Data bus width in bits (default: 32)
-- `log`: Logger instance for detailed reporting
+- `name`: scoreboard name; shows up in reports
+- `addr_width`: address bus width in bits (default: 32)
+- `data_width`: data bus width in bits (default: 32)
+- `log`: logger for mismatch detail
 
 **Key Attributes:**
-- `addr_width`: Address bus width
-- `data_width`: Data bus width  
-- `strb_width`: Strobe width (data_width // 8)
-- `master_transactions`: Dictionary tracking transactions by master ID
+- `addr_width`: address bus width
+- `data_width`: data bus width  
+- `strb_width`: strobe width (data_width // 8)
+- `master_transactions`: transactions tracked by master ID
 
 ## Core Methods
 
 ### Transaction Comparison
 
 #### `_compare_transactions(expected, actual)`
-Compare APB packets based on protocol fields.
+Comparison the simple way: type-check both packets, then lean on `APBPacket.__eq__`, which already knows which fields matter.
 
 **Parameters:**
-- `expected`: Expected APB transaction (APBPacket)
-- `actual`: Actual APB transaction (APBPacket)
+- `expected`: expected APB transaction (APBPacket)
+- `actual`: actual APB transaction (APBPacket)
 
 **Returns:**
-- `bool`: True if transactions match, False otherwise
+- `bool`: True on match, False otherwise
 
 **Comparison Logic:**
-- Validates transaction types (must be APBPacket instances)
+- Both transactions must be APBPacket instances
 - Uses APBPacket's built-in `__eq__` method
-- Compares direction, address, data, and control fields
+- Direction, address, data, and control fields are all covered by that equality
 
 ```python
 # Automatic comparison when both transactions available
@@ -83,11 +82,11 @@ scoreboard.add_actual(actual_apb_packet)  # Triggers comparison
 ```
 
 #### `_log_mismatch(expected, actual)`
-Enhanced mismatch logging with field-by-field analysis.
+When a comparison fails, this walks the packet field by field so the log names the difference—direction, address, data, strobe—instead of just announcing that one exists.
 
 **Parameters:**
-- `expected`: Expected APB transaction
-- `actual`: Actual APB transaction
+- `expected`: expected APB transaction
+- `actual`: actual APB transaction
 
 **Detailed Logging:**
 - Direction mismatch detection
@@ -108,7 +107,7 @@ Enhanced mismatch logging with field-by-field analysis.
 
 ### APBCrossbarScoreboard
 
-Advanced scoreboard for multi-slave APB systems with automatic transaction routing.
+One `APBScoreboard` per slave under the hood, with an address map in front that routes each transaction where it belongs.
 
 ```python
 class APBCrossbarScoreboard:
@@ -116,25 +115,25 @@ class APBCrossbarScoreboard:
 ```
 
 **Parameters:**
-- `name`: Scoreboard name
-- `num_slaves`: Number of slave devices
-- `addr_width`: Address bus width (default: 32)
-- `data_width`: Data bus width (default: 32)  
-- `log`: Logger instance
+- `name`: scoreboard name
+- `num_slaves`: how many slaves sit behind the crossbar
+- `addr_width`: address bus width (default: 32)
+- `data_width`: data bus width (default: 32)  
+- `log`: logger instance
 
 **Architecture:**
-- Creates individual `APBScoreboard` for each slave
-- Automatic address-based transaction routing
-- Configurable address mapping per slave
-- Combined reporting across all slaves
+- An individual `APBScoreboard` for each slave
+- Address-based routing, automatic once configured
+- Address ranges you can redefine per slave
+- One combined report across all of them
 
 ### Address Mapping
 
 #### `set_address_map(addr_map)`
-Configure custom address ranges for slave selection.
+Give each slave its address range.
 
 **Parameters:**
-- `addr_map`: List of `(base_addr, end_addr)` tuples for each slave
+- `addr_map`: list of `(base_addr, end_addr)` tuples, one per slave
 
 **Default Mapping:**
 - Slave 0: 0x0000 - 0x0FFC
@@ -153,31 +152,31 @@ scoreboard.set_address_map(addr_map)
 ```
 
 #### `get_slave_idx(addr)`
-Determine target slave for given address.
+Which slave owns this address?
 
 **Parameters:**
-- `addr`: Address to route
+- `addr`: the address to route
 
 **Returns:**
-- `int`: Slave index, or modulo-based routing if no mapping match
+- `int`: slave index
 
 **Routing Logic:**
-1. Check configured address map for exact range match
-2. Fall back to modulo routing: `addr // 0x1000 % num_slaves`
+1. Check the configured map for a range that contains the address
+2. If nothing claims it, fall back to modulo routing: `addr // 0x1000 % num_slaves`—a misconfigured map degrades to something predictable instead of dropping the transaction
 
 ### Transaction Management
 
 #### `add_master_transaction(transaction, master_id)`
-Add transaction from master with automatic slave routing.
+Add a master-side transaction; the scoreboard routes it.
 
 **Parameters:**
-- `transaction`: APB transaction to route
-- `master_id`: Master identifier for tracking
+- `transaction`: the APB transaction to route
+- `master_id`: master identifier for tracking
 
 **Behavior:**
-- Determines target slave using `get_slave_idx()`
-- Routes transaction to appropriate slave scoreboard
-- Maintains master transaction tracking
+- Resolves the target slave with `get_slave_idx()`
+- Forwards the transaction to that slave's scoreboard
+- Keeps per-master tracking up to date
 
 ```python
 # Automatic routing based on address
@@ -186,23 +185,22 @@ scoreboard.add_master_transaction(transaction, master_id=0)
 ```
 
 #### `add_slave_transaction(transaction, slave_idx)`
-Add transaction from specific slave.
+Add a transaction that came from a specific slave.
 
 **Parameters:**
-- `transaction`: APB transaction from slave
-- `slave_idx`: Slave index (0 to num_slaves-1)
+- `transaction`: APB transaction from the slave
+- `slave_idx`: slave index (0 to num_slaves-1)
 
 **Error Handling:**
-- Validates slave index range
-- Logs errors for invalid slave indices
+- Out-of-range slave indices are logged, not silently accepted
 
 ### Reporting
 
 #### `report()`
-Generate comprehensive multi-slave report.
+One line per slave, plus the overall verdict.
 
 **Returns:**
-- `str`: Combined report from all slave scoreboards
+- `str`: combined report from all slave scoreboards
 
 **Report Format:**
 ```
@@ -217,12 +215,12 @@ Overall: FAIL
 
 ### APBtoGAXITransformer
 
-Transformer for converting APB transactions to GAXI packets.
+APB-to-GAXI conversion.
 
 > **Compatibility subclass.** This class now derives from the canonical
 > `scoreboards.apb_gaxi_transformer.APBtoGAXITransformer`, keeping the
 > constructor and list-returning `transform()` documented below while
-> inheriting `apb_to_gaxi()` / `gaxi_to_apb()`. Both import paths work; prefer
+> inheriting `apb_to_gaxi()` / `gaxi_to_apb()`. Both import paths work; reach for
 > `apb_gaxi_transformer` in new code. See
 > [APB-GAXI Transformer](scoreboards_apb_gaxi_transformer.md).
 
@@ -233,24 +231,24 @@ class APBtoGAXITransformer(ProtocolTransformer):
 
 **Parameters:**
 - `gaxi_field_config`: GAXI field configuration
-- `packet_class`: GAXI packet class for creating instances
-- `log`: Logger instance
+- `packet_class`: GAXI packet class to instantiate
+- `log`: logger instance
 
 ### Transformation Logic
 
 #### `transform(apb_cycle)`
-Convert APB transaction to GAXI packet(s).
+Convert one APB transaction into GAXI packet(s).
 
 **Parameters:**
-- `apb_cycle`: APB packet to transform
+- `apb_cycle`: the APB packet to transform
 
 **Returns:**
-- `List[GAXIPacket]`: List of transformed GAXI packets
+- `List[GAXIPacket]`: the transformed packets
 
 **Field Mapping:**
 - `apb.paddr` → `gaxi.addr`
 - `apb.pwdata/prdata` → `gaxi.data` (direction-dependent)
-- `apb.pstrb` → `gaxi.strb` (write transactions only)
+- `apb.pstrb` → `gaxi.strb` (writes only)
 
 ```python
 # Create transformer
@@ -268,6 +266,8 @@ gaxi_scoreboard.add_actual(gaxi_packet)        # Direct comparison
 ## Usage Examples
 
 ### Basic Single-Slave Verification
+
+The minimal loop: build expected and actual packets, hand them over, read the verdict.
 
 ```python
 from CocoTBFramework.scoreboards.apb_scoreboard import APBScoreboard
@@ -301,6 +301,8 @@ print(f"Verification: {'PASS' if error_count == 0 else 'FAIL'} ({pass_rate:.2%})
 
 ### Multi-Slave System Verification
 
+Four peripherals, four address ranges, and routing you don't have to think about after setup.
+
 ```python
 from CocoTBFramework.scoreboards.apb_scoreboard import APBCrossbarScoreboard
 
@@ -333,6 +335,8 @@ print(scoreboard.report())
 
 ### Cross-Protocol Bridge Verification
 
+When the DUT converts APB to GAXI, install the transformer and compare in the GAXI domain.
+
 ```python
 from CocoTBFramework.scoreboards.apb_scoreboard import APBtoGAXITransformer
 from CocoTBFramework.scoreboards.gaxi_scoreboard import GAXIScoreboard
@@ -359,6 +363,8 @@ else:
 
 ### Enhanced Error Analysis
 
+Subclass and override `_log_mismatch` when you want arithmetic on the mismatch—address offsets and XOR masks beat eyeballing hex dumps.
+
 ```python
 # Custom scoreboard with detailed error reporting
 class DetailedAPBScoreboard(APBScoreboard):
@@ -383,28 +389,29 @@ detailed_scoreboard = DetailedAPBScoreboard("Detailed", log=logger)
 ## Best Practices
 
 ### Address Mapping Configuration
-- Define clear, non-overlapping address ranges for multi-slave systems
-- Use power-of-2 boundaries for efficient decoding
-- Document address map in test configuration
+- Keep slave ranges clear and non-overlapping
+- Power-of-2 boundaries make the decode logic—and your debugging—easier
+- Write the map down in the test configuration so the bench and the DUT can't drift apart
 
 ### Transaction Tracking
-- Use meaningful master IDs for transaction correlation
-- Clear scoreboards between test phases
-- Monitor queue sizes in long-running tests
+- Meaningful master IDs pay off when you're correlating transactions later
+- `clear()` between test phases
+- Watch queue sizes in long runs
 
 ### Error Analysis
-- Enable detailed logging for debugging mismatches
-- Use field-by-field comparison for systematic analysis
-- Preserve mismatch pairs for post-test analysis
+- Leave detailed logging on while debugging mismatches
+- The field-by-field output is your first stop, not the waveform
+- Keep mismatch pairs around for post-test analysis
 
 ### Performance Optimization
-- Configure appropriate queue sizes for expected transaction volumes
-- Use batch operations for large transaction sets
-- Clear completed transactions periodically
+- Size queues for the traffic you actually expect
+- Use batch operations when pushing large transaction sets
+- Retire completed transactions periodically
 
 ## Integration Points
 
 ### Monitor Integration
+
 ```python
 # Connect APB monitor to scoreboard
 def on_apb_transaction(packet):
@@ -414,6 +421,7 @@ apb_monitor.add_callback(on_apb_transaction)
 ```
 
 ### Test Sequence Integration
+
 ```python
 # Generate expected transactions from test sequence
 sequence = APBSequence("test_pattern")
@@ -421,4 +429,4 @@ for packet in sequence.generate():
     scoreboard.add_expected(packet)
 ```
 
-The APB scoreboard provides comprehensive verification capabilities for both simple single-slave and complex multi-slave APB systems, with robust error reporting and cross-protocol transformation support.
+Single slave or a whole crossbar, it's the same comparison machinery underneath—with the transformer hook for when the DUT turns out to be a bridge.

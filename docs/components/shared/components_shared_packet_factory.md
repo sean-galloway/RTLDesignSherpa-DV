@@ -23,11 +23,11 @@
 
 # packet_factory.py
 
-Generic packet factory that works across all protocols (GAXI, FIFO, APB, etc.) providing comprehensive packet creation, management, and processing capabilities. This module eliminates the need for packet_class parameters and provides better abstraction for verification environments.
+Packet creation, transaction lifecycle handling, and field unpacking for any protocol — the plumbing that masters, slaves, and monitors would otherwise each re-implement slightly differently.
 
 ## Overview
 
-The `packet_factory.py` module provides a complete packet handling ecosystem with factories, transaction handlers, field unpackers, and convenience functions. It's designed to work seamlessly across different protocols while providing consistent interfaces and comprehensive error handling.
+Without a factory, every component grows its own packet-creation code: one place stamps timestamps, another unpacks fields, a third remembers to call the scoreboard callback, and none of them quite match. `packet_factory.py` centralizes that. You hand the factory your packet class and FieldConfig once, and from then on `create_packet()` knows both. `TransactionHandler` manages the create/finish lifecycle and fires your callbacks; `FieldUnpacker` splits combined bus values back into named fields. The `create_*_system()` convenience functions wire up the combination each component type actually needs.
 
 ## Core Classes
 
@@ -194,7 +194,7 @@ else:
 
 ### TransactionHandler
 
-Generic handler for transaction processing across any protocol that encapsulates common transaction patterns.
+The create/finish bookkeeping for transactions, plus the callback fan-out. Monitors and slaves use this so "a transaction happened" reliably becomes "everyone who cares got told."
 
 #### Constructor
 
@@ -288,7 +288,7 @@ print(f"Callback errors: {stats['callback_errors']}")
 
 ### FieldUnpacker
 
-Generic helper for unpacking combined field values into individual fields.
+Splits a combined bus value back into its named fields — the inverse of packing, for DUTs that present multiple fields on one wide signal.
 
 #### Constructor
 
@@ -694,6 +694,8 @@ class AdvancedTransactionProcessor:
         }
 ```
 
+The callback list is where cross-cutting concerns belong — protocol checks, performance recording, security watches. Each callback does one thing, the handler calls them all, and none of them knows the others exist. That's a much better shape than a monitor class with twelve jobs.
+
 ### Field Unpacking Usage
 
 ```python
@@ -792,9 +794,13 @@ stats = handler.get_stats()
 print(f"Callback errors: {stats['callback_errors']}")
 ```
 
+One callback throwing an exception doesn't take down the rest — the handler logs it, counts it in `callback_errors`, and keeps going. That's the right behavior in a monitor, but it also means a silently broken callback is easy to miss. Check the stats.
+
 ## Best Practices
 
 ### 1. **Use Appropriate Factory Functions**
+Each `create_*_system()` exists because that component type has a shape that keeps recurring — use the one that matches:
+
 ```python
 # For masters - simple packet creation
 master_factory = create_master_system(Packet, config, log, "Master")
@@ -806,6 +812,8 @@ monitor_factory, monitor_handler, _ = create_monitor_system(
 ```
 
 ### 2. **Validate Packets Before Processing**
+Validation is cheap; debugging a malformed packet downstream is not:
+
 ```python
 if factory.validate_packet(packet):
     process_packet(packet)
@@ -814,6 +822,8 @@ else:
 ```
 
 ### 3. **Use Callbacks for Modular Processing**
+Separate concerns into separate callbacks instead of growing one giant monitor method:
+
 ```python
 # Separate concerns with different callbacks
 handler.add_callback(scoreboard.record_transaction)    # Verification
@@ -822,6 +832,8 @@ handler.add_callback(security_checker.validate)        # Security
 ```
 
 ### 4. **Handle Timing Information**
+If you ever want latency numbers, stamp the times at both ends. Retrofitting timing into a testbench that didn't stamp it is miserable:
+
 ```python
 # Always use timed packets for performance analysis
 packet = factory.create_timed_packet(start_time=cocotb.utils.get_sim_time())
@@ -830,6 +842,8 @@ completed = factory.finish_packet(packet, end_time=cocotb.utils.get_sim_time())
 ```
 
 ### 5. **Monitor Statistics**
+The handler counts validation failures and callback errors for a reason. Look at them:
+
 ```python
 # Regular statistics monitoring
 def check_handler_health():
@@ -840,4 +854,4 @@ def check_handler_health():
         log.error("Callback errors detected")
 ```
 
-The packet factory system provides a comprehensive, protocol-agnostic foundation for packet handling in verification environments, with robust error handling, flexible callback systems, and optimized performance.
+---

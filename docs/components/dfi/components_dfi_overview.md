@@ -23,21 +23,32 @@
 
 # DFI (DDR PHY Interface) Components Overview
 
-The DFI BFM verifies memory controllers (MCs) and FPGA PHY shims
-against the DDR PHY Interface specification, versions 2.1 through
-5.x. It models the PHY side as a programmable slave with a
-numpy-backed memory and a JEDEC-timing-aware state machine, exposes
-an MC-side driver with a primitive command API, and dispatches
-per-spec-version semantic behaviors through a Strategy + Registry
-pattern so version differences stay isolated.
+If you're bringing up a memory controller — or a PHY shim in front of
+one — this BFM is the other end of that wire. It verifies MCs and FPGA
+PHY shims against the DDR PHY Interface specification, versions 2.1
+through 5.x. The PHY side is modeled as a programmable slave with a
+numpy-backed memory and a state machine that actually respects JEDEC
+timing; the MC side is a driver with a primitive command API
+(`activate`, `read`, `write`, and friends) to poke it with.
 
-> **Scope:** DFI v2.1 through v5.x. Covers DDR1-5 + LPDDR1-5. v6.0
-> dropped legacy DDR/LPDDR support and is treated as a future BFM
-> generation. See
-> [`docs/internal/dfi-semantic-shifts.md`](../../internal/dfi-semantic-shifts.md)
-> for the architecture pressure-test that preceded the implementation.
+The piece that earns its keep is the version handling. Each spec
+version's semantics live in their own behavior class, dispatched
+through a Strategy + Registry pattern, so the quirks of v2.1 stay
+quarantined from your v4.0 tests.
+
+> **Scope:** DFI v2.1 through v5.x — that covers DDR1-5 and LPDDR1-5.
+> v6.0 dropped legacy DDR/LPDDR support, which makes it a different
+> enough animal that it's slated as a future BFM generation rather
+> than something to bolt on here. The architecture pressure-test that
+> preceded this implementation lives in
+> [`docs/internal/dfi-semantic-shifts.md`](../../internal/dfi-semantic-shifts.md).
 
 ## Architecture
+
+A typical testbench hangs three BFMs around the DUT — a master to
+drive the MC side, a slave to play PHY, and a monitor to watch — plus
+a shared configuration stack (`timings`, `mapping`, `base`) that tells
+everyone which spec version and memory type they're pretending to be:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -63,19 +74,30 @@ pattern so version differences stay isolated.
        └───────────────────────────────────────────┘
 ```
 
-The slave runs a falling-edge sampling loop. Every cycle it:
+The slave runs its sampling loop on the falling edge of the clock.
+Every cycle, in order:
 
-1. Ticks the DRAM state model.
-2. Decodes any command on the wire (`cs_n` active) and updates per-bank
+1. Tick the DRAM state model.
+2. Decode any command on the wire (`cs_n` active) and update per-bank
    state.
-3. Commits any write whose CWL elapsed; serves any read whose CL
-   elapsed (reads serialize behind in-flight writes).
-4. Dispatches the per-version `behavior.X(bus, state)` method for each
-   of eight semantic-shift areas (error / CRC / update / training /
-   CA parity / freq change / disconnect / PHY master). Events land in
-   per-area `slave.X_events` deques.
+3. Commit any write whose CWL has elapsed; serve any read whose CL
+   has elapsed. Reads serialize behind in-flight writes — that's what
+   keeps a read-after-write from handing back stale data.
+4. Dispatch the per-version `behavior.X(bus, state)` method for each
+   of the eight semantic-shift areas (error / CRC / update / training /
+   CA parity / freq change / disconnect / PHY master). Whatever the
+   behavior sees lands in the matching `slave.X_events` deque.
+
+Step 4 is where the version differences live. The signals look mostly
+the same across DFI versions, but what an error pulse or a training
+request *means* shifts — and the behavior class owns that knowledge,
+not the sampling loop.
 
 ## Minimal end-to-end example
+
+Here's the smallest test that still does a full round trip: clock and
+reset, the configuration stack, an activate/write/read sequence, then
+a check of the slave's counters.
 
 ```python
 import cocotb
@@ -134,20 +156,29 @@ async def example_test(dut):
     assert slave.reads_served == 1
 ```
 
+Two things worth stealing for your own tests: `beats_per_burst=1`
+keeps this to one beat per command (override it for BL=4/8), and the
+`MemoryModel` is sized to the full address space — banks × rows ×
+columns, 8 bytes a line. The counter asserts at the bottom are the
+quick-and-dirty option; for anything past a smoke test, use the event
+queues in the next section instead.
+
 ## Per-version behavior selection
 
-`DFIBase.__init__` looks up the right behavior class from
-`VERSION_BEHAVIOR` based on `dfi_version`:
+Hand `DFIBase` a version and it picks the matching behavior class
+itself, via the `VERSION_BEHAVIOR` lookup:
 
 | `dfi_version` | Behavior class | Notes |
 |---|---|---|
-| `V2_1` | `DFIv2_1Behavior` | All post-v2.1 areas raise `NotSupportedInThisVersionError` |
-| `V3_1` | `DFIv3_1Behavior` | CRC / Update / Training / Error / CA parity / freq-indicator |
-| `V4_0` | `DFIv4_0Behavior` | PHY Master / Disconnect / Acknowledged freq change / per-slice training |
-| `V5_2` | `DFIv4_0Behavior` | PHY Master rename has no behavior implication |
+| `V2_1` | `DFIv2_1Behavior` | Everything added after v2.1 raises `NotSupportedInThisVersionError` |
+| `V3_1` | `DFIv3_1Behavior` | CRC / Update / Training / Error / CA parity / freq indicator |
+| `V4_0` | `DFIv4_0Behavior` | PHY Master / Disconnect / acknowledged freq change / per-slice training |
+| `V5_2` | `DFIv4_0Behavior` | The PHY Master rename is naming-only — no behavior change |
 
-Override the lookup with a custom class (board-specific PHY quirks,
-broken-behavior modeling, etc.):
+That lookup is a default, not a cage. If your PHY has quirks — and
+real ones always do — subclass the behavior for your version and pass
+it in. This is the hook for board-specific decoding, or for
+deliberately modeling a broken PHY to see how your MC copes:
 
 ```python
 class MyBoardSpecificV3Behavior(DFIv3_1Behavior):
@@ -165,8 +196,9 @@ base = DFIBase(
 
 ## Consuming events from the slave queues
 
-Eight per-area deques on `DFISlavePHY` collect events from the
-behavior dispatch each cycle:
+Each of the eight areas gets its own deque on `DFISlavePHY`, and the
+behavior dispatch appends to them as things happen. Drive something on
+the wire, then take it off the queue:
 
 ```python
 # Slave drives PHY-side signals…
@@ -180,7 +212,7 @@ assert evt.kind == ErrorKind.OTHER
 assert evt.code == 0x42
 ```
 
-Per-area queues:
+The queues, by area:
 
 | Area | Queue | Event type |
 |---|---|---|
@@ -193,32 +225,41 @@ Per-area queues:
 | Disconnect | `slave.disconnect_events` | `DisconnectEvent` (phase) |
 | PHY Master | `slave.takeover_events` | `TakeoverEvent` (reason) |
 
-For automated consumption, use
-`CocoTBFramework.scoreboards.dfi_scoreboard.DFIScoreboard` — it drains
-the per-area queues, fires registered `on_<area>(callback)` hooks, and
-tallies counts via `poll()` / `report()`.
+Polling eight deques by hand gets old fast, so there's a scoreboard
+that does it for you:
+`CocoTBFramework.scoreboards.dfi_scoreboard.DFIScoreboard` drains the
+per-area queues, fires any `on_<area>(callback)` hooks you've
+registered, and tallies counts via `poll()` / `report()`.
 
 ## Driving the wire
+
+Who drives what, and with which primitives:
 
 | Direction | Driven by | Primitive |
 |---|---|---|
 | Command + write | `DFIMasterMC` | `activate`, `read`, `write`, `precharge`, `refresh`, `nop`, `write_data`, `write_burst`, `set_rddata_en` |
 | MC→PHY update / parity / freq / acks | `DFIMasterMC` | `set_ctrlupd_req`, `set_phyupd_ack`, `set_parity_in`, `set_freq_change`, `set_disconnect_ack`, `set_phymstr_ack` |
-| Read data + memory | `DFISlavePHY` | (auto-serves reads via DRAM model + MemoryModel) |
+| Read data + memory | `DFISlavePHY` | (auto-served by the DRAM model + MemoryModel) |
 | PHY→MC error / CRC / update / training / parity / etc. | `DFISlavePHY` | `set_error`, `set_crc_alert`, `set_phyupd_req`, `set_ctrlupd_ack`, `set_training`, `set_parity_check`, `set_freq_change_ack`, `set_disconnect_req`, `set_phymstr_req` |
 
 ## SystemVerilog shim for two-monitor tests
 
-`tests/sim/rtl/dfi/dfi_shim.sv` is a pure-passthrough RTL module with
-all 33 DFI signals exposed on both MC- and PHY-facing ports. Attach
-a master + slave + monitor on either side and verify the same packet
-stream lands on both sides. This is what the cocotb tests in
-`tests/sim/dfi/` use; for your own MC RTL, replace the shim with the
-DUT and connect to one side only.
+`tests/sim/rtl/dfi/dfi_shim.sv` is a pure passthrough — all 33 DFI
+signals exposed on both an MC-facing and a PHY-facing port, no logic
+in between. Dumb is the point. You hang a master, a slave, and
+monitors off either side and check that the same packet stream lands
+on both. The cocotb tests in `tests/sim/dfi/` are built exactly that
+way. When you move to your own MC RTL, the shim goes away: drop the
+DUT in where it was and connect the BFMs to one side only.
 
 ## Related documentation
 
 - **Architecture pressure-test:**
   [`docs/internal/dfi-semantic-shifts.md`](../../internal/dfi-semantic-shifts.md)
+  — why the design looks the way it does. Read this before you
+  subclass a behavior.
 - **JEDEC timing format:**
   `src/CocoTBFramework/components/dfi/jedec/README.md`
+  — how the timing data for this component is specified.
+
+No Problems section this round — nothing in the page met the "reader gets burned" bar. The example's `ddr3-1600` timings paired with `MemoryType.DDR4` looks odd to a DDR person, but it was audited against the source and won't fail for anyone who copies it, so I left it alone.

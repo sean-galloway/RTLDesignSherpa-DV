@@ -28,6 +28,12 @@ nothing; those paths now work and are covered by unit tests (505 → 727).
 
 ### Added
 
+- `GAXIComponentBase._build_packet(**field_values)` — an overridable
+  packet-construction hook (matching the APB precedent) that every GAXI and
+  FIFO pipeline routes through, so a protocol BFM delegating to the GAXI
+  pipeline keeps its own packet subclass instead of receiving a plain
+  `GAXIPacket`. The `packet_class=` parameter the factories already accepted is
+  now honored end-to-end. AXIS4/AXIS5 monitors and slaves use it.
 - `GAXIMonitorBase.enable_completed_packet_tracking()` /
   `get_completed_packets(count=None)` — an opt-in completed-packet drain,
   inherited by `GAXIMonitor` and `GAXISlave`, kept separate from `_recvQ` so
@@ -72,7 +78,13 @@ Silent wrong behavior:
 - **AXI4/AXI5/AXIL4 packet-level compliance checks never ran**; handshake
   checks were stubs; outstanding-transaction dicts dropped same-ID
   transactions; AXIL4 flagged legal concurrent AR+AW and legal back-to-back
-  transfers.
+  transfers. WLAST validation was a no-op (it read `packet.last` and discarded
+  it); it now checks beat counts against AW commands in arrival order — the
+  correct association for AXI4, which removed write-data interleaving.
+- **AXIS4 and AXIS5 monitors ran forked receive loops** instead of delegating
+  to the GAXI pipeline, the same drift that had rotted the AXIS master's drive
+  path; they now delegate, layering TLAST/frame tracking, protocol checks and
+  AXIS5 parity on via hooks.
 - **`AXI4Scoreboard` could not attach to any framework monitor** and compared
   field names no packet used, so mismatches went undetected.
 - **`randomize_fields()` returned `{}`** for every real field name on AXI4 and

@@ -23,9 +23,9 @@
 
 # WaveDrom Timing Diagram Generation
 
-**Version:** 3.0 (Auto-Binding + Protocol Presets)
+**Version:** 3.1 (Enforced Boundaries + Configurable Idle Filter)
 **Status:** ✅ Production Ready
-**Last Updated:** 2025-10-06
+**Last Updated:** 2026-07-21
 
 ---
 

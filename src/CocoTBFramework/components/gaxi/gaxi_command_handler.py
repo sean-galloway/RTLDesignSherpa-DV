@@ -340,8 +340,9 @@ class GAXICommandHandler:
                 # Convert integer to bytearray for memory write
                 data_bytes = self.memory_model.integer_to_bytearray(data, 4)  # 32-bit
 
-                # Write to memory with proper address masking
-                success = self.memory_model.write(address & 0xFFFF, data_bytes, strobe)
+                # No address masking: silent 64 KiB aliasing hid out-of-range
+                # addresses; let MemoryModel bounds-check and report instead
+                success = self.memory_model.write(address, data_bytes, strobe)
 
                 if self.log:
                     self.log.debug(f"Memory write {'successful' if success else 'failed'}: "
@@ -364,8 +365,7 @@ class GAXICommandHandler:
         """
         if self.memory_model:
             try:
-                # Read from memory with proper address masking
-                data_bytes = self.memory_model.read(address & 0xFFFF, 4)  # 32-bit
+                data_bytes = self.memory_model.read(address, 4)  # 32-bit
                 data = self.memory_model.bytearray_to_integer(data_bytes)
 
                 if self.log:

@@ -81,7 +81,7 @@ create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_class=No
 - `memory_model`: Memory model for transactions (optional)
 - `memory_fields`: Field mapping for memory operations (unused - kept for compatibility)
 - `log`: Logger instance (default: dut's logger)
-- `signal_map`: Signal mapping (unused - kept for compatibility)
+- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery)
 - `optional_signal_map`: Optional signal mapping (unused - kept for compatibility)
 - `field_mode`: Field mode (unused - kept for compatibility)
 - `multi_sig`: Whether using multi-signal mode
@@ -249,7 +249,7 @@ create_gaxi_components(dut, clock, title_prefix="", field_config=None,
 - `memory_model`: Memory model for components (auto-created if None)
 - `log`: Logger instance
 - `mode`: Operating mode for slave/monitor
-- `signal_map`: Signal mapping (unused - kept for compatibility)
+- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery)
 - `optional_signal_map`: Optional signal mapping (unused - kept for compatibility)
 - `multi_sig`: Whether using multi-signal mode
 - `bus_name`: Bus/channel name
@@ -762,7 +762,7 @@ All factory functions maintain complete backward compatibility:
 - **Parameter order is maintained** for positional arguments
 - **Default values are enhanced** but don't break existing code
 - **New parameters have sensible defaults** that work with existing configurations
-- **Legacy parameter names are supported** (e.g., `field_mode`, `signal_map`) even when unused
+- **Legacy parameter names are supported** (e.g., `field_mode`, `optional_signal_map`) even when unused; `signal_map` is forwarded
 
 ```python
 # Legacy code continues to work unchanged

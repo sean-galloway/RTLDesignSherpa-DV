@@ -67,7 +67,7 @@ def create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_clas
         memory_model: Memory model for transactions (optional)
         memory_fields: Field mapping for memory operations (unused - kept for compatibility)
         log: Logger instance (default: dut's logger)
-        signal_map: Signal mapping (unused - kept for compatibility)
+        signal_map: Manual signal mapping (forwarded; None = auto-discovery)
         optional_signal_map: Optional signal mapping (unused - kept for compatibility)
         field_mode: Field mode (unused - kept for compatibility)
         multi_sig: Whether using multi-signal mode
@@ -100,6 +100,7 @@ def create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_clas
         bus_name=bus_name,
         pkt_prefix=pkt_prefix,
         multi_sig=multi_sig,
+        signal_map=signal_map,
         **kwargs  # Pass through remaining parameters
     )
 
@@ -128,7 +129,7 @@ def create_gaxi_slave(dut, title, prefix, clock, field_config=None, field_mode=F
         memory_fields: Field mapping for memory operations (unused - kept for compatibility)
         log: Logger instance (default: dut's logger)
         mode: Operating mode ('skid', 'fifo_mux', 'fifo_flop')
-        signal_map: Signal mapping (unused - kept for compatibility)
+        signal_map: Manual signal mapping (forwarded; None = auto-discovery)
         optional_signal_map: Optional signal mapping (unused - kept for compatibility)
         multi_sig: Whether using multi-signal mode
         bus_name: Bus/channel name
@@ -159,6 +160,7 @@ def create_gaxi_slave(dut, title, prefix, clock, field_config=None, field_mode=F
         bus_name=bus_name,
         pkt_prefix=pkt_prefix,
         multi_sig=multi_sig,
+        signal_map=signal_map,
         **kwargs  # Pass through remaining parameters
     )
 
@@ -211,6 +213,7 @@ def create_gaxi_monitor(dut, title, prefix, clock, field_config=None,
         bus_name=bus_name,
         pkt_prefix=pkt_prefix,
         multi_sig=multi_sig,
+        signal_map=signal_map,
         **kwargs  # Pass through remaining parameters
     )
 
@@ -255,7 +258,7 @@ def create_gaxi_components(dut, clock, title_prefix="", field_config=None, field
         memory_model: Memory model for components (auto-created if None)
         log: Logger instance
         mode: Operating mode for slave/monitor
-        signal_map: Signal mapping (unused - kept for compatibility)
+        signal_map: Manual signal mapping (forwarded; None = auto-discovery)
         optional_signal_map: Optional signal mapping (unused - kept for compatibility)
         multi_sig: Whether using multi-signal mode
         bus_name: Bus/channel name

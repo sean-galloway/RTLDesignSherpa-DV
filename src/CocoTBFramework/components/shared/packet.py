@@ -259,9 +259,13 @@ class Packet:
         object.__setattr__(self, 'end_time', 0)
         object.__setattr__(self, 'fields', {})
 
-        # Convert dictionary field_config to FieldConfig object if needed
+        # Convert dictionary field_config to FieldConfig object if needed;
+        # None falls back to a single data field (subclasses annotate the
+        # parameter Optional, so honor that instead of crashing below)
         if isinstance(field_config, dict):
             object.__setattr__(self, 'field_config', FieldConfig.validate_and_create(field_config))
+        elif field_config is None:
+            object.__setattr__(self, 'field_config', FieldConfig.create_data_only())
         else:
             object.__setattr__(self, 'field_config', field_config)
 

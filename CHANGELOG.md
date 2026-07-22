@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Removed the unused `psutil` runtime dependency and the unused `crc`
+  optional extra** (neither is imported anywhere in the package; `psutil`
+  served TBBase, which lives in the main repo, and SMBus computes CRC-8 PEC
+  by hand). `pip install cocotb-framework[all]` now pulls only `ortools`.
+
 ### Fixed
 
 - **`BaseScoreboard.clear()` now also clears the `mismatched` history list**,

@@ -24,6 +24,7 @@ from cocotb.triggers import RisingEdge
 
 from ..gaxi.gaxi_slave import GAXISlave
 from .axis_field_configs import AXISFieldConfigs
+from .axis_packet import AXISPacket
 
 
 class AXISSlave(GAXISlave):
@@ -46,6 +47,11 @@ class AXISSlave(GAXISlave):
     - Packet and frame statistics
     - ``apply_backpressure`` and ``wait_for_frame`` extensions
     """
+
+    # Packets produced by the GAXI receive pipeline (see
+    # GAXIComponentBase._build_packet). An explicit packet_class= argument
+    # still wins over this default.
+    _default_packet_class = AXISPacket
 
     def __init__(self, dut, title, prefix, clock, field_config=None,
                 timeout_cycles=1000, mode='skid',

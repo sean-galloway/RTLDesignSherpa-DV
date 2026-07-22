@@ -31,7 +31,9 @@ The CocoTBFramework AXIS4 components provide comprehensive support for AXI4-Stre
 
 The AXIS4 components inherit from the robust GAXI framework, providing:
 
-**Delegation, not duplication**: GAXI is the workhorse layer. `AXISMaster` drives the bus exclusively through `GAXIMaster`'s structured transmit pipeline (queue → delay → drive/handshake → complete), and `AXISSlave` receives exclusively through `GAXISlave`'s receive pipeline, which is also the sole driver of TREADY. The AXIS classes are thin wrappers that add stream/frame conveniences and TLAST-aware statistics — they do not maintain a parallel hand-rolled drive or ready-control path.
+**Delegation, not duplication**: GAXI is the workhorse layer. `AXISMaster` drives the bus exclusively through `GAXIMaster`'s structured transmit pipeline (queue → delay → drive/handshake → complete), `AXISSlave` receives exclusively through `GAXISlave`'s receive pipeline (which is also the sole driver of TREADY), and `AXISMonitor` observes exclusively through `GAXIMonitor`'s receive loop. The AXIS classes are thin wrappers that add stream/frame conveniences and TLAST-aware statistics — they do not maintain a parallel hand-rolled drive, ready-control, or sampling path.
+
+**Protocol packet classes via `_build_packet`**: every AXIS component declares `_default_packet_class = AXISPacket`, so the GAXI pipelines construct real `AXISPacket` instances (see `GAXIComponentBase._build_packet`). An explicit `packet_class=` argument still wins; AXIS5 overrides `_build_packet` outright because `AXIS5Packet` needs extra constructor options.
 
 **Factories return AXIS classes**: `create_axis_master`, `create_axis_slave`, and `create_axis_monitor` construct `AXISMaster`, `AXISSlave`, and `AXISMonitor` respectively, so the returned `interface` always exposes the documented AXIS API (`send_packet`, `send_stream_data`, `wait_for_frame`, frame statistics, …).
 
@@ -126,7 +128,14 @@ The `AXISSlave` component receives AXI4-Stream protocol as a slave (sink):
 
 ### AXISMonitor - Protocol Analysis
 
-The `AXISMonitor` component provides comprehensive protocol monitoring and analysis:
+The `AXISMonitor` component provides comprehensive protocol monitoring and analysis.
+
+**Structure**: `AXISMonitor` extends `GAXIMonitor` and has no receive loop of its own — `GAXIMonitor._monitor_recv` performs handshake detection, falling-edge sampling, packet construction, coverage-hook dispatch, and delivery to the standard cocotb `_recvQ`. AXIS behaviour is layered on through two extension points:
+
+- `_build_packet` (via `_default_packet_class = AXISPacket`) so observed transactions are real `AXISPacket` objects.
+- `_finish_packet`, which calls the GAXI implementation first and then runs `_axis_packet_observed` for TLAST frame accounting, AXIS protocol-violation checks, and the optional memory-model write.
+
+The frame hook is deliberately **not** registered with `add_callback`: cocotb's `Monitor._recv()` stops appending to `_recvQ` as soon as any callback exists, and `monitor._recvQ.popleft()` is the documented way to consume monitor traffic.
 
 **Protocol Compliance**:
 - **Signal Timing**: TVALID/TREADY timing relationship verification

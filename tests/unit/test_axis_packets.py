@@ -19,11 +19,12 @@ from CocoTBFramework.components.axis4.axis_master import AXISMaster
 from CocoTBFramework.components.axis4.axis_monitor import AXISMonitor
 from CocoTBFramework.components.axis4.axis_packet import AXISPacket, create_axis_packet
 from CocoTBFramework.components.axis4.axis_slave import AXISSlave
+from CocoTBFramework.components.axis5.axis5_monitor import AXIS5Monitor
 from CocoTBFramework.components.axis5.axis5_packet import (
     AXIS5Packet,
     calculate_odd_parity,
 )
-
+from CocoTBFramework.components.axis5.axis5_slave import AXIS5Slave
 
 # ----------------------------------------------------------------------
 # AXIS5 odd parity - hand-computed golden vectors
@@ -224,3 +225,20 @@ def test_axis_factories_reference_axis_classes():
     # The raw GAXI classes must no longer be the factory construction targets
     for name in ("GAXIMaster", "GAXISlave", "GAXIMonitor"):
         assert not hasattr(axis_factories, name)
+
+
+# ----------------------------------------------------------------------
+# The GAXI receive pipeline must hand back protocol packet classes, not
+# plain GAXIPacket (see GAXIComponentBase._build_packet). Behavioural
+# coverage of the hook lives in test_axis_monitor_delegation.py.
+# ----------------------------------------------------------------------
+
+
+def test_axis_components_default_to_axis_packet_class():
+    assert AXISMonitor._default_packet_class is AXISPacket
+    assert AXISSlave._default_packet_class is AXISPacket
+
+
+def test_axis5_components_default_to_axis5_packet_class():
+    assert AXIS5Monitor._default_packet_class is AXIS5Packet
+    assert AXIS5Slave._default_packet_class is AXIS5Packet

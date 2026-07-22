@@ -49,6 +49,10 @@ The inherited `GAXISlave` receive pipeline performs all handshake detection, dat
 
 AXIS-level frame tracking is layered on through the standard cocotb callback mechanism: every packet the GAXI pipeline captures is also passed to `_axis_packet_callback`, which maintains `packets_received`, `frames_received`, `total_data_bytes`, and the current-frame state used by `get_current_frame_info()` and `wait_for_frame()`.
 
+`AXISSlave` sets `_default_packet_class = AXISPacket`, so the packets the pipeline hands to that callback are real `AXISPacket` objects (see `GAXIComponentBase._build_packet`). An explicit `packet_class=` argument still takes precedence.
+
+> **Note:** registering a callback changes cocotb's delivery path — `Monitor._recv()` only appends to `_recvQ` when no callback is registered. Consume `AXISSlave` traffic through `_axis_packet_callback`, your own `add_callback()`, or the frame statistics, not `slave._recvQ`. `AXISMonitor` keeps `_recvQ` intact by hooking `_finish_packet` instead of adding a callback.
+
 ## Constructor
 
 ### `__init__(dut, title, prefix, clock, **kwargs)`

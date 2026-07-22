@@ -35,7 +35,7 @@ The AXIS4 component ecosystem includes specialized classes for comprehensive str
 
 - **[AXISMaster](axis_master.md)** - Stream data generation and transmission
 - **[AXISSlave](axis_slave.md)** - Stream data reception and validation
-- **AXISMonitor *(documentation planned)*** - Protocol compliance monitoring and analysis
+- **AXISMonitor** - Protocol compliance monitoring and analysis. Extends `GAXIMonitor` and delegates all sampling to its receive loop; see [the overview](components_axis4_overview.md) for the `_build_packet` / `_finish_packet` extension points. *(Dedicated page planned.)*
 - **[AXISPacket](axis_packet.md)** - Data structure management and field access
 
 ### Configuration System

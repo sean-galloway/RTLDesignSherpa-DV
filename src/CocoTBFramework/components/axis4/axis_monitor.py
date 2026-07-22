@@ -20,24 +20,38 @@ This module provides AXIS Monitor functionality using GAXI infrastructure.
 Similar API to AXI4Monitor but adapted for stream protocol.
 """
 
-from cocotb.triggers import FallingEdge, RisingEdge, Timer
-from cocotb.utils import get_sim_time
+from cocotb.triggers import RisingEdge
 
-from ..gaxi.gaxi_monitor_base import GAXIMonitorBase
+from ..gaxi.gaxi_monitor import GAXIMonitor
 from .axis_field_configs import AXISFieldConfigs
 from .axis_packet import AXISPacket
 
 
-class AXISMonitor(GAXIMonitorBase):
+class AXISMonitor(GAXIMonitor):
     """
     AXIS Monitor component for observing AXI4-Stream protocol.
 
-    Inherits all common functionality from GAXIMonitorBase:
-    - Signal resolution and data collection setup
-    - Clean _get_data_dict() with automatic field unpacking
-    - Unified _finish_packet() without conditional mess
-    - Packet creation and statistics
-    - Memory model integration
+    Inherits from :class:`GAXIMonitor` to reuse the GAXI receive pipeline:
+    handshake detection, signal sampling on the falling edge, packet
+    construction, statistics, coverage hooks, and the standard cocotb
+    ``_recvQ`` delivery path. The monitor is passive - it drives nothing.
+
+    AXIS-level behaviour is layered on through the two documented extension
+    points rather than a forked receive loop:
+
+    - :meth:`_build_packet` (via ``_default_packet_class``) so the pipeline
+      produces real :class:`AXISPacket` instances.
+    - :meth:`_finish_packet`, which calls the GAXI implementation first (so
+      ``_recvQ``, callbacks, and coverage hooks behave exactly as for any GAXI
+      monitor) and then runs :meth:`_axis_packet_observed`.
+
+    .. note::
+
+        AXIS frame accounting is deliberately hooked into ``_finish_packet``
+        rather than registered with ``add_callback``. cocotb's
+        ``Monitor._recv()`` stops appending to ``_recvQ`` as soon as any
+        callback is registered, and ``monitor._recvQ.popleft()`` is the
+        documented way to consume monitor traffic.
 
     AXIS-specific features:
     - Stream transaction monitoring
@@ -45,6 +59,11 @@ class AXISMonitor(GAXIMonitorBase):
     - Protocol violation detection
     - Comprehensive stream statistics
     """
+
+    # Packets produced by the GAXI receive pipeline (see
+    # GAXIComponentBase._build_packet). An explicit packet_class= argument
+    # still wins over this default.
+    _default_packet_class = AXISPacket
 
     def __init__(self, dut, title, prefix, clock, field_config=None,
                 is_slave=False, mode='skid',
@@ -73,97 +92,90 @@ class AXISMonitor(GAXIMonitorBase):
         if field_config is None:
             field_config = AXISFieldConfigs.create_default_axis_config()
 
-        # Initialize base monitor
-        super().__init__(
-            dut=dut, title=title, prefix=prefix, clock=clock,
-            field_config=field_config, protocol_type='axis_slave' if is_slave else 'axis_master',
-            mode=mode, bus_name=bus_name, pkt_prefix=pkt_prefix,
-            multi_sig=multi_sig, log=log, super_debug=super_debug,
-            signal_map=signal_map, **kwargs
-        )
-
-        # AXIS Monitor specific attributes
-        self.is_slave = is_slave
-
-        # Frame tracking
+        # AXIS frame/statistics state must exist before the GAXI receive
+        # pipeline can deliver its first packet to _finish_packet().
         self._current_frame = []
         self._frame_id = None
-
-        # Statistics tracking
         self.packets_observed = 0
         self.frames_observed = 0
         self.total_data_bytes = 0
         self.protocol_violations = 0
 
-        # Complete initialization
-        self.complete_base_initialization()
+        # Initialize via GAXIMonitor - which forwards through GAXIMonitorBase
+        # to GAXIComponentBase and calls complete_base_initialization() itself.
+        # protocol_type='axis_master'/'axis_slave' makes SignalResolver pick
+        # the AXIS signal table.
+        super().__init__(
+            dut=dut, title=title, prefix=prefix, clock=clock,
+            field_config=field_config, is_slave=is_slave,
+            protocol_type='axis_slave' if is_slave else 'axis_master',
+            mode=mode, bus_name=bus_name, pkt_prefix=pkt_prefix,
+            multi_sig=multi_sig, log=log, super_debug=super_debug,
+            signal_map=signal_map, **kwargs
+        )
 
         if self.log:
             side = "slave" if self.is_slave else "master"
             self.log.info(f"AXISMonitor '{self.title}' initialized: "
                          f"{side} side, mode={self.mode}")
 
-    async def _monitor_recv(self):
+    # ------------------------------------------------------------------
+    # GAXI pipeline hook
+    # ------------------------------------------------------------------
+
+    def _finish_packet(self, current_time, packet, data_dict=None):
         """
-        Monitor for AXIS transfers.
+        Complete a packet captured by the GAXI receive pipeline.
 
-        This is the main monitoring loop that watches for valid/ready handshakes
-        and captures stream data for analysis.
+        Runs the unified GAXI completion first (field unpacking, statistics,
+        ``_recvQ``/callback delivery) and then layers AXIS frame accounting on
+        top, preserving the original ordering of the forked AXIS loop.
+
+        Args:
+            current_time: Current simulation time
+            packet: Packet under construction
+            data_dict: Optional field data (collected fresh when None)
         """
-        try:
-            while True:
-                await FallingEdge(self.clock)
+        super()._finish_packet(current_time, packet, data_dict)
+        self._axis_packet_observed(packet)
 
-                # Check for valid handshake
-                if self._is_handshake_valid():
-                    current_time = get_sim_time(units='ns')
+    def _axis_packet_observed(self, packet):
+        """
+        AXIS frame tracking hook, fed by the GAXI receive pipeline.
 
-                    # Create packet from current data
-                    packet = AXISPacket(
-                        field_config=self.field_config,
-                        timestamp=current_time
-                    )
+        The pipeline owns handshake detection and data capture; this hook only
+        adds TLAST-delimited frame accounting, AXIS protocol checks, and the
+        optional memory-model write.
 
-                    # Collect data using inherited functionality
-                    data_dict = self._get_data_dict()
-                    self._finish_packet(current_time, packet, data_dict)
+        Args:
+            packet: AXISPacket captured by the GAXI receive pipeline
+        """
+        # Update statistics
+        self.packets_observed += 1
+        self.total_data_bytes += packet.get_byte_count()
 
-                    # Update statistics
-                    self.packets_observed += 1
-                    self.total_data_bytes += packet.get_byte_count()
+        # Handle frame boundaries
+        if packet.is_last():
+            self.frames_observed += 1
+            self._current_frame.append(packet)
+            self._process_complete_frame(self._current_frame)
+            self._current_frame = []
+            self._frame_id = None
+        else:
+            self._current_frame.append(packet)
+            if self._frame_id is None:
+                self._frame_id = packet.id
 
-                    # Handle frame boundaries
-                    if packet.is_last():
-                        self.frames_observed += 1
-                        self._current_frame.append(packet)
-                        await self._process_complete_frame(self._current_frame)
-                        self._current_frame = []
-                        self._frame_id = None
-                    else:
-                        self._current_frame.append(packet)
-                        if self._frame_id is None:
-                            self._frame_id = packet.id
+        # Check for protocol violations
+        self._check_protocol_violations(packet)
 
-                    # Check for protocol violations
-                    self._check_protocol_violations(packet)
+        # Write to memory model if available
+        if self.memory_model:
+            self.write_to_memory_unified(packet)
 
-                    # Write to memory model if available
-                    if self.memory_model:
-                        self.write_to_memory_unified(packet)
-
-                    if self.log and self.super_debug:
-                        self.log.debug(f"AXISMonitor '{self.title}': "
-                                     f"Observed packet {packet}")
-
-                # Small delay to avoid oversampling
-                await Timer(1, units='ps')
-
-        except Exception as e:
-            if self.log:
-                self.log.error(f"AXISMonitor '{self.title}': Exception in _monitor_recv: {e}")
-            import traceback
-            self.log.error(traceback.format_exc())
-            raise
+        if self.log and self.super_debug:
+            self.log.debug(f"AXISMonitor '{self.title}': "
+                         f"Observed packet {packet}")
 
     def _is_handshake_valid(self):
         """Check if valid/ready handshake is occurring."""
@@ -225,7 +237,7 @@ class AXISMonitor(GAXIMonitorBase):
                     self.log.warning(f"AXISMonitor '{self.title}': "
                                    f"Protocol violation: {violation}")
 
-    async def _process_complete_frame(self, frame_packets):
+    def _process_complete_frame(self, frame_packets):
         """
         Process a complete frame (packets ending with TLAST).
 
@@ -236,7 +248,7 @@ class AXISMonitor(GAXIMonitorBase):
             return
 
         frame_size = sum(p.get_byte_count() for p in frame_packets)
-        frame_id = frame_packets[0].id if frame_packets else 0
+        frame_id = frame_packets[0].id
 
         if self.log and self.super_debug:
             self.log.debug(f"AXISMonitor '{self.title}': "

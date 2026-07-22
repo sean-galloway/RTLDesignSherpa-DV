@@ -27,7 +27,7 @@ from cocotb.utils import get_sim_time
 
 from ..axis4.axis_slave import AXISSlave
 from .axis5_field_configs import AXIS5FieldConfigs
-from .axis5_packet import calculate_odd_parity
+from .axis5_packet import AXIS5Packet
 
 
 class AXIS5Slave(AXISSlave):
@@ -41,8 +41,12 @@ class AXIS5Slave(AXISSlave):
 
     Packets are captured by the GAXI receive pipeline (inherited via
     AXISSlave); parity checking is layered on through the AXIS packet
-    callback hook.
+    callback hook. :meth:`_build_packet` is overridden so the pipeline
+    produces real :class:`AXIS5Packet` instances with the wakeup / parity
+    options this slave was configured with.
     """
+
+    _default_packet_class = AXIS5Packet
 
     def __init__(self, dut, title, prefix, clock, field_config=None,
                  timeout_cycles=1000, mode='skid',
@@ -187,39 +191,62 @@ class AXIS5Slave(AXISSlave):
 
         super()._axis_packet_callback(packet)
 
-    def _parity_byte_count(self):
-        """Number of parity bits (one per data byte) for this configuration."""
-        if 'parity' in self.field_config:
-            return self.field_config['parity'].bits
+    def _axis5_data_width(self):
+        """Data width in bits for this slave's field configuration."""
         if 'data' in self.field_config:
-            return self.field_config['data'].bits // 8
-        return 0
+            return self.field_config['data'].bits
+        return 32
+
+    def _build_packet(self, **field_values):
+        """
+        Build the AXIS5 packet used by the GAXI receive pipeline.
+
+        Overrides ``GAXIComponentBase._build_packet`` because AXIS5Packet needs
+        the wakeup / parity / data-width options that this slave was configured
+        with; without them the pipeline would hand back a packet that cannot
+        self-check its parity.
+
+        Args:
+            **field_values: Optional initial field values
+
+        Returns:
+            AXIS5Packet (or the explicit ``packet_class=``) instance
+        """
+        packet_class = self.packet_class or self._default_packet_class
+        packet = packet_class(
+            self.field_config,
+            data_width=self._axis5_data_width(),
+            enable_wakeup=self.enable_wakeup,
+            enable_parity=self.enable_parity,
+        )
+        for field_name, value in field_values.items():
+            if hasattr(packet, field_name):
+                setattr(packet, field_name, value)
+        return packet
 
     def _check_parity(self, packet):
         """
         Check TPARITY (odd parity per byte) for a received packet.
 
+        The GAXI pipeline now hands back real AXIS5Packet instances (see
+        :meth:`_build_packet`), so the packet checks its own parity.
+
         Args:
-            packet: Packet captured by the GAXI receive pipeline
+            packet: AXIS5Packet captured by the GAXI receive pipeline
         """
-        num_bytes = self._parity_byte_count()
-        if num_bytes == 0 or 'parity' not in packet.fields:
+        if not isinstance(packet, AXIS5Packet) or 'parity' not in packet.fields:
             return
 
-        received = packet.fields.get('parity', 0)
-        expected = calculate_odd_parity(packet.fields.get('data', 0), num_bytes)
-
-        if received == expected:
+        if packet.check_parity():
             self.parity_checks_passed += 1
         else:
             self.parity_errors_detected += 1
-            if 'parity_error' in packet.fields:
-                packet.fields['parity_error'] = 1
+            packet.parity_error = 1
 
             if self.log:
                 self.log.warning(f"AXIS5Slave '{self.title}': "
-                               f"Parity error detected - expected=0x{expected:X}, "
-                               f"received=0x{received:X}")
+                               f"Parity error detected - expected=0x{packet.calculate_parity():X}, "
+                               f"received=0x{packet.parity:X}")
 
     def is_wakeup_active(self):
         """Check if wakeup is currently detected."""

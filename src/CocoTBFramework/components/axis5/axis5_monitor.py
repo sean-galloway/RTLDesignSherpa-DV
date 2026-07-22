@@ -22,7 +22,7 @@ This module provides AXIS5 Monitor functionality with:
 """
 
 import cocotb
-from cocotb.triggers import FallingEdge, RisingEdge, Timer
+from cocotb.triggers import RisingEdge
 from cocotb.utils import get_sim_time
 
 from ..axis4.axis_monitor import AXISMonitor
@@ -38,7 +38,15 @@ class AXIS5Monitor(AXISMonitor):
     - Wake-up signaling observation (TWAKEUP)
     - Parity verification (TPARITY)
     - Extended protocol violation checking
+
+    Packets are captured by the GAXI receive pipeline (inherited via
+    AXISMonitor); parity and AXIS5 protocol checks are layered on through
+    the AXIS packet-observed hook. :meth:`_build_packet` is overridden so the
+    pipeline produces real :class:`AXIS5Packet` instances with the wakeup /
+    parity options this monitor was configured with.
     """
+
+    _default_packet_class = AXIS5Packet
 
     def __init__(self, dut, title, prefix, clock, field_config=None,
                  is_slave=False, mode='skid',
@@ -70,6 +78,16 @@ class AXIS5Monitor(AXISMonitor):
         self.enable_wakeup = enable_wakeup
         self.enable_parity = enable_parity
 
+        # AXIS5 state and statistics must exist before the GAXI receive
+        # pipeline can deliver its first packet to _finish_packet().
+        self._wakeup_active = False
+        self._wakeup_history = []
+        self.wakeup_events = 0
+        self.wakeup_violations = 0
+        self.parity_errors_observed = 0
+        self.parity_checks_passed = 0
+        self.axis5_protocol_violations = 0
+
         # Create AXIS5 field config if none provided
         if field_config is None:
             field_config = AXIS5FieldConfigs.create_axis5_field_config(
@@ -86,17 +104,6 @@ class AXIS5Monitor(AXISMonitor):
             signal_map=signal_map, **kwargs
         )
 
-        # AXIS5 state
-        self._wakeup_active = False
-        self._wakeup_history = []
-
-        # AXIS5 statistics
-        self.wakeup_events = 0
-        self.wakeup_violations = 0
-        self.parity_errors_observed = 0
-        self.parity_checks_passed = 0
-        self.axis5_protocol_violations = 0
-
         # Resolve AXIS5-specific signals
         self._resolve_axis5_signals()
 
@@ -108,6 +115,62 @@ class AXIS5Monitor(AXISMonitor):
             side = "slave" if self.is_slave else "master"
             self.log.info(f"AXIS5Monitor '{self.title}' initialized: "
                          f"{side} side, wakeup={self.enable_wakeup}, parity={self.enable_parity}")
+
+    # ------------------------------------------------------------------
+    # GAXI pipeline hooks
+    # ------------------------------------------------------------------
+
+    def _axis5_data_width(self):
+        """Data width in bits for this monitor's field configuration."""
+        if 'data' in self.field_config:
+            return self.field_config['data'].bits
+        return 32
+
+    def _build_packet(self, **field_values):
+        """
+        Build the AXIS5 packet used by the GAXI receive pipeline.
+
+        Overrides ``GAXIComponentBase._build_packet`` because AXIS5Packet needs
+        the wakeup / parity / data-width options that this monitor was
+        configured with; without them the pipeline would hand back a packet
+        that cannot self-check its parity.
+
+        Args:
+            **field_values: Optional initial field values
+
+        Returns:
+            AXIS5Packet (or the explicit ``packet_class=``) instance
+        """
+        packet_class = self.packet_class or self._default_packet_class
+        packet = packet_class(
+            self.field_config,
+            data_width=self._axis5_data_width(),
+            enable_wakeup=self.enable_wakeup,
+            enable_parity=self.enable_parity,
+        )
+        for field_name, value in field_values.items():
+            if hasattr(packet, field_name):
+                setattr(packet, field_name, value)
+        return packet
+
+    def _axis_packet_observed(self, packet):
+        """
+        AXIS5 packet hook, fed by the GAXI receive pipeline.
+
+        Adds TPARITY verification and AXIS5 protocol checks before the standard
+        AXIS frame tracking.
+
+        Args:
+            packet: AXIS5Packet captured by the GAXI receive pipeline
+        """
+        # Check parity if enabled
+        if self.enable_parity:
+            self._check_parity(packet)
+
+        # Check AXIS5-specific protocol violations
+        self._check_axis5_protocol_violations(packet)
+
+        super()._axis_packet_observed(packet)
 
     def _resolve_axis5_signals(self):
         """Resolve AXIS5-specific signals."""
@@ -191,76 +254,6 @@ class AXIS5Monitor(AXISMonitor):
             if self.log:
                 self.log.error(f"AXIS5Monitor '{self.title}': Exception in _monitor_wakeup: {e}")
 
-    async def _monitor_recv(self):
-        """
-        Monitor for AXIS5 transfers with parity checking.
-
-        Extends parent _monitor_recv with parity verification and AXIS5 protocol checking.
-        """
-        try:
-            while True:
-                await FallingEdge(self.clock)
-
-                # Check for valid handshake
-                if self._is_handshake_valid():
-                    current_time = get_sim_time(units='ns')
-
-                    # Create AXIS5 packet from current data
-                    packet = AXIS5Packet(
-                        field_config=self.field_config,
-                        enable_wakeup=self.enable_wakeup,
-                        enable_parity=self.enable_parity,
-                        timestamp=current_time
-                    )
-
-                    # Collect data using inherited functionality
-                    data_dict = self._get_data_dict()
-                    self._finish_packet(current_time, packet, data_dict)
-
-                    # Check parity if enabled
-                    if self.enable_parity:
-                        self._check_parity(packet)
-
-                    # Check AXIS5-specific protocol violations
-                    self._check_axis5_protocol_violations(packet)
-
-                    # Update statistics (standard AXIS)
-                    self.packets_observed += 1
-                    self.total_data_bytes += packet.get_byte_count()
-
-                    # Handle frame boundaries
-                    if packet.is_last():
-                        self.frames_observed += 1
-                        self._current_frame.append(packet)
-                        await self._process_complete_frame(self._current_frame)
-                        self._current_frame = []
-                        self._frame_id = None
-                    else:
-                        self._current_frame.append(packet)
-                        if self._frame_id is None:
-                            self._frame_id = packet.id
-
-                    # Check for base protocol violations
-                    self._check_protocol_violations(packet)
-
-                    # Write to memory model if available
-                    if self.memory_model:
-                        self.write_to_memory_unified(packet)
-
-                    if self.log and self.super_debug:
-                        self.log.debug(f"AXIS5Monitor '{self.title}': "
-                                     f"Observed packet {packet}")
-
-                # Small delay to avoid oversampling
-                await Timer(1, units='ps')
-
-        except Exception as e:
-            if self.log:
-                self.log.error(f"AXIS5Monitor '{self.title}': Exception in _monitor_recv: {e}")
-            import traceback
-            self.log.error(traceback.format_exc())
-            raise
-
     def _check_parity(self, packet):
         """
         Check parity for observed packet.
@@ -296,7 +289,7 @@ class AXIS5Monitor(AXISMonitor):
 
         # Check parity signal width matches data width
         if self.enable_parity:
-            data_bytes = (self.field_config['data'].bits + 7) // 8
+            data_bytes = (self._axis5_data_width() + 7) // 8
             expected_parity_bits = data_bytes
             if 'parity' in self.field_config:
                 actual_parity_bits = self.field_config['parity'].bits

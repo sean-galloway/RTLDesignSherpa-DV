@@ -116,7 +116,9 @@ The `AXIS5Slave` component receives AXI5-Stream protocol as a slave (sink):
 
 ### AXIS5Monitor - Protocol Analysis with Extended Checking
 
-The `AXIS5Monitor` component provides comprehensive AXIS5 protocol monitoring:
+The `AXIS5Monitor` component provides comprehensive AXIS5 protocol monitoring.
+
+**Structure**: `AXIS5Monitor` → `AXISMonitor` → `GAXIMonitor`. The GAXI receive loop is the only sampling path; AXIS5 adds behaviour through `_build_packet` (real `AXIS5Packet` instances with this monitor's wakeup/parity options) and `_axis_packet_observed` (parity verification and AXIS5 protocol checks, before the inherited AXIS4 frame tracking). The TWAKEUP observer remains a separate background coroutine because it watches a sideband signal rather than the data handshake.
 
 **Wake-up Observation**:
 - **Signal Tracking**: Full TWAKEUP assert/deassert history with timestamps

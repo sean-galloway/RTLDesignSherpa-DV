@@ -150,6 +150,8 @@ Stream protocol slave with AMBA5 extensions for wake-up detection and parity che
 
 Packets are captured by the GAXI receive pipeline inherited through `AXISSlave` (which also owns all TREADY driving). AXIS5 layers TPARITY verification on top via the same packet callback hook that `AXISSlave` uses for frame tracking — parity is checked with **odd** parity per byte, matching `AXIS5Packet.calculate_parity()`.
 
+`_build_packet` is overridden so the pipeline constructs real `AXIS5Packet` instances carrying this slave's `enable_wakeup` / `enable_parity` settings and the data width taken from the field config; the parity check therefore calls `packet.check_parity()` directly rather than recomputing odd parity from raw field values.
+
 ### Class Signature
 
 ```python
@@ -240,6 +242,10 @@ print(f"Last wakeup at: {slave.get_last_wakeup_time()} ns")
 ## AXIS5Monitor
 
 Stream protocol monitor with AMBA5 extensions for non-intrusive observation of wake-up signaling and parity verification.
+
+Transactions are captured by the GAXI receive loop inherited through `AXISMonitor` (which extends `GAXIMonitor`); `AXIS5Monitor` has no receive loop of its own. AXIS5 layers TPARITY verification and AXIS5 protocol checks on top via the same `_axis_packet_observed` hook that `AXISMonitor` uses for TLAST frame tracking.
+
+`_build_packet` is overridden so the pipeline constructs real `AXIS5Packet` instances carrying this monitor's `enable_wakeup` / `enable_parity` settings and the data width taken from the field config. That is what lets the parity check simply call `packet.check_parity()` instead of recomputing odd parity from raw field values.
 
 ### Class Signature
 

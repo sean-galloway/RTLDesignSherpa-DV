@@ -259,15 +259,19 @@ class ArbiterMaster:
             all_requests_clear = True
             active_requests = 0
 
-            # Check request signals
+            # Check request signals. Unresolvable values ('x'/'z') raise
+            # ValueError from int(); anything else (e.g. a typo'd signal name)
+            # is unexpected and must be surfaced, not silently swallowed.
             try:
                 if hasattr(self.dut, 'request'):
                     req_val = int(self.dut.request.value) if self.dut.request.value.is_resolvable else 0
                     active_requests = req_val
                     if req_val != 0:
                         all_requests_clear = False
-            except:
-                pass
+            except ValueError:
+                pass  # unresolvable signal value - treat as no active requests
+            except Exception as e:
+                self.log.warning(f"ArbiterMaster({self.title}): Unexpected error reading request signal during drain: {e}")
 
             # Check internal client states
             for client_id in range(self.num_clients):
@@ -433,8 +437,10 @@ class ArbiterMaster:
                 for i in range(self.num_clients):
                     if req_val & (1 << i):
                         requesting_clients.append(i)
-        except:
-            pass
+        except ValueError:
+            pass  # unresolvable signal value - report no active requests
+        except Exception as e:
+            self.log.warning(f"ArbiterMaster({self.title}): Unexpected error reading request signal in get_drain_status: {e}")
 
         # Check internal states
         internal_activity = []
@@ -606,10 +612,14 @@ class ArbiterMaster:
                 self.log.debug(f"ArbiterMaster({self.title}): Converted constraints for '{profile_name}': {flex_constraints}")
 
                 required_fields = ['inter_request_delay', 'request_duration', 'enabled_probability']
-                for field in required_fields:
-                    if field not in flex_constraints:
-                        self.log.error(f"ArbiterMaster({self.title}): Profile '{profile_name}' missing required field: {field}")
-                        continue
+                missing_fields = [f for f in required_fields if f not in flex_constraints]
+                if missing_fields:
+                    # Reject the whole profile - previously the 'continue' only
+                    # skipped the inner field loop and the invalid profile was
+                    # installed anyway.
+                    self.log.error(f"ArbiterMaster({self.title}): Profile '{profile_name}' rejected - "
+                                f"missing required fields: {missing_fields}")
+                    continue
 
                 self.client_randomizers[profile_name] = FlexRandomizer(flex_constraints)
                 self.log.info(f"ArbiterMaster({self.title}): Successfully added request profile '{profile_name}'")
@@ -1066,7 +1076,10 @@ class ArbiterMaster:
         """Check if the last manual request for a client was successful (received grant)"""
         try:
             return self._check_grant_signal(client_id)
-        except:
+        except ValueError:
+            return False  # unresolvable signal value
+        except Exception as e:
+            self.log.warning(f"ArbiterMaster({self.title}): Unexpected error checking grant for client {client_id}: {e}")
             return False
 
     def get_stats(self) -> Dict:

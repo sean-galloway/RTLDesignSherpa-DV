@@ -88,11 +88,14 @@ Write data to memory with error handling and diagnostics.
 **Parameters:**
 - `address`: Target memory address
 - `data`: Data to write (bytearray)
-- `strobe`: Optional write strobe (bit mask for byte enables)
+- `strobe`: Optional write strobe. One bit per data byte (bit i enables `data[i]`).
+  Defaults to all bytes enabled. A strobe with enable bits beyond `len(data)`
+  is rejected with `ValueError`.
 
 **Raises:**
 - `TypeError`: If data is not a bytearray
-- `ValueError`: If address or data is invalid, or write exceeds bounds
+- `ValueError`: If the write exceeds memory bounds, or the strobe is wider
+  (in byte-enable bits) than the data
 
 ```python
 # Basic write operation

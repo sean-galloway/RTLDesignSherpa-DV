@@ -48,6 +48,41 @@ def test_write_with_partial_strobe(mem):
     assert out == bytes([0x11, 0x22, 0xFF, 0xFF])
 
 
+def test_write_with_matching_full_strobe_ok(mem):
+    """A strobe with exactly one enable bit per data byte is accepted."""
+    data = bytearray([0x11, 0x22, 0x33, 0x44])
+    mem.write(0, data, strobe=0b1111)  # 4 bits for 4 bytes
+    assert bytes(mem.read(0, 4)) == bytes(data)
+
+
+def test_write_strobe_wider_than_data_rejected(mem):
+    """Strobe with enable bits beyond len(data) must fail loudly.
+
+    Strobe is 1 bit PER BYTE: a 4-byte write accepts at most a 4-bit strobe.
+    The old check compared data bits (data_len * 8) to strobe bits, silently
+    accepting over-wide strobes and truncating them.
+    """
+    with pytest.raises(ValueError, match="byte-enable bits"):
+        mem.write(0, bytearray([0xAA, 0xBB]), strobe=0b111)  # 3 bits, 2 bytes
+    with pytest.raises(ValueError, match="byte-enable bits"):
+        mem.write(0, bytearray([0xAA, 0xBB, 0xCC, 0xDD]), strobe=0x1F)
+
+
+def test_write_partial_strobe_writes_only_enabled_bytes(mem):
+    """Partial strobe updates exactly the enabled bytes, preserves the rest."""
+    mem.write(0, bytearray([0xA0, 0xA1, 0xA2, 0xA3]), strobe=0xF)
+    mem.write(0, bytearray([0x50, 0x51, 0x52, 0x53]), strobe=0b0101)
+    out = bytes(mem.read(0, 4))
+    assert out == bytes([0x50, 0xA1, 0x52, 0xA3])
+
+
+def test_write_zero_strobe_writes_nothing(mem):
+    """Strobe of 0 leaves memory untouched."""
+    mem.write(0, bytearray([0xEE, 0xEE, 0xEE, 0xEE]), strobe=0xF)
+    mem.write(0, bytearray([0x00, 0x00, 0x00, 0x00]), strobe=0)
+    assert bytes(mem.read(0, 4)) == bytes([0xEE, 0xEE, 0xEE, 0xEE])
+
+
 def test_read_out_of_bounds_raises(mem):
     with pytest.raises(ValueError, match="exceeds memory bounds"):
         mem.read(15, 4)  # mem is 16 bytes total

@@ -221,6 +221,14 @@ class ArbiterCompliance:
         self.weight_change_history = []
         self.weight_distribution_windows = {}
 
+        # Sliding-window WRR grant-share checking (see
+        # _check_weighted_round_robin_compliance)
+        self.wrr_check_window_size = 100     # grants kept in the sliding window
+        self.wrr_check_min_grants = 20       # minimum grants before evaluating
+        self.wrr_share_tolerance = 0.5       # max relative error vs expected share
+        self._wrr_recent_grants = deque(maxlen=self.wrr_check_window_size)
+        self._wrr_grants_since_eval = 0
+
         # Initialize weight distribution tracking windows
         for window_size in self.weight_observation_windows:
             self.weight_distribution_windows[window_size] = {
@@ -264,7 +272,12 @@ class ArbiterCompliance:
         """Queue transaction for compliance checking"""
         self._transaction_count += 1
 
-        # Simple sampling for efficiency
+        # Basic statistics (grant counts, grant history, static-period stats)
+        # accumulate on EVERY grant, independent of the compliance sampling
+        # rate, so fairness/starvation/weight analysis is always meaningful.
+        self._update_basic_stats(transaction)
+
+        # Simple sampling for efficiency - full compliance checking only
         transaction_type = getattr(transaction, 'metadata', {}).get('transaction_type', 'unknown')
         always_check_types = ['new_grant', 'grant_violation', 'protocol_error']
 
@@ -274,7 +287,6 @@ class ArbiterCompliance:
         )
 
         if not should_check:
-            self._update_basic_stats(transaction)
             return True
 
         # Queue for full compliance checking
@@ -546,15 +558,20 @@ class ArbiterCompliance:
             self.log.debug(f"    Old: mask=0x{old_mask:x}, last_winner={old_last_winner}")
             self.log.debug(f"    New: mask=0x{self.rr_mask_state.current_mask:x}, last_winner={self.rr_mask_state.last_winner}")
 
-        # Update grant history and patterns for compatibility
-        self.grant_history.append(current_winner)
-        if len(self.grant_history) > 100:
-            self.grant_history = self.grant_history[-50:]
+        # NOTE: grant history is maintained in _update_basic_stats() (called for
+        # every grant in queue_transaction) - do not double-append here.
 
         return warnings
 
     def _check_round_robin_compliance_ack_mode(self, transaction, active_requests):
-        """Check round-robin compliance for ACK mode"""
+        """Check round-robin compliance for ACK mode.
+
+        The expected winner is computed at grant time (against the mask state
+        BEFORE this grant), but reporting the check result is deferred until
+        the ACK for the grant arrives - see process_ack_received(). A grant
+        that is never ACKed therefore never raises a round-robin violation;
+        it will instead surface as an ack_timeout warning.
+        """
         warnings = []
         current_time = transaction.timestamp
         current_winner = transaction.gnt_id
@@ -564,8 +581,20 @@ class ArbiterCompliance:
         is_new_grant = not existing_pending
 
         if is_new_grant:
-            # Store for deferred compliance checking
-            self.pending_mask_updates[current_time] = current_winner
+            # Compute expected winner NOW (mask state before this grant),
+            # store the full check context for deferred reporting at ACK time.
+            expected_winner = None
+            if active_requests != 0:
+                expected_winner = self.rr_mask_state.get_expected_winner(active_requests)
+
+            self.pending_mask_updates[current_time] = {
+                'client_id': current_winner,
+                'expected_winner': expected_winner,
+                'active_requests': active_requests,
+                'mask_at_grant': self.rr_mask_state.current_mask,
+                'mask_valid_at_grant': self.rr_mask_state.mask_valid,
+                'last_winner_at_grant': self.rr_mask_state.last_winner
+            }
             self.pending_acks[current_time] = current_winner
 
             # Update mask immediately for next grant
@@ -578,7 +607,22 @@ class ArbiterCompliance:
     # =======================================================================
 
     def _check_weighted_round_robin_compliance(self, transaction, active_requests):
-        """Check weighted round-robin compliance - COMPLETED implementation"""
+        """Check weighted round-robin compliance statistically.
+
+        Cycle-by-cycle WRR prediction depends on the credit implementation, so
+        this check is statistical: it maintains a sliding window of recent
+        grants and, once the window has enough samples with stable weights,
+        compares each client's observed grant share against its configured
+        weight share:
+
+        - A client with weight 0 receiving any grant is a violation (error).
+        - A participating client whose observed share deviates from its
+          expected share by more than wrr_share_tolerance (relative error)
+          produces a 'wrr_weight_violation' warning.
+
+        Clients with zero grants in the window are skipped for the share check
+        (they may simply not have been requesting).
+        """
         warnings = []
         current_time = transaction.timestamp
         current_winner = transaction.gnt_id
@@ -594,19 +638,90 @@ class ArbiterCompliance:
             self.log.warning(f"ArbiterCompliance({self.title}): No weight information in transaction metadata")
             return warnings
 
-        # For weighted arbiters, we primarily check:
-        # 1. Basic protocol compliance (inherited from base)
-        # 2. Statistical weight compliance over observation windows
-        # 3. Credit exhaustion patterns (implementation-specific)
+        # Immediate check: a zero-weight client must never be granted
+        if (current_winner < len(current_weights) and
+                current_weights[current_winner] == 0):
+            warnings.append({
+                'type': 'wrr_zero_weight_grant',
+                'message': (f"WRR violation: client {current_winner} granted "
+                            f"with weight 0 (weights={list(current_weights)})"),
+                'timestamp': current_time,
+                'client_id': current_winner,
+                'severity': 'error'
+            })
 
-        # Check if this grant fits expected weight-based patterns
-        # This is more complex than RR because weights affect timing
+        # Accumulate the sliding window and evaluate periodically
+        self._wrr_recent_grants.append((current_winner, tuple(current_weights)))
+        self._wrr_grants_since_eval += 1
 
-        # For now, we focus on statistical compliance over longer periods
-        # rather than cycle-by-cycle compliance (which depends on credit implementation)
+        if (len(self._wrr_recent_grants) < self.wrr_check_min_grants or
+                self._wrr_grants_since_eval < self.wrr_check_min_grants):
+            return warnings
+
+        self._wrr_grants_since_eval = 0
+        warnings.extend(self._evaluate_wrr_window(current_time))
+        return warnings
+
+    def _evaluate_wrr_window(self, current_time):
+        """Evaluate observed grant shares in the sliding window against weights."""
+        warnings = []
+        window = list(self._wrr_recent_grants)
+
+        # Only evaluate when weights were stable across the whole window -
+        # mixed-weight windows have no single expected distribution.
+        weight_sets = {weights for _, weights in window}
+        if len(weight_sets) != 1:
+            if self.debug_enabled:
+                self.log.debug(f"ArbiterCompliance({self.title}): WRR window skipped - "
+                            f"{len(weight_sets)} different weight configurations in window")
+            return warnings
+
+        weights = weight_sets.pop()
+        total_weight = sum(weights)
+        if total_weight == 0:
+            return warnings
+
+        window_len = len(window)
+        counts = [0] * self.clients
+        for gnt_id, _ in window:
+            if gnt_id < self.clients:
+                counts[gnt_id] += 1
+
+        for client in range(min(self.clients, len(weights))):
+            weight = weights[client]
+            count = counts[client]
+            if weight == 0 or count == 0:
+                # Zero-weight grants are flagged immediately per grant;
+                # zero-count clients may simply not be requesting.
+                continue
+
+            expected_share = weight / total_weight
+            actual_share = count / window_len
+            relative_error = abs(actual_share - expected_share) / expected_share
+
+            if relative_error > self.wrr_share_tolerance:
+                warnings.append({
+                    'type': 'wrr_weight_violation',
+                    'message': (f"WRR weight deviation: client {client} received "
+                                f"{actual_share:.1%} of {window_len} grants, expected "
+                                f"{expected_share:.1%} (weights={list(weights)}, "
+                                f"relative error {relative_error:.2f} > "
+                                f"tolerance {self.wrr_share_tolerance:.2f})"),
+                    'timestamp': current_time,
+                    'client_id': client,
+                    'severity': 'warning',
+                    'details': {
+                        'expected_share': expected_share,
+                        'actual_share': actual_share,
+                        'grants_in_window': count,
+                        'window_size': window_len,
+                        'weights': list(weights)
+                    }
+                })
 
         if self.debug_enabled:
-            self.log.debug(f"ArbiterCompliance({self.title}): WRR compliance check completed for client {current_winner}")
+            self.log.debug(f"ArbiterCompliance({self.title}): WRR window evaluated - "
+                        f"{window_len} grants, {len(warnings)} deviations")
 
         return warnings
 
@@ -642,22 +757,69 @@ class ArbiterCompliance:
         return warnings
 
     def process_ack_received(self, ack_vector, timestamp):
-        """Process ACK signals"""
+        """Process ACK signals and complete deferred round-robin checks.
+
+        For each ACKing client, the matching pending grant is retired and any
+        round-robin compliance check that was deferred at grant time (see
+        _check_round_robin_compliance_ack_mode) is now evaluated and reported.
+        An ACK with no matching pending grant produces an 'unexpected_ack'
+        warning.
+
+        Returns:
+            list: Warnings generated while processing this ACK (empty if none,
+                  or if ack_mode is disabled). Warnings are also recorded in
+                  protocol_warnings.
+        """
+        warnings = []
         if not self.ack_mode:
-            return
+            return warnings
 
         # Find which clients are ACKing
         for i in range(self.clients):
             if ack_vector & (1 << i):
                 # Find matching grant
                 matching_grants = [t for t, client in self.pending_acks.items() if client == i]
-                if matching_grants:
-                    grant_time = max(matching_grants)
-                    del self.pending_acks[grant_time]
+                if not matching_grants:
+                    warnings.append({
+                        'type': 'unexpected_ack',
+                        'message': f"ACK from client {i} with no pending grant",
+                        'timestamp': timestamp,
+                        'client_id': i,
+                        'severity': 'warning'
+                    })
+                    continue
 
-                    # Handle pending mask updates
-                    if grant_time in self.pending_mask_updates:
-                        del self.pending_mask_updates[grant_time]
+                grant_time = max(matching_grants)
+                del self.pending_acks[grant_time]
+
+                # Complete the deferred round-robin compliance check
+                deferred = self.pending_mask_updates.pop(grant_time, None)
+                if deferred is not None:
+                    expected_winner = deferred['expected_winner']
+                    actual_winner = deferred['client_id']
+                    if expected_winner is not None and expected_winner != actual_winner:
+                        warnings.append({
+                            'type': 'round_robin_violation',
+                            'message': (f"Round-robin violation (ACK mode): expected client "
+                                        f"{expected_winner}, got {actual_winner}"),
+                            'timestamp': timestamp,
+                            'client_id': actual_winner,
+                            'severity': 'error',
+                            'details': {
+                                'expected_winner': expected_winner,
+                                'actual_winner': actual_winner,
+                                'grant_time': grant_time,
+                                'active_requests': f"0x{deferred['active_requests']:x}",
+                                'mask_at_grant': f"0x{deferred['mask_at_grant']:x}",
+                                'mask_valid_at_grant': deferred['mask_valid_at_grant'],
+                                'last_winner_at_grant': deferred['last_winner_at_grant']
+                            }
+                        })
+
+        for warning in warnings:
+            self._record_warning(warning)
+
+        return warnings
 
     # =======================================================================
     # STATIC PERIOD MANAGEMENT - weight support
@@ -796,6 +958,11 @@ class ArbiterCompliance:
 
         self.weight_change_history.append(weight_change_record)
 
+        # Restart the WRR share-check window - grants issued under the old
+        # weights have no single expected distribution against the new ones.
+        self._wrr_recent_grants.clear()
+        self._wrr_grants_since_eval = 0
+
         if self.debug_enabled:
             self.log.debug(f"ArbiterCompliance({self.title}): Weight change tracked: {new_weights} @ {timestamp}ns")
 
@@ -929,6 +1096,8 @@ class ArbiterCompliance:
         # NEW: Reset weight-specific state
         if self.is_weighted:
             self.weight_change_history.clear()
+            self._wrr_recent_grants.clear()
+            self._wrr_grants_since_eval = 0
             for window_data in self.weight_distribution_windows.values():
                 window_data['grants'].clear()
                 window_data['weights'].clear()

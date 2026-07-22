@@ -124,12 +124,34 @@ Configuration of all fields in a packet, maintaining field order and providing h
 FieldConfig(lsb_first: bool = False)
 ```
 
-Creates an empty field configuration. Fields are added using the `add_field()` method. The `lsb_first` flag selects the legacy bit-ordering mode (see `add_field()` and `get_bit_order()`/`get_logical_order()` for how bit positions are assigned in each mode).
+Creates an empty field configuration. Fields are added using the `add_field()` method. The `lsb_first` flag selects the legacy bit-ordering mode (see "Bit Ordering Semantics" below).
+
+#### Bit Ordering Semantics
+
+Bit positions are assigned by `add_field()` order, and the two modes differ in
+which end of the layout a new field lands on:
+
+- **Default mode (`lsb_first=False`)**: each newly added field is stacked on top
+  of the existing layout, so the **LAST field added occupies the highest bits**
+  and the first field added ends up in the lowest bits.
+- **Legacy mode (`lsb_first=True`)**: each newly added field is placed below the
+  existing layout, so the **FIRST field added occupies the highest bits**.
+
+Concrete two-field example — `add_field("a", 4 bits)` then `add_field("b", 8 bits)`, total 12 bits:
+
+| Mode | `a` bit range | `b` bit range |
+|------|---------------|---------------|
+| Default (`lsb_first=False`) | `[3:0]` | `[11:4]` |
+| Legacy (`lsb_first=True`) | `[11:8]` | `[7:0]` |
+
+These semantics are pinned by `tests/unit/test_field_config.py` and will not change silently.
 
 #### Methods
 
 ##### `add_field(field_def: FieldDefinition) -> 'FieldConfig'`
-Add a field to the configuration.
+Add a field to the configuration. Bit positions follow the mode-dependent rules
+described in "Bit Ordering Semantics" above (default: last-added field gets the
+highest bits).
 
 **Parameters:**
 - `field_def`: Field definition to add
@@ -140,6 +162,7 @@ Add a field to the configuration.
 config = FieldConfig()
 config.add_field(FieldDefinition("addr", 32, format="hex"))
 config.add_field(FieldDefinition("data", 32, format="hex"))
+# Default mode: data (added last) -> bits [63:32], addr -> bits [31:0]
 ```
 
 ##### `add_field_dict(name: str, field_dict: Dict[str, Any]) -> 'FieldConfig'`
@@ -257,6 +280,10 @@ Validate a dictionary-based field configuration and convert to FieldConfig objec
 - `raise_errors`: If True, raise exceptions for validation errors; if False, attempt to correct or warn
 
 **Returns:** New validated FieldConfig instance
+
+**Notes:**
+- The caller's dictionary is never mutated; corrections are applied to an internal copy.
+- An `active_bits` range with `msb < lsb` is clamped and swapped (with a warning) rather than the field being dropped.
 
 ```python
 # Define fields as dictionary

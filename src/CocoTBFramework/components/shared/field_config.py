@@ -19,8 +19,19 @@ Field Configuration Classes for GAXI Validation Framework
 This module provides classes for defining field configurations in a robust and type-safe way,
 replacing the dictionary-based approach with proper class structures.
 
-The default behavior is now MSB-first ordering (first field added gets highest bit positions).
-For backward compatibility with existing testbenches, use FieldConfig(lsb_first=True).
+Bit-ordering semantics (pinned by tests/unit/test_field_config.py):
+
+- Default mode (``lsb_first=False``): each newly added field is stacked ON TOP of
+  the existing layout, so the LAST field added occupies the highest bit positions
+  and the FIRST field added ends up in the lowest bits.
+- Legacy mode (``lsb_first=True``): fields are appended below the existing layout,
+  so the FIRST field added occupies the highest bit positions and the LAST field
+  added ends up in the lowest bits.
+
+Example — add_field("a", 4 bits) then add_field("b", 8 bits), total 12 bits:
+
+    Default mode:        b -> [11:4], a -> [3:0]   (last added on top)
+    lsb_first=True mode: a -> [11:8], b -> [7:0]   (first added on top)
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -143,8 +154,17 @@ class FieldConfig:
     This class replaces the dictionary-based approach with a more robust structure
     that maintains field order and provides validation.
 
-    Default behavior is MSB-first ordering (first field added gets highest bit positions).
-    Use lsb_first=True for backward compatibility with existing testbenches.
+    Bit-ordering semantics (deliberately unchanged; pinned by unit tests):
+
+    - Default mode (lsb_first=False): each newly added field is stacked on top of
+      the layout, so the LAST field added gets the highest bit positions and the
+      FIRST field added ends up in the lowest bits.
+    - Legacy mode (lsb_first=True): the FIRST field added gets the highest bit
+      positions; each subsequent field is placed below it.
+
+    Example — add "a" (4 bits) then "b" (8 bits), total 12 bits:
+        default:       b -> [11:4], a -> [3:0]
+        lsb_first=True: a -> [11:8], b -> [7:0]
     """
 
     def __init__(self, lsb_first: bool = False):
@@ -152,8 +172,10 @@ class FieldConfig:
         Initialize field configuration.
 
         Args:
-            lsb_first: If True, use LSB-first ordering for compatibility with existing testbenches.
-                      If False (default), use MSB-first ordering.
+            lsb_first: Selects the legacy ordering where the FIRST field added
+                      gets the highest bit positions. If False (default), the
+                      LAST field added gets the highest bit positions (see the
+                      class docstring for a worked example).
         """
         self._fields: Dict[str, FieldDefinition] = {}
         self._field_order: List[str] = []
@@ -169,8 +191,14 @@ class FieldConfig:
         """
         Add a field to the configuration.
 
-        In MSB-first mode (default): First field added gets highest bit positions
-        In LSB-first mode: First field added gets lowest bit positions (legacy behavior)
+        In default mode (lsb_first=False): the new field is stacked on top of the
+        existing layout, so the LAST field added gets the highest bit positions.
+        In legacy mode (lsb_first=True): the new field is placed below the existing
+        layout, so the FIRST field added keeps the highest bit positions.
+
+        Example — add "a" (4 bits) then "b" (8 bits):
+            default:        b -> [11:4], a -> [3:0]
+            lsb_first=True: a -> [11:8], b -> [7:0]
 
         Args:
             field_def: Field definition to add
@@ -579,7 +607,8 @@ class FieldConfig:
 
         This method performs quality checks on an existing dictionary-based field configuration
         and converts it to the new FieldConfig class. It will also correct common issues when
-        possible.
+        possible. The caller's dictionary is never mutated; corrections are applied to an
+        internal copy.
 
         Args:
             field_dict: Dictionary mapping field names to field properties
@@ -602,8 +631,11 @@ class FieldConfig:
             warnings.append("Empty field configuration provided")
             return config
 
-        # Iterate through fields and validate
-        for field_name, field_props in field_dict.items():
+        # Iterate through fields and validate.
+        # Work on shallow copies of each field's property dict so corrections
+        # below never mutate the caller's dictionary.
+        for field_name, original_props in field_dict.items():
+            field_props = dict(original_props) if isinstance(original_props, dict) else original_props
             # Field name validation
             if not isinstance(field_name, str):
                 msg = f"Field name must be a string, got {type(field_name).__name__}"
@@ -614,6 +646,13 @@ class FieldConfig:
 
             if not field_name:
                 msg = "Empty field name provided"
+                if raise_errors:
+                    raise ValueError(msg)
+                errors.append(msg)
+                continue
+
+            if not isinstance(field_props, dict):
+                msg = f"Field '{field_name}' properties must be a dict, got {type(field_props).__name__}"
                 if raise_errors:
                     raise ValueError(msg)
                 errors.append(msg)
@@ -662,12 +701,20 @@ class FieldConfig:
                     bits = field_props['bits']
 
                     if msb >= bits or lsb < 0 or msb < lsb:
-                        msg = f"Field '{field_name}' has invalid 'active_bits' range: {active_bits}"
+                        # Correct to a valid range: clamp both ends into [0, bits-1]
+                        # and swap if msb < lsb so the field is retained (previously
+                        # an msb < lsb field failed FieldDefinition validation and
+                        # was dropped with only a printed error).
+                        msb_c = max(0, min(bits - 1, msb))
+                        lsb_c = max(0, min(bits - 1, lsb))
+                        if msb_c < lsb_c:
+                            msb_c, lsb_c = lsb_c, msb_c
+                        msg = (f"Field '{field_name}' has invalid 'active_bits' range: "
+                               f"{active_bits} - corrected to ({msb_c}, {lsb_c})")
                         if raise_errors:
                             raise ValueError(msg)
                         warnings.append(msg)
-                        # Correct to valid range
-                        field_props['active_bits'] = (min(bits - 1, max(0, msb)), max(0, min(bits - 1, lsb)))
+                        field_props['active_bits'] = (msb_c, lsb_c)
 
             # Validate format if present
             if 'format' in field_props and field_props['format'] not in ['hex', 'bin', 'dec']:
@@ -755,11 +802,13 @@ class FieldConfig:
         config = cls(lsb_first=lsb_first)
 
         if lsb_first:
-            # Legacy behavior: add in the order you want them to appear in low->high bits
+            # Legacy mode: FIRST field added gets highest bits, so add data first.
+            # Resulting layout: data in the high bits, addr in the low bits.
             config.add_field(FieldDefinition("data", data_width, format="hex", description="Data value"))
             config.add_field(FieldDefinition("addr", addr_width, format="hex", description="Address"))
         else:
-            # MSB-first: add in logical order (addr is conceptually "first"/most significant)
+            # Default mode: LAST field added gets highest bits, so add addr first.
+            # Resulting layout: data in the high bits, addr in the low bits.
             config.add_field(FieldDefinition("addr", addr_width, format="hex", description="Address"))
             config.add_field(FieldDefinition("data", data_width, format="hex", description="Data value"))
 
@@ -784,7 +833,8 @@ class FieldConfig:
         config = cls(lsb_first=lsb_first)
 
         if lsb_first:
-            # Legacy behavior: add in reverse order for LSB-first
+            # Legacy mode: FIRST field added gets highest bits.
+            # Resulting layout: data0..dataN-1 in the high bits, then ctrl, addr lowest.
             for i in range(num_data):
                 config.add_field(FieldDefinition(
                     name=f"data{i}",
@@ -805,7 +855,8 @@ class FieldConfig:
                 description="Address"
             ))
         else:
-            # MSB-first: add in logical order
+            # Default mode: LAST field added gets highest bits.
+            # Resulting layout: dataN-1..data0 in the high bits, then ctrl, addr lowest.
             config.add_field(FieldDefinition(
                 name="addr",
                 bits=addr_width,

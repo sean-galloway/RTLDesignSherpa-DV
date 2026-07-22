@@ -158,13 +158,15 @@ class ArbiterMonitor(BusMonitor):
         self.current_weights = 0  # NEW: Current weight configuration
         self.weight_history = deque(maxlen=100)  # NEW: Track weight changes
 
-        # Basic counters and statistics
+        # Basic counters and statistics.
+        # Units: all wait times are in NANOSECONDS ('avg_wait_time',
+        # 'wait_time_per_client'); 'total_cycles' is in CLOCK CYCLES.
         self.arbiter_stats = {
             'total_grants': 0,
             'grants_per_client': [0] * self.clients,
-            'avg_wait_time': 0,
-            'wait_time_per_client': [0] * self.clients,
-            'total_cycles': 0,
+            'avg_wait_time': 0,                          # ns
+            'wait_time_per_client': [0] * self.clients,  # ns (cumulative)
+            'total_cycles': 0,                           # clock cycles
             'grant_sequences': [],
         }
 
@@ -241,7 +243,14 @@ class ArbiterMonitor(BusMonitor):
         self.log.info(f"ArbiterMonitor({self.title}): Protocol checking {'enabled' if enable else 'disabled'}{self.get_time_ns_str()}")
 
     def enable_monitoring(self, enable=True):
-        """Enable or disable monitoring"""
+        """Enable or disable monitoring.
+
+        Disabling PAUSES the monitoring coroutines (signal, fence, and weight
+        monitors): they keep running on the clock but skip all sampling and
+        processing. Re-enabling resumes them on the next clock edge - the
+        coroutines are never torn down, so enable_monitoring(True) after a
+        temporary disable fully restores monitoring.
+        """
         self.monitoring_enabled = enable
         self.log.info(f"ArbiterMonitor({self.title}): Monitoring {'enabled' if enable else 'disabled'}{self.get_time_ns_str()}")
 
@@ -402,17 +411,22 @@ class ArbiterMonitor(BusMonitor):
 
     async def _unified_signal_monitor(self):
         """
-        Unified signal monitoring with cycle-level grant reporting and weight support
-        """
-        if not self.monitoring_enabled:
-            return
+        Unified signal monitoring with cycle-level grant reporting and weight support.
 
+        Runs forever; while monitoring is disabled it idles on the clock and
+        skips processing, so enable_monitoring(True) resumes it seamlessly.
+        """
         sample_count = 0
         monitor_type = "weighted" if self.is_weighted else "standard"
         self.log.info(f"ArbiterMonitor({self.title}): Starting {monitor_type} signal monitor with cycle-level reporting")
 
         while True:
             await FallingEdge(self.clock)
+
+            # Paused (not stopped) while monitoring is disabled
+            if not self.monitoring_enabled:
+                continue
+
             sample_count += 1
 
             try:
@@ -805,7 +819,11 @@ class ArbiterMonitor(BusMonitor):
             self.arbiter_stats['grant_sequences'] = self.arbiter_stats['grant_sequences'][-50:]
 
         if self.arbiter_stats['total_grants'] > 0:
-            self.arbiter_stats['avg_wait_time'] = self.arbiter_stats['total_cycles'] / self.arbiter_stats['total_grants']
+            # avg_wait_time is in NANOSECONDS, consistent with the per-client
+            # averages (wait_time_per_client / grants). Previously this mixed
+            # units by averaging total_cycles (cycles) and printing it as ns.
+            total_wait_ns = sum(self.arbiter_stats['wait_time_per_client'])
+            self.arbiter_stats['avg_wait_time'] = total_wait_ns / self.arbiter_stats['total_grants']
 
         # Update grant history for compatibility
         self.grant_history.append(signal_state.gnt_id)
@@ -866,14 +884,22 @@ class ArbiterMonitor(BusMonitor):
     # =============================================================================
 
     async def _weight_monitor(self):
-        """NEW: Background weight monitoring for weighted arbiters"""
+        """NEW: Background weight monitoring for weighted arbiters.
+
+        Runs forever; pauses (does not exit) while monitoring is disabled so
+        enable_monitoring(True) resumes it.
+        """
         if not self.is_weighted:
             return
 
         self.log.info(f"ArbiterMonitor({self.title}): Starting weight monitoring")
 
-        while self.monitoring_enabled:
+        while True:
             await RisingEdge(self.clock)
+
+            # Paused (not stopped) while monitoring is disabled
+            if not self.monitoring_enabled:
+                continue
 
             # Periodic weight compliance analysis
             if self.weight_stats['static_period_active']:
@@ -919,10 +945,11 @@ class ArbiterMonitor(BusMonitor):
     # =============================================================================
 
     async def _monitor_fence_conditions(self):
-        """Monitor for fence conditions AND detect RTL reset conditions"""
-        if not self.monitoring_enabled:
-            return
+        """Monitor for fence conditions AND detect RTL reset conditions.
 
+        Runs forever; pauses (does not exit) while monitoring is disabled so
+        enable_monitoring(True) resumes it.
+        """
         consecutive_idle_cycles = 0
         reset_flag_set = False
 
@@ -930,6 +957,10 @@ class ArbiterMonitor(BusMonitor):
 
         while True:
             await FallingEdge(self.clock)
+
+            # Paused (not stopped) while monitoring is disabled
+            if not self.monitoring_enabled:
+                continue
 
             try:
                 # Sample signals at falling edge for stability

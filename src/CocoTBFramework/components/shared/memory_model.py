@@ -99,11 +99,13 @@ class MemoryModel:
         Args:
             address: Target memory address
             data: Data to write (bytearray)
-            strobe: Optional write strobe (bit mask for byte enables)
+            strobe: Optional write strobe. One bit per data byte (bit i enables
+                    data[i]); must not have enable bits beyond len(data).
 
         Raises:
-            ValueError: If address or data is invalid
-            IndexError: If write would exceed memory bounds
+            TypeError: If data is not a bytearray
+            ValueError: If the write exceeds memory bounds, or the strobe has
+                        more byte-enable bits than there are data bytes
         """
         if not isinstance(data, bytearray):
             raise TypeError("Data must be a bytearray")
@@ -121,9 +123,13 @@ class MemoryModel:
             self.stats['boundary_violations'] += 1
             raise ValueError(f"Write at address 0x{address:X} with size {data_len} exceeds memory bounds (size: {self.size})")
 
-        # Ensure the data and strobe lengths match
-        if data_len * 8 < strobe.bit_length():
-            raise ValueError(f"Data length {data_len} does not match strobe length {strobe.bit_length() // 8}")
+        # Strobe is one bit per data byte: reject strobes with enable bits
+        # beyond the data length (they would silently be ignored otherwise)
+        if data_len < strobe.bit_length():
+            raise ValueError(
+                f"Strobe 0x{strobe:X} has {strobe.bit_length()} byte-enable bits "
+                f"but data is only {data_len} bytes (strobe is 1 bit per byte)"
+            )
 
         # Format the address and data as hexadecimal for debugging
         if self.debug and self.log:

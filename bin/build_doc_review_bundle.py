@@ -21,7 +21,17 @@ the reviewer reports defects that were already fixed, and you cannot tell from
 the output which is which. Rebuilding everything is cheap; re-reviewing stale
 content is not.
 
-Usage: python3 bin/build_doc_review_bundle.py [out_dir]
+Two modes:
+
+  (default)     DOCS.md + SOURCE.py     -- accuracy review, source is ground truth
+  --docs-only   DOCS.md alone           -- humanization round
+
+The docs-only mode is not a convenience. With source present the reviewer keeps
+proposing content corrections, and the humanization round must change prose
+only. Accuracy rounds run first, humanize last: rewriting prose over stale
+content only makes wrong statements read more fluently.
+
+Usage: python3 bin/build_doc_review_bundle.py [out_dir] [--docs-only]
 """
 import glob
 import json
@@ -29,7 +39,9 @@ import os
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = sys.argv[1] if len(sys.argv) > 1 else '/mnt/data/github/dv-doc-review'
+args = [a for a in sys.argv[1:] if not a.startswith('--')]
+DOCS_ONLY = '--docs-only' in sys.argv
+OUT = args[0] if args else '/mnt/data/github/dv-doc-review'
 DOCS = 'docs'
 SRC = 'src/CocoTBFramework'
 LIMIT = 120_000 * 4          # chars; ~120k tokens per unit
@@ -64,6 +76,8 @@ def write_unit(d, title, docs, srcs, note=''):
                      f'<!-- SOURCE FILE: {p} -->\n'
                      '<!-- ================================================= -->\n\n')
             fh.write(read(p))
+    if DOCS_ONLY:
+        return os.path.getsize(f'{d}/DOCS.md')
     with open(f'{d}/SOURCE.py', 'w', encoding='utf-8') as fh:
         fh.write(f'# {title} -- Python source for the documents in DOCS.md\n'
                  f'# {len(srcs)} modules.\n'
@@ -127,7 +141,9 @@ all_units = units_cache + [u for u in units() if u[0] == 'overview']
 os.system(f'rm -rf {OUT}/books')
 manifest = []
 for key, title, docs, srcs in all_units:
-    total = sum(os.path.getsize(p) for p in docs) + sum(os.path.getsize(p) for p in srcs)
+    total = sum(os.path.getsize(p) for p in docs)
+    if not DOCS_ONLY:
+        total += sum(os.path.getsize(p) for p in srcs)
     if total <= LIMIT:
         sz = write_unit(f'{OUT}/books/{key}', title, docs, srcs)
         manifest.append((key, 1, sz // 4))
@@ -143,7 +159,9 @@ for key, title, docs, srcs in all_units:
         orphans = [p for p in srcs if not any(p in m for m in matched.values())]
         parts, cur, cursz = [], [], 0
         for p in docs:
-            s = os.path.getsize(p) + sum(os.path.getsize(m) for m in matched[p])
+            s = os.path.getsize(p)
+            if not DOCS_ONLY:
+                s += sum(os.path.getsize(m) for m in matched[p])
             if cur and cursz + s > LIMIT:
                 parts.append(cur)
                 cur, cursz = [], 0

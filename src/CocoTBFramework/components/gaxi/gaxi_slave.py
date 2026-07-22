@@ -35,7 +35,6 @@ from ..shared.memory_model import MemoryModel
 from ..shared.monitor_statistics import MonitorStatistics
 from .gaxi_component_base import ClockSignal, DutHandle, FieldConfigInput
 from .gaxi_monitor_base import GAXIMonitorBase
-from .gaxi_packet import GAXIPacket
 
 
 class GAXISlave(GAXIMonitorBase):
@@ -88,6 +87,7 @@ class GAXISlave(GAXIMonitorBase):
         pipeline_debug: bool = False,
         signal_map: Optional[dict] = None,
         protocol_type: str = "gaxi_slave",
+        packet_class: Optional[type] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -109,6 +109,9 @@ class GAXISlave(GAXIMonitorBase):
             log: Logger instance
             super_debug: Enable detailed debugging
             pipeline_debug: Enable pipeline phase debugging
+            packet_class: Optional Packet subclass produced by the receive
+                          pipeline (None = GAXIPacket). See
+                          GAXIComponentBase._build_packet.
             **kwargs: Additional arguments
         """
         # CRITICAL: Set pipeline attributes FIRST before any method calls
@@ -145,6 +148,7 @@ class GAXISlave(GAXIMonitorBase):
             log=log,
             super_debug=super_debug,
             signal_map=signal_map,
+            packet_class=packet_class,
             **kwargs
         )
 
@@ -374,7 +378,7 @@ class GAXISlave(GAXIMonitorBase):
             self.phase_statistics['handshake_count'] += 1
 
             # Create a new packet
-            packet = GAXIPacket(self.field_config)
+            packet = self._build_packet()
             packet.start_time = current_time
 
             if self.mode == 'fifo_flop':

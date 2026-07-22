@@ -76,7 +76,7 @@ create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_class=No
 - `prefix`: Signal prefix
 - `clock`: Clock signal
 - `field_config`: Field configuration (default: standard data field)
-- `packet_class`: Packet class to use
+- `packet_class`: Packet class produced by the component's pipeline (`None` = `GAXIPacket`). Wired through the [`_build_packet()`](components_gaxi_gaxi_component_base.md#_build_packetfield_values) hook
 - `randomizer`: Timing randomizer (default: standard master constraints)
 - `memory_model`: Memory model for transactions (optional)
 - `memory_fields`: Field mapping for memory operations (unused - kept for compatibility)
@@ -158,7 +158,7 @@ Create a GAXI Monitor component with simplified configuration.
 ```python
 create_gaxi_monitor(dut, title, prefix, clock, field_config=None, is_slave=False,
                     log=None, mode='skid', bus_name='', pkt_prefix='',
-                    multi_sig=False, **kwargs)
+                    multi_sig=False, signal_map=None, packet_class=None, **kwargs)
 ```
 
 **Parameters:**
@@ -173,6 +173,8 @@ create_gaxi_monitor(dut, title, prefix, clock, field_config=None, is_slave=False
 - `multi_sig`: Whether using multi-signal mode
 - `bus_name`: Bus/channel name
 - `pkt_prefix`: Packet field prefix
+- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery)
+- `packet_class`: Packet class produced by the receive pipeline (`None` = `GAXIPacket`). Wired through the [`_build_packet()`](components_gaxi_gaxi_component_base.md#_build_packetfield_values) hook
 - `**kwargs`: Additional arguments
 
 **Returns:** GAXIMonitor instance
@@ -197,6 +199,35 @@ slave_monitor = create_gaxi_monitor(
     mode='fifo_flop'
 )
 ```
+
+### Custom packet classes
+
+Every component factory forwards `packet_class` into the component's
+[`_build_packet()`](components_gaxi_gaxi_component_base.md#_build_packetfield_values)
+hook, so the whole pipeline — receive path, `create_packet()`, and the
+master transmit path — produces your class instead of `GAXIPacket`:
+
+```python
+class MyPacket(GAXIPacket):
+    pass
+
+slave = create_gaxi_slave(dut, "Slave", "", clock, packet_class=MyPacket)
+monitor = create_gaxi_monitor(dut, "Mon", "", clock, packet_class=MyPacket)
+
+# Or apply it to a whole component set at once
+components = create_gaxi_components(dut, clock, packet_class=MyPacket)
+
+pkt = monitor._recvQ.popleft()
+assert isinstance(pkt, MyPacket)   # protocol subclass survives the pipeline
+```
+
+`packet_class` covers classes constructible as `MyPacket(field_config)`. If
+your packet needs additional constructor arguments, subclass the component
+and override `_build_packet()` instead — see the
+[component base docs](components_gaxi_gaxi_component_base.md#overriding-the-hook).
+
+Omitting `packet_class` is fully backward compatible: components keep
+producing plain `GAXIPacket` instances.
 
 ### `create_gaxi_scoreboard()`
 
@@ -245,7 +276,7 @@ create_gaxi_components(dut, clock, title_prefix="", field_config=None,
 - `title_prefix`: Prefix for component titles
 - `field_config`: Field configuration (default: standard data field)
 - `field_mode`: Field mode (unused - kept for compatibility)
-- `packet_class`: Packet class to use
+- `packet_class`: Packet class produced by the component's pipeline (`None` = `GAXIPacket`). Wired through the [`_build_packet()`](components_gaxi_gaxi_component_base.md#_build_packetfield_values) hook
 - `memory_model`: Memory model for components (auto-created if None)
 - `log`: Logger instance
 - `mode`: Operating mode for slave/monitor

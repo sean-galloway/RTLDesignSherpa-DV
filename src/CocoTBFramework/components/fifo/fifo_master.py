@@ -30,7 +30,6 @@ from cocotb_bus.drivers import BusDriver
 from ..shared.init_kwargs import strip_framework_kwargs
 from ..shared.master_statistics import MasterStatistics
 from .fifo_component_base import FIFOComponentBase
-from .fifo_packet import FIFOPacket
 
 
 class FIFOMaster(FIFOComponentBase, BusDriver):
@@ -338,11 +337,7 @@ class FIFOMaster(FIFOComponentBase, BusDriver):
 
     def create_packet(self, **field_values):
         """Create a packet with specified field values"""
-        packet = FIFOPacket(self.field_config)
-        for field_name, value in field_values.items():
-            if hasattr(packet, field_name):
-                setattr(packet, field_name, value)
-        return packet
+        return self._build_packet(**field_values)
 
     # Memory operations using base MemoryModel directly
     async def write_to_memory(self, packet):

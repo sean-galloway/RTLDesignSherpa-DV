@@ -37,6 +37,7 @@ parameter is ``'fifo_mux'`` (FIFO convention) rather than ``'skid'``
 from __future__ import annotations
 
 from ..gaxi.gaxi_component_base import GAXIComponentBase
+from .fifo_packet import FIFOPacket
 
 
 class FIFOComponentBase(GAXIComponentBase):
@@ -45,6 +46,11 @@ class FIFOComponentBase(GAXIComponentBase):
     Will be removed in a future release. Subclass ``GAXIComponentBase``
     directly and pass ``protocol_type='fifo_master'`` or ``'fifo_slave'``.
     """
+
+    # FIFO components default to FIFOPacket rather than GAXIPacket. The
+    # inherited GAXIComponentBase._build_packet() hook honours this, so
+    # `packet_class=` and hook overrides work identically for FIFO BFMs.
+    _default_packet_class: type = FIFOPacket
 
     def __init__(
         self,

@@ -32,7 +32,6 @@ from cocotb.utils import get_sim_time
 
 from .gaxi_component_base import ClockSignal, DutHandle, FieldConfigInput
 from .gaxi_monitor_base import GAXIMonitorBase
-from .gaxi_packet import GAXIPacket
 
 
 class GAXIMonitor(GAXIMonitorBase):
@@ -72,6 +71,7 @@ class GAXIMonitor(GAXIMonitorBase):
         super_debug: bool = False,
         signal_map: Optional[dict] = None,
         protocol_type: Optional[str] = None,
+        packet_class: Optional[type] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -90,6 +90,9 @@ class GAXIMonitor(GAXIMonitorBase):
             multi_sig: Whether using multi-signal mode
             log: Logger instance
             super_debug: Enable detailed debugging
+            packet_class: Optional Packet subclass produced by the receive
+                          pipeline (None = GAXIPacket). See
+                          GAXIComponentBase._build_packet.
             **kwargs: Additional arguments
         """
         # Monitor-specific attributes
@@ -114,6 +117,7 @@ class GAXIMonitor(GAXIMonitorBase):
             log=log,
             super_debug=super_debug,
             signal_map=signal_map,
+            packet_class=packet_class,
             **kwargs
         )
 
@@ -202,7 +206,7 @@ class GAXIMonitor(GAXIMonitorBase):
 
                     # Create a packet and capture data immediately or in next cycle
                     # based on CORRECT timing rules
-                    packet = GAXIPacket(self.field_config)
+                    packet = self._build_packet()
                     packet.start_time = current_time
 
                     # FIXED: Only delay capture for slave side + fifo_flop mode

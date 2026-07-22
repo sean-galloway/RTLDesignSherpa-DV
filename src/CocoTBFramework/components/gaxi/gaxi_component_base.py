@@ -36,8 +36,10 @@ from ..shared.data_strategies import DataCollectionStrategy, DataDrivingStrategy
 from ..shared.field_config import FieldConfig
 from ..shared.flex_randomizer import FlexRandomizer
 from ..shared.memory_model import MemoryModel
+from ..shared.packet import Packet
 from ..shared.protocol_types import validate_protocol_type
 from ..shared.signal_mapping_helper import SignalResolver
+from .gaxi_packet import GAXIPacket
 
 # Type aliases for cocotb-specific handle types. Cocotb's handle classes are
 # complex and not always import-safe (vendor sim shims), so we accept Any at
@@ -59,7 +61,16 @@ class GAXIComponentBase:
 
     ADDED: Optional signal_map parameter for manual signal override.
     ADDED: Coverage hooks for automatic transaction sampling.
+    ADDED: `_build_packet()` packet-construction hook (see the method docstring)
+    so protocol BFMs that delegate to the GAXI pipelines keep their own packet
+    subclass instead of silently receiving plain GAXIPackets.
     """
+
+    # Packet class used by :meth:`_build_packet` when neither the
+    # ``packet_class`` constructor argument nor a hook override is supplied.
+    # Subclass chassis for other protocols override this (e.g.
+    # FIFOComponentBase sets it to FIFOPacket).
+    _default_packet_class: type = GAXIPacket
 
     def __init__(
         self,
@@ -78,6 +89,7 @@ class GAXIComponentBase:
         log: Optional[Logger] = None,
         super_debug: bool = False,
         signal_map: Optional[dict] = None,  # NEW: Optional manual signal mapping
+        packet_class: Optional[type] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -103,8 +115,22 @@ class GAXIComponentBase:
                         Keys: 'valid', 'ready', 'data' (or field names for multi_sig=True)
                         Values: DUT signal name strings
                         If provided, bypasses automatic signal discovery.
+            packet_class: Optional Packet subclass produced by the receive
+                        pipeline. None (default) keeps the class-level
+                        default (:class:`GAXIPacket` for GAXI components).
+                        Must be a subclass of the shared ``Packet``.
             **kwargs: Additional arguments for specific component types
         """
+        # Packet class used by the _build_packet() hook. Validated eagerly so a
+        # bad value fails at construction rather than mid-simulation.
+        if packet_class is not None and not (
+            isinstance(packet_class, type) and issubclass(packet_class, Packet)
+        ):
+            raise TypeError(
+                f"packet_class must be a subclass of Packet, got {packet_class!r}"
+            )
+        self.packet_class = packet_class
+
         # Store all parameters exactly as provided - no changes to APIs
         self.title = title
         self.clock = clock
@@ -273,6 +299,56 @@ class GAXIComponentBase:
             log=self.log,
             resolved_signals=resolved_signals  # FIXED: Pass resolved signals directly
         )
+
+    # =========================================================================
+    # Packet construction hook
+    # =========================================================================
+
+    def _build_packet(self, **field_values: Any) -> Any:
+        """Construct the packet used throughout this component's pipeline.
+
+        This is the single extension point for packet construction in the
+        GAXI/FIFO component family — every packet the receive pipeline,
+        ``create_packet()``, and the master transmit path produce comes from
+        here. It mirrors the APB precedent (``APBMonitor._build_packet``,
+        overridden by ``APB5Monitor``); see
+        ``docs/components/gaxi/components_gaxi_gaxi_component_base.md``.
+
+        Resolution order for the class constructed:
+
+        1. ``self.packet_class``, if a ``packet_class=`` was passed to the
+           component or its factory.
+        2. ``self._default_packet_class`` (``GAXIPacket`` for GAXI,
+           ``FIFOPacket`` for the FIFO chassis).
+
+        Protocol BFMs that delegate to the GAXI pipelines (AXI4/AXI5/AXIS/
+        FIFO) should override this method when their packet needs constructor
+        arguments beyond ``field_config``, so downstream ``isinstance()``
+        checks against the protocol packet class keep working::
+
+            class AXIS5Slave(GAXISlave):
+                def _build_packet(self, **field_values):
+                    return AXIS5Packet(
+                        self.field_config,
+                        parity_enabled=self.parity_enabled,
+                        **field_values,
+                    )
+
+        Args:
+            **field_values: Optional initial field values. Values naming a
+                field the packet exposes are assigned after construction;
+                unknown names are ignored (preserving the historical
+                ``create_packet()`` contract).
+
+        Returns:
+            A newly constructed packet instance.
+        """
+        packet_class = self.packet_class or self._default_packet_class
+        packet = packet_class(self.field_config)
+        for field_name, value in field_values.items():
+            if hasattr(packet, field_name):
+                setattr(packet, field_name, value)
+        return packet
 
     def get_data_dict_unified(self):
         """

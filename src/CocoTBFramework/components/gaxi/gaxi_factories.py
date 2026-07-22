@@ -62,7 +62,8 @@ def create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_clas
         prefix: Signal prefix
         clock: Clock signal
         field_config: Field configuration (default: standard data field)
-        packet_class: Packet class to use
+        packet_class: Packet class produced by the component's packet
+                      construction hook (None = GAXIPacket)
         randomizer: Timing randomizer (default: standard master constraints)
         memory_model: Memory model for transactions (optional)
         memory_fields: Field mapping for memory operations (unused - kept for compatibility)
@@ -101,6 +102,7 @@ def create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_clas
         pkt_prefix=pkt_prefix,
         multi_sig=multi_sig,
         signal_map=signal_map,
+        packet_class=packet_class,
         **kwargs  # Pass through remaining parameters
     )
 
@@ -123,7 +125,8 @@ def create_gaxi_slave(dut, title, prefix, clock, field_config=None, field_mode=F
         clock: Clock signal
         field_config: Field configuration (default: standard data field)
         field_mode: Field mode (unused - kept for compatibility)
-        packet_class: Packet class to use
+        packet_class: Packet class produced by the receive pipeline
+                      (None = GAXIPacket)
         randomizer: Timing randomizer (default: standard slave constraints)
         memory_model: Memory model for transactions (optional)
         memory_fields: Field mapping for memory operations (unused - kept for compatibility)
@@ -161,6 +164,7 @@ def create_gaxi_slave(dut, title, prefix, clock, field_config=None, field_mode=F
         pkt_prefix=pkt_prefix,
         multi_sig=multi_sig,
         signal_map=signal_map,
+        packet_class=packet_class,
         **kwargs  # Pass through remaining parameters
     )
 
@@ -168,7 +172,7 @@ def create_gaxi_slave(dut, title, prefix, clock, field_config=None, field_mode=F
 def create_gaxi_monitor(dut, title, prefix, clock, field_config=None,
                         is_slave=False, log=None, mode='skid',
                         bus_name='', pkt_prefix='',
-                        multi_sig=False,
+                        multi_sig=False, signal_map=None, packet_class=None,
                         **kwargs):
     """
     Create a GAXI Monitor component with simplified configuration.
@@ -187,8 +191,10 @@ def create_gaxi_monitor(dut, title, prefix, clock, field_config=None,
         multi_sig: Whether using multi-signal mode
         bus_name: Bus/channel name
         pkt_prefix: Packet field prefix
+        signal_map: Manual signal mapping (forwarded; None = auto-discovery)
+        packet_class: Packet class produced by the receive pipeline
+                      (None = GAXIPacket)
         **kwargs: Additional arguments forwarded to GAXIMonitor
-                  (e.g. signal_map for manual signal mapping)
 
     Returns:
         GAXIMonitor instance
@@ -214,6 +220,7 @@ def create_gaxi_monitor(dut, title, prefix, clock, field_config=None,
         pkt_prefix=pkt_prefix,
         multi_sig=multi_sig,
         signal_map=signal_map,
+        packet_class=packet_class,
         **kwargs  # Pass through remaining parameters
     )
 
@@ -254,7 +261,8 @@ def create_gaxi_components(dut, clock, title_prefix="", field_config=None, field
         title_prefix: Prefix for component titles
         field_config: Field configuration (default: standard data field)
         field_mode: Field mode (unused - kept for compatibility)
-        packet_class: Packet class to use
+        packet_class: Packet class produced by every created component's
+                      packet construction hook (None = GAXIPacket)
         memory_model: Memory model for components (auto-created if None)
         log: Logger instance
         mode: Operating mode for slave/monitor
@@ -317,9 +325,10 @@ def create_gaxi_components(dut, clock, title_prefix="", field_config=None, field
     )
 
     # NOTE: create_gaxi_monitor does not accept the legacy compatibility
-    # kwargs (field_mode, packet_class, optional_signal_map) — they would
-    # leak through **kwargs into cocotb's BusMonitor and raise TypeError.
-    # signal_map IS forwarded: GAXIMonitor supports manual signal mapping.
+    # kwargs (field_mode, optional_signal_map) — they would leak through
+    # **kwargs into cocotb's BusMonitor and raise TypeError. signal_map and
+    # packet_class ARE forwarded: GAXIMonitor supports manual signal mapping
+    # and the packet construction hook.
     master_monitor = create_gaxi_monitor(
         dut, f"{title_prefix}MasterMonitor", "", clock,
         field_config=field_config,
@@ -327,6 +336,7 @@ def create_gaxi_components(dut, clock, title_prefix="", field_config=None, field
         log=log,
         mode=mode,
         signal_map=signal_map,
+        packet_class=packet_class,
         multi_sig=multi_sig,
         bus_name=bus_name,
         pkt_prefix=pkt_prefix,
@@ -340,6 +350,7 @@ def create_gaxi_components(dut, clock, title_prefix="", field_config=None, field
         log=log,
         mode=mode,
         signal_map=signal_map,
+        packet_class=packet_class,
         multi_sig=multi_sig,
         bus_name=bus_name,
         pkt_prefix=pkt_prefix,

@@ -25,7 +25,6 @@ from cocotb_bus.monitors import BusMonitor
 from ..shared.init_kwargs import strip_framework_kwargs
 from ..shared.monitor_statistics import MonitorStatistics
 from .fifo_component_base import FIFOComponentBase
-from .fifo_packet import FIFOPacket
 
 
 class FIFOMonitorBase(FIFOComponentBase, BusMonitor):
@@ -49,7 +48,7 @@ class FIFOMonitorBase(FIFOComponentBase, BusMonitor):
                     multi_sig=False,
                     protocol_type=None,  # 'fifo_master' or 'fifo_slave' - set by subclass
                     log=None, super_debug=False,
-                    signal_map=None, **kwargs):
+                    signal_map=None, packet_class=None, **kwargs):
         """
         Initialize common FIFO monitoring functionality - EXACT SAME API AS BEFORE.
 
@@ -66,6 +65,9 @@ class FIFOMonitorBase(FIFOComponentBase, BusMonitor):
             protocol_type: Must be set by subclass ('fifo_master' or 'fifo_slave')
             log: Logger instance
             super_debug: Enable detailed debugging
+            packet_class: Optional Packet subclass produced by the receive
+                          pipeline (None = FIFOPacket). See
+                          GAXIComponentBase._build_packet.
             **kwargs: Additional arguments for BusMonitor
         """
         # Extract values we need to forward to FIFOComponentBase, then strip
@@ -93,6 +95,7 @@ class FIFOMonitorBase(FIFOComponentBase, BusMonitor):
             log=log,
             super_debug=super_debug,
             signal_map=signal_map,
+            packet_class=packet_class,
             **kwargs
         )
 
@@ -185,14 +188,13 @@ class FIFOMonitorBase(FIFOComponentBase, BusMonitor):
         Args:
             **field_values: Initial field values
 
+        Delegates to the :meth:`_build_packet` hook so subclasses (and the
+        ``packet_class=`` argument) control the concrete packet type.
+
         Returns:
-            FIFOPacket instance with specified field values
+            Packet instance (FIFOPacket by default) with the specified fields
         """
-        packet = FIFOPacket(self.field_config)
-        for field_name, value in field_values.items():
-            if hasattr(packet, field_name):
-                setattr(packet, field_name, value)
-        return packet
+        return self._build_packet(**field_values)
 
     def get_observed_packets(self, count=None):
         """

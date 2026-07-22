@@ -41,7 +41,6 @@ from .gaxi_component_base import (
     FieldConfigInput,
     GAXIComponentBase,
 )
-from .gaxi_packet import GAXIPacket
 
 
 class GAXIMaster(GAXIComponentBase, BusDriver):
@@ -80,6 +79,7 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
         pipeline_debug: bool = False,
         signal_map: Optional[dict] = None,
         protocol_type: str = "gaxi_master",
+        packet_class: Optional[type] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -102,6 +102,8 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
             super_debug: Enable detailed debugging
             pipeline_debug: Enable pipeline-specific debugging
             signal_map: Optional manual signal mapping
+            packet_class: Optional Packet subclass produced by create_packet()
+                          (None = GAXIPacket). See GAXIComponentBase._build_packet.
             **kwargs: Additional arguments for BusDriver
         """
         # Initialize base class with all parameters preserved
@@ -122,6 +124,7 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
             log=log,
             super_debug=super_debug,
             signal_map=signal_map,
+            packet_class=packet_class,
             **kwargs
         )
 
@@ -495,11 +498,7 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
 
     def create_packet(self, **field_values):
         """Create a packet with specified field values"""
-        packet = GAXIPacket(self.field_config)
-        for field_name, value in field_values.items():
-            if hasattr(packet, field_name):
-                setattr(packet, field_name, value)
-        return packet
+        return self._build_packet(**field_values)
 
     # Memory operations using base MemoryModel directly
     async def write_to_memory(self, packet):

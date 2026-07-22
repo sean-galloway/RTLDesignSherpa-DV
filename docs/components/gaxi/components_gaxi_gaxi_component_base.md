@@ -46,7 +46,7 @@ class GAXIComponentBase:
                  protocol_type,  # Must be specified by subclass
                  mode='skid', bus_name='', pkt_prefix='', multi_sig=False,
                  randomizer=None, memory_model=None, log=None,
-                 super_debug=False, signal_map=None, **kwargs)
+                 super_debug=False, signal_map=None, packet_class=None, **kwargs)
 ```
 
 **Parameters:**
@@ -65,6 +65,10 @@ class GAXIComponentBase:
 - `log`: Logger instance
 - `super_debug`: Enable detailed debugging
 - `signal_map`: Optional dict mapping signal names to DUT signal names
+- `packet_class`: Optional `Packet` subclass produced by the component's
+  pipeline. `None` (default) keeps the class-level default (`GAXIPacket` for
+  GAXI, `FIFOPacket` for FIFO). Must be a `Packet` subclass — validated at
+  construction. See [`_build_packet()`](#_build_packetfield_values).
 - `**kwargs`: Additional arguments for specific component types
 
 **Signal Map Format:**
@@ -154,6 +158,76 @@ Read data from memory using base MemoryModel.
 success, data, error = component.read_from_memory_unified(packet)
 if success:
     log.info(f"Read data: 0x{data:X}")
+```
+
+### Packet Construction
+
+#### `_build_packet(**field_values)`
+
+The single extension point for packet construction across the GAXI and FIFO
+component families. Every packet produced by the receive pipeline,
+`create_packet()`, and the master transmit path comes from this hook.
+
+**Parameters:**
+- `**field_values`: Optional initial field values. Names matching a field the
+  packet exposes are assigned after construction; unknown names are ignored
+  (preserving the historical `create_packet()` contract).
+
+**Returns:** A newly constructed packet instance.
+
+The class constructed is resolved in this order:
+
+1. `self.packet_class`, if a `packet_class=` argument was passed to the
+   component or its factory.
+2. `self._default_packet_class` — `GAXIPacket` for GAXI components,
+   `FIFOPacket` for the FIFO chassis.
+
+With neither supplied, behavior is identical to before the hook existed: a
+plain `GAXIPacket(self.field_config)`.
+
+```python
+# Default: plain GAXIPacket
+packet = component._build_packet()
+
+# Via the packet_class argument (also accepted by every factory)
+slave = create_gaxi_slave(dut, "Slave", "", clock, packet_class=MyPacket)
+# slave's receive pipeline now produces MyPacket instances
+```
+
+##### Overriding the hook
+
+`packet_class=` covers packet classes constructible as
+`PacketClass(field_config)`. When a protocol packet needs **extra constructor
+arguments**, override `_build_packet()` instead — this is the supported
+extension point for protocol BFMs that delegate to the GAXI pipelines
+(AXI4/AXI5/AXIS/FIFO):
+
+```python
+class AXIS5Slave(GAXISlave):
+    def __init__(self, *args, parity_enabled=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.parity_enabled = parity_enabled
+
+    def _build_packet(self, **field_values):
+        return AXIS5Packet(
+            self.field_config,
+            parity_enabled=self.parity_enabled,
+            **field_values,
+        )
+```
+
+Because the whole pipeline routes through the hook, downstream
+`isinstance(packet, AXIS5Packet)` checks keep working — previously the
+receive path hard-coded `GAXIPacket(self.field_config)`, so a delegating
+slave or monitor silently lost its protocol packet subclass.
+
+An override takes precedence over `packet_class`. Subclasses that only need
+a different default (no extra constructor arguments) can instead set the
+class attribute:
+
+```python
+class FIFOComponentBase(GAXIComponentBase):
+    _default_packet_class = FIFOPacket
 ```
 
 ### Statistics and Configuration

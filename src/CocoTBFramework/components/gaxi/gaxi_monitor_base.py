@@ -37,7 +37,6 @@ from .gaxi_component_base import (
     FieldConfigInput,
     GAXIComponentBase,
 )
-from .gaxi_packet import GAXIPacket
 
 
 class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
@@ -68,6 +67,7 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
         log: Optional[Logger] = None,
         super_debug: bool = False,
         signal_map: Optional[dict] = None,
+        packet_class: Optional[type] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -85,6 +85,8 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
             protocol_type: Must be set by subclass ('gaxi_master' or 'gaxi_slave')
             log: Logger instance
             super_debug: Enable detailed debugging
+            packet_class: Optional Packet subclass for the receive pipeline
+                          (None = GAXIPacket). See GAXIComponentBase._build_packet.
             **kwargs: Additional arguments for BusMonitor
         """
         # Extract values we need to forward to GAXIComponentBase, then strip
@@ -112,6 +114,7 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
             log=log,
             super_debug=super_debug,
             signal_map=signal_map,
+            packet_class=packet_class,
             **{k: v for k, v in kwargs.items()}  # Pass remaining clean kwargs
         )
 
@@ -273,17 +276,16 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
 
         This was duplicated identically in both GAXIMonitor and GAXISlave.
 
+        Delegates to the :meth:`_build_packet` hook so subclasses (and the
+        ``packet_class=`` factory argument) control the concrete packet type.
+
         Args:
             **field_values: Initial field values
 
         Returns:
-            GAXIPacket instance with specified field values
+            Packet instance (GAXIPacket by default) with the specified fields
         """
-        packet = GAXIPacket(self.field_config)
-        for field_name, value in field_values.items():
-            if hasattr(packet, field_name):
-                setattr(packet, field_name, value)
-        return packet
+        return self._build_packet(**field_values)
 
     def get_observed_packets(self, count=None):
         """

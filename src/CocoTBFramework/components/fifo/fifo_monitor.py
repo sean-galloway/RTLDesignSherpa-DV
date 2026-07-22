@@ -26,7 +26,6 @@ from cocotb.triggers import FallingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from .fifo_monitor_base import FIFOMonitorBase
-from .fifo_packet import FIFOPacket
 
 
 class FIFOMonitor(FIFOMonitorBase):
@@ -224,7 +223,7 @@ class FIFOMonitor(FIFOMonitorBase):
                     if valid_read:
                         # Create a packet and capture data immediately or in next cycle
                         # depending on the mode
-                        packet = FIFOPacket(self.field_config)
+                        packet = self._build_packet()
                         packet.start_time = current_time
 
                         # Update FIFO depth
@@ -264,7 +263,7 @@ class FIFOMonitor(FIFOMonitorBase):
                             int(self.full_sig.value) == 0):  # write and not full
 
                             # Create new packet
-                            packet = FIFOPacket(self.field_config)
+                            packet = self._build_packet()
                             packet.start_time = current_time
 
                             # Update FIFO depth

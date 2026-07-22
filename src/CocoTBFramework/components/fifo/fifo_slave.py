@@ -26,7 +26,6 @@ from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from .fifo_monitor_base import FIFOMonitorBase
-from .fifo_packet import FIFOPacket
 
 
 class FIFOSlave(FIFOMonitorBase):
@@ -205,7 +204,7 @@ class FIFOSlave(FIFOMonitorBase):
             self.empty_sig.value.integer == 0):
 
             # Create a new packet
-            packet = FIFOPacket(self.field_config)
+            packet = self._build_packet()
             packet.start_time = current_time
 
             # Record transaction received for monitoring statistics

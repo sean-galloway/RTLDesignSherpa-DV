@@ -117,6 +117,7 @@ def create_apb_monitor(dut, title, prefix, clock, addr_width=32, data_width=32, 
     Args:
         dut: Device under test
         title: Component title
+        prefix: Signal prefix
         clock: Clock signal
         addr_width: Address width in bits
         data_width: Data width in bits
@@ -199,6 +200,7 @@ def create_apb_components(dut, clock, title_prefix="", addr_width=32, data_width
     monitor = create_apb_monitor(
         dut,
         f"{title_prefix}APB Monitor",
+        "s_apb",
         clock,
         addr_width=addr_width,
         data_width=data_width,
@@ -213,10 +215,10 @@ def create_apb_components(dut, clock, title_prefix="", addr_width=32, data_width
         log=log
     )
 
-    # Create APB command handler if DUT supports it
+    # No APB command handler in this package (the APB command/response handler
+    # is testbench-specific and lives with the RTL-side tbclasses); the key is
+    # kept as None so the returned dict shape stays stable for callers.
     command_handler = None
-    if hasattr(dut, 'o_cmd_valid'):
-        command_handler = create_apb_command_handler(dut, memory_model, log)
 
     # Return all components
     return {

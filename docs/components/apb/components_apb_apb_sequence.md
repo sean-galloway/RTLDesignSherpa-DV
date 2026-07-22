@@ -417,7 +417,8 @@ while timing_sequence.has_more_transactions():
 ```python
 import cocotb
 from cocotb.triggers import RisingEdge, Timer
-from CocoTBFramework.components.apb import APBMaster, APBSequence
+from CocoTBFramework.components.apb.apb_components import APBMaster
+from CocoTBFramework.components.apb.apb_sequence import APBSequence
 
 @cocotb.test()
 async def sequence_driven_test(dut):

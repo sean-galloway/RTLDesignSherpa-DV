@@ -174,8 +174,8 @@ Update the timing randomizer for ready signal delays.
 
 ```python
 new_randomizer = FlexRandomizer({
-    'ready': ([[0, 2], [5, 10]], [8, 1]),
-    'error': ([[0, 0], [1, 1]], [20, 1])
+    'ready': ([(0, 2), (5, 10)], [8, 1]),
+    'error': ([(0, 0), (1, 1)], [20, 1])
 })
 slave.set_randomizer(new_randomizer)
 ```
@@ -248,8 +248,8 @@ Update the timing randomizer for transaction delays.
 
 ```python
 timing_randomizer = FlexRandomizer({
-    'psel': ([[0, 0], [1, 5]], [6, 1]),      # Mostly immediate PSEL
-    'penable': ([[0, 0], [1, 2]], [4, 1])    # Minimal PENABLE delay
+    'psel': ([(0, 0), (1, 5)], [6, 1]),      # Mostly immediate PSEL
+    'penable': ([(0, 0), (1, 2)], [4, 1])    # Minimal PENABLE delay
 })
 master.set_randomizer(timing_randomizer)
 ```
@@ -323,7 +323,7 @@ async def monitor_test(dut):
 async def master_slave_test(dut):
     # Create master and slave
     master = APBMaster(dut, "Master", "m_apb_", dut.clk)
-    slave = APBSlave(dut, "Slave", "s_apb_", dut.clk, registers=256)
+    slave = APBSlave(dut, "Slave", "s_apb_", dut.clk, registers=[0] * 256)
     
     # Reset both components
     await master.reset_bus()
@@ -356,18 +356,18 @@ async def master_slave_test(dut):
 def setup_timing_profiles():
     # Fast profile for performance testing
     fast_profile = FlexRandomizer({
-        'psel': ([[0, 0]], [1]),           # No PSEL delay
-        'penable': ([[0, 0]], [1]),        # No PENABLE delay
-        'ready': ([[0, 0]], [1]),          # Immediate ready
-        'error': ([[0, 0]], [1])           # No errors
+        'psel': ([(0, 0)], [1]),           # No PSEL delay
+        'penable': ([(0, 0)], [1]),        # No PENABLE delay
+        'ready': ([(0, 0)], [1]),          # Immediate ready
+        'error': ([(0, 0)], [1])           # No errors
     })
     
     # Stress profile for robustness testing
     stress_profile = FlexRandomizer({
-        'psel': ([[0, 0], [1, 10]], [3, 1]),     # Variable PSEL delay
-        'penable': ([[0, 1], [2, 5]], [2, 1]),   # Variable PENABLE delay
-        'ready': ([[0, 5], [10, 20]], [4, 1]),   # Variable ready delay
-        'error': ([[0, 0], [1, 1]], [10, 1])     # 10% error rate
+        'psel': ([(0, 0), (1, 10)], [3, 1]),     # Variable PSEL delay
+        'penable': ([(0, 1), (2, 5)], [2, 1]),   # Variable PENABLE delay
+        'ready': ([(0, 5), (10, 20)], [4, 1]),   # Variable ready delay
+        'error': ([(0, 0), (1, 1)], [10, 1])     # 10% error rate
     })
     
     return fast_profile, stress_profile
@@ -376,7 +376,7 @@ async def timing_test(dut):
     fast_profile, stress_profile = setup_timing_profiles()
     
     master = APBMaster(dut, "Master", "apb_", dut.clk)
-    slave = APBSlave(dut, "Slave", "apb_", dut.clk, registers=1024)
+    slave = APBSlave(dut, "Slave", "apb_", dut.clk, registers=[0] * 1024)
     
     # Test with fast timing
     master.set_randomizer(fast_profile)
@@ -399,13 +399,13 @@ async def timing_test(dut):
 async def error_injection_test(dut):
     # Create slave with error injection
     error_randomizer = FlexRandomizer({
-        'ready': ([[1, 3], [5, 10]], [3, 1]),
-        'error': ([[0, 0], [1, 1]], [4, 1])  # 20% error rate
+        'ready': ([(1, 3), (5, 10)], [3, 1]),
+        'error': ([(0, 0), (1, 1)], [4, 1])  # 20% error rate
     })
     
     slave = APBSlave(
         dut, "Error_Slave", "apb_", dut.clk,
-        registers=256,
+        registers=[0] * 256,
         randomizer=error_randomizer,
         error_overflow=True
     )
@@ -427,7 +427,7 @@ async def error_injection_test(dut):
 
 ```python
 async def register_verification(dut):
-    slave = APBSlave(dut, "Register_Slave", "apb_", dut.clk, registers=1024)
+    slave = APBSlave(dut, "Register_Slave", "apb_", dut.clk, registers=[0] * 1024)
     master = APBMaster(dut, "Master", "apb_", dut.clk)
     
     # Test register read/write
@@ -455,14 +455,14 @@ async def register_verification(dut):
 async def performance_test(dut):
     # Configure for maximum performance
     fast_randomizer = FlexRandomizer({
-        'psel': ([[0, 0]], [1]),
-        'penable': ([[0, 0]], [1]),
-        'ready': ([[0, 0]], [1]),
-        'error': ([[0, 0]], [1])
+        'psel': ([(0, 0)], [1]),
+        'penable': ([(0, 0)], [1]),
+        'ready': ([(0, 0)], [1]),
+        'error': ([(0, 0)], [1])
     })
     
     master = APBMaster(dut, "Perf_Master", "apb_", dut.clk, randomizer=fast_randomizer)
-    slave = APBSlave(dut, "Perf_Slave", "apb_", dut.clk, registers=1024, randomizer=fast_randomizer)
+    slave = APBSlave(dut, "Perf_Slave", "apb_", dut.clk, registers=[0] * 1024, randomizer=fast_randomizer)
     
     # Measure transaction throughput
     start_time = get_sim_time('ns')
@@ -524,16 +524,16 @@ Uses FlexRandomizer for comprehensive timing control:
 ```python
 # Development/debug: minimal delays
 debug_randomizer = FlexRandomizer({
-    'psel': ([[0, 0]], [1]),
-    'penable': ([[0, 0]], [1]),
-    'ready': ([[0, 1]], [1])
+    'psel': ([(0, 0)], [1]),
+    'penable': ([(0, 0)], [1]),
+    'ready': ([(0, 1)], [1])
 })
 
 # Stress testing: variable delays
 stress_randomizer = FlexRandomizer({
-    'psel': ([[0, 0], [1, 10]], [7, 1]),
-    'penable': ([[0, 1], [2, 5]], [3, 1]),
-    'ready': ([[0, 5], [10, 25]], [5, 1])
+    'psel': ([(0, 0), (1, 10)], [7, 1]),
+    'penable': ([(0, 1), (2, 5)], [3, 1]),
+    'ready': ([(0, 5), (10, 25)], [5, 1])
 })
 ```
 

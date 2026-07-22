@@ -345,7 +345,9 @@ Set fields using constrained randomization.
 **Returns:** Self for method chaining
 
 ```python
-packet = transaction.set_constrained_random()
+# Randomize in place; the generated packet is available via .packet
+transaction.set_constrained_random()
+packet = transaction.packet
 ```
 
 ##### `formatted(compact=False) -> str`

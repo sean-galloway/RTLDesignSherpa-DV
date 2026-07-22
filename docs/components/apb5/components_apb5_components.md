@@ -248,10 +248,10 @@ APB5 master implementation that drives transactions with user signal support and
 #### Constructor
 
 ```python
-APB5Master(entity, title, prefix, clock,
+APB5Master(entity, title, prefix, clock, signals=None,
            bus_width=32, addr_width=12,
            auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
-           log=None, **kwargs)
+           randomizer=None, log=None, **kwargs)
 ```
 
 **Parameters:**
@@ -262,12 +262,14 @@ APB5Master(entity, title, prefix, clock,
 | `title` | str | *required* | Master identifier for logging |
 | `prefix` | str | *required* | Signal prefix for bus connection (trailing `_` auto-stripped) |
 | `clock` | signal | *required* | Clock signal for synchronization |
+| `signals` | list | None | Custom signal list (default: all APB5 signals) |
 | `bus_width` | int | 32 | Data bus width in bits |
 | `addr_width` | int | 12 | Address bus width in bits |
 | `auser_width` | int | 4 | PAUSER width in bits |
 | `wuser_width` | int | 4 | PWUSER width in bits |
 | `ruser_width` | int | 4 | PRUSER width in bits |
 | `buser_width` | int | 4 | PBUSER width in bits |
+| `randomizer` | FlexRandomizer | None | PSEL/PENABLE delay randomizer |
 | `log` | Logger | None | Logger instance (default: entity logger) |
 
 ```python
@@ -364,7 +366,7 @@ result = await master.read(address=0x300, pauser=0xA)
 The master implements the standard APB transaction pipeline with APB5 extensions:
 1. **Setup Phase**: Drive PSEL, PADDR, PWRITE, PWDATA, PSTRB, PPROT, PAUSER, PWUSER
 2. **Access Phase**: Assert PENABLE
-3. **Wait for Ready**: Poll PREADY on rising clock edges
+3. **Wait for Ready**: Poll PREADY on falling clock edges
 4. **Response Capture**: Sample PRDATA, PSLVERR, PRUSER, PBUSER, PWAKEUP (with 200ps settling delay)
 5. **Deassert**: Clear PSEL and PENABLE
 
@@ -438,7 +440,9 @@ async def master_slave_test(dut):
 ### Custom Slave Randomizer with User Signals
 
 ```python
-from CocoTBFramework.components.apb5 import create_apb5_slave, create_apb5_randomizer
+from CocoTBFramework.components.apb5.apb5_factories import (
+    create_apb5_slave, create_apb5_randomizer
+)
 
 async def custom_randomizer_test(dut):
     # Create randomizer with specific user signal patterns
@@ -525,7 +529,7 @@ if slave.is_signal_present('PWAKEUP'):
 # Check that user signals are captured correctly
 await master.send(packet)
 sent = master.sentQ[-1]
-observed = monitor.recv_queue[-1]  # If using callbacks
+observed = monitor._recvQ[-1]  # BusMonitor receive queue
 
 assert sent.fields['pauser'] == observed.fields['pauser']
 ```

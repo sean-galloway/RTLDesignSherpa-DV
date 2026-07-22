@@ -252,8 +252,9 @@ Set fields using constrained randomization.
 **Returns:** Self for method chaining
 
 ```python
-# Generate and return randomized transaction
-packet = transaction.set_constrained_random()
+# Randomize in place; the generated packet is available via .packet
+transaction.set_constrained_random()
+packet = transaction.packet
 ```
 
 ##### `formatted(compact=False) -> str`
@@ -530,7 +531,8 @@ if validation_errors:
 ```python
 import cocotb
 from cocotb.triggers import RisingEdge
-from CocoTBFramework.components.apb import APBMaster, APBPacket
+from CocoTBFramework.components.apb.apb_components import APBMaster
+from CocoTBFramework.components.apb.apb_packet import APBPacket
 
 @cocotb.test()
 async def packet_driven_test(dut):

@@ -420,6 +420,6 @@ class APB5Slave(APBSlave):
         self.log.debug(msg)
 
     async def set_wakeup(self, value):
-        """Set the PWAKEUP signal (APB5-specific master-driven wakeup)."""
+        """Set the PWAKEUP signal (driven from the slave side in this BFM)."""
         if self.is_signal_present('PWAKEUP'):
             self.bus.PWAKEUP.value = value

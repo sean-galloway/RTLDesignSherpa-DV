@@ -107,7 +107,7 @@ Simplified component creation and configuration:
 ## APB Protocol Support
 
 ### Protocol Features
-- **APB2/APB3 Compatibility**: Support for basic and extended APB
+- **APB3/APB4 Compatibility**: Support for basic and extended APB
 - **Signal Coverage**: All standard and optional APB signals
 - **Error Handling**: PSLVERR generation and detection
 - **Protection**: PPROT support for security testing
@@ -167,7 +167,9 @@ Simplified component creation and configuration:
 
 ```python
 import cocotb
-from CocoTBFramework.components.apb import *
+from CocoTBFramework.components.apb.apb_factories import (
+    create_apb_master, create_apb_slave, create_apb_monitor, create_apb_sequence
+)
 
 @cocotb.test()
 async def basic_apb_test(dut):
@@ -180,21 +182,23 @@ async def basic_apb_test(dut):
     sequence = create_apb_sequence(pattern="alternating", num_regs=10)
     
     # Run test
-    for packet in sequence:
+    while sequence.has_more_transactions():
+        packet = sequence.next()
         await master.send(packet)
 ```
 
-### Advanced Register Testing
+### Directed Register Testing
 
 ```python
-# Create register-specific test sequence
-reg_map = create_register_map(base_addr=0x1000, registers={...})
-sequence = create_register_test_sequence(reg_map, test_type="walk")
+from CocoTBFramework.components.apb.apb_sequence import APBSequence
 
-# Run functional test
-functional_sequence = create_sequence_from_tuples(
-    reg_map, 
-    [("CONFIG_REG", "ENABLE", 1), ("STATUS_REG", "MODE", 2)]
+# Build a directed register test sequence
+register_sequence = APBSequence(
+    name="register_test",
+    pwrite_seq=[True, False] * 4,                     # Write, then read back
+    addr_seq=[0x1000 + i * 4 for i in range(4)],
+    data_seq=[0xA0000000 + i for i in range(4)],
+    strb_seq=[0xF] * 4,
 )
 ```
 
@@ -208,10 +212,10 @@ stress_sequence = create_apb_sequence(
     randomize_delays=True
 )
 
-# Configure timing randomization
+# Configure timing randomization (bin ranges must be tuples, not lists)
 master.set_randomizer(FlexRandomizer({
-    'psel': ([[0, 0], [1, 10]], [7, 1]),
-    'penable': ([[0, 0], [1, 5]], [8, 1])
+    'psel': ([(0, 0), (1, 10)], [7, 1]),
+    'penable': ([(0, 0), (1, 5)], [8, 1])
 }))
 ```
 
@@ -279,7 +283,7 @@ master.set_randomizer(FlexRandomizer({
 ## Getting Started
 
 ### Quick Setup
-1. **Import Components**: `from CocoTBFramework.components.apb import *`
+1. **Import Components**: `from CocoTBFramework.components.apb.apb_factories import create_apb_master, create_apb_slave, create_apb_monitor`
 2. **Create Master/Slave**: Use factory functions with DUT signals
 3. **Generate Sequence**: Use built-in patterns or custom sequences
 4. **Run Test**: Send packets and monitor responses

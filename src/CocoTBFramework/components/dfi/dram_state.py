@@ -340,7 +340,8 @@ class DramStateModel:
     # ----- Time advance -----
 
     def tick(self) -> None:
-        """Advance one DFI clock cycle. Call once per rising edge."""
+        """Advance one DFI clock cycle. Call once per DFI clock edge
+        (the slave's sampling loop calls it on each falling edge)."""
         self.cycle += 1
         # Walk banks out of REFRESHING once tRFC elapsed
         if (
@@ -473,7 +474,7 @@ class DramStateModel:
     def on_precharge(self, bank_idx: int, all_banks: bool = False) -> None:
         """Process a PRE command."""
         self._check_not_refreshing("pre")
-        targets = self.banks if all_banks else [self.banks[bank_idx]]
+        targets = self.banks if all_banks else [self._bank(bank_idx)]
         for i, b in enumerate(targets):
             real_idx = i if all_banks else bank_idx
             # tRAS_min: ACT-to-PRE same bank

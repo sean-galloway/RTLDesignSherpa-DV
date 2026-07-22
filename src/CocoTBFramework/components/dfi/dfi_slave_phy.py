@@ -18,20 +18,21 @@
     "fire CL cycles later no matter what" — see project_dfi_address_mapping
     memory note.)
 
-MVP scope: BL=1 conceptually — one DFI beat per WR / RD command. Real
-DDR3 is BL8 minimum, but locking the BL=1 case down first proves the
-address-decode + memory-binding mechanics. Multi-beat bursts are
-Phase 2.
+Burst scope: ``base.beats_per_burst`` DFI beats are queued per WR / RD
+command (BL=1 for the MVP-loopback case; BL8 with the canonical K=2
+PHY ratio queues 4 beats). See :class:`~.dfi_base.DFIBase` for how the
+beat count is derived from the JEDEC BL.
 """
 
 from __future__ import annotations
 
-import os as _os_dbg
-_WR_TRACE = _os_dbg.environ.get("DFI_WR_TRACE", "0") == "1"
-
+import os
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Optional
+from typing import TYPE_CHECKING, Deque, Optional
+
+if TYPE_CHECKING:
+    from .dfi_timing import DFITimingProfile
 
 from cocotb.triggers import FallingEdge
 from cocotb_bus.monitors import BusMonitor
@@ -64,6 +65,8 @@ from .dfi_monitor import (
     _v,
 )
 from .dfi_packet import DRAMCommand
+
+_WR_TRACE = os.environ.get("DFI_WR_TRACE", "0") == "1"
 
 
 def decode_phase0_cmd(ras_n_bus: int, cas_n_bus: int,
@@ -361,9 +364,13 @@ class DFISlavePHY(BusMonitor):
         # unchanged. All downstream scheduling reads ONLY the resolved fields
         # below, so adding a new hook is local to the profile + the one place it
         # is honored.
-        from .dfi_timing import (DFITimingProfile, READ_REF_COMMAND,
-                                  READ_REF_RDDATA_EN, WRITE_REF_COMMAND,
-                                  WRITE_REF_WRDATA_EN)
+        from .dfi_timing import (
+            READ_REF_COMMAND,
+            READ_REF_RDDATA_EN,
+            WRITE_REF_COMMAND,
+            WRITE_REF_WRDATA_EN,
+            DFITimingProfile,
+        )
         if timing is None:
             timing = DFITimingProfile(
                 name="legacy",
@@ -491,16 +498,6 @@ class DFISlavePHY(BusMonitor):
     @property
     def _col_mask(self) -> int:
         return (1 << self.mapping._widths["col"]) - 1
-
-    def _flat_addr_for(self, bank: int, raw_address: int) -> int:
-        """Build a flat column-unit address from bank + WR/RD address."""
-        open_row = self.dram.banks[bank].row
-        if open_row is None:
-            # Will trip a no_act_before_rd/wr violation in DramStateModel;
-            # use row=0 just to keep the math defined.
-            open_row = 0
-        col = raw_address & self._col_mask
-        return self.mapping.tuple_to_flat(0, bank, open_row, col)
 
     def _byte_addr(self, flat: int) -> int:
         return flat * self.bytes_per_beat
@@ -1270,7 +1267,7 @@ class DFISlavePHY(BusMonitor):
     def set_error(self, active: int, info: int = 0) -> None:
         """Drive the error sub-interface signals.
 
-        Pulse the test sequence: ``slave.set_error(1, code=0x42)`` to
+        Pulse the test sequence: ``slave.set_error(1, info=0x42)`` to
         assert; ``slave.set_error(0)`` to deassert. The on-the-wire
         edge is what the behavior class samples.
         """

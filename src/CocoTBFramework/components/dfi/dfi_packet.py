@@ -16,9 +16,10 @@ fields (default 0 when the signal isn't applicable to the target
 memory). This keeps the packet API uniform — testbenches don't need
 per-version conditional packing.
 
-A separate convenience builder :class:`DFICommand` translates a
-high-level DRAM command (ACT, RD, WR, PRE, REF, NOP) into the right
-combination of RAS/CAS/WE/CS/CKE bits for the target memory type.
+A separate convenience builder :meth:`DFIControlPacket.from_command`
+translates a high-level DRAM command (ACT, RD, WR, PRE, REF, NOP) into
+the right combination of RAS/CAS/WE/CS/CKE bits for the target memory
+type.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from .dfi_signals import MemoryType
 
 class DRAMCommand(str, Enum):
     """High-level DRAM command codes. Maps to RAS/CAS/WE/CS bit pattern
-    via :meth:`DFICommand.encode`."""
+    via :meth:`DFIControlPacket.from_command`."""
 
     NOP = "nop"           # No operation
     ACT = "activate"      # Activate row

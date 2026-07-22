@@ -52,6 +52,9 @@ class DFIMasterMC(BusDriver):
         side:     Currently only ``"mc"`` (the MC drives the master role).
                   The argument exists for symmetry with :class:`DFIMonitor`.
         title:    Optional title for log messages.
+        memory_type: Optional :class:`~.dfi_signals.MemoryType`; defaults
+                  to DDR3. Pass LPDDR2/LPDDR3 so the primitives drive the
+                  20-bit CA word on ``dfi_address`` instead of ras/cas/we.
     """
 
     _signals = (
@@ -183,7 +186,8 @@ class DFIMasterMC(BusDriver):
         """ACT bank → row.
 
         DDR3-family: (ras_n=0, cas_n=1, we_n=1)
-        LPDDR2/3:    CA1[2:0]=0b011 packed into dfi_address
+        LPDDR2/3:    CA opcode CA0r=0, CA1r=1 (JESD209-2F Table 60);
+                     bank on CA9r:CA7r, row packed into dfi_address
         """
         if self._is_lpddr2_family():
             from .dfi_packet import DRAMCommand
@@ -197,7 +201,7 @@ class DFIMasterMC(BusDriver):
         """RD bank, col.
 
         DDR3-family: (ras_n=1, cas_n=0, we_n=1), addr[10]=AP
-        LPDDR2/3:    CA1[2:0]=0b101 with AP on CA1[9]
+        LPDDR2/3:    CA opcode CA0r=1, CA1r=0, CA2r=1; AP on CA0f
         """
         if self._is_lpddr2_family():
             from .dfi_packet import DRAMCommand
@@ -215,7 +219,7 @@ class DFIMasterMC(BusDriver):
         """WR bank, col.
 
         DDR3-family: (ras_n=1, cas_n=0, we_n=0)
-        LPDDR2/3:    CA1[2:0]=0b100
+        LPDDR2/3:    CA opcode CA0r=1, CA1r=0, CA2r=0; AP on CA0f
         """
         if self._is_lpddr2_family():
             from .dfi_packet import DRAMCommand
@@ -233,7 +237,8 @@ class DFIMasterMC(BusDriver):
         """PRE bank (or PREA all-banks).
 
         DDR3-family: (ras_n=0, cas_n=1, we_n=0)
-        LPDDR2/3:    CA1[2:0]=0b110, CA1[3]=AB, CA1[9:7]=bank
+        LPDDR2/3:    CA opcode CA0r=1, CA1r=1, CA2r=0, CA3r=1;
+                     AB on CA4r, bank on CA9r:CA7r
         """
         if self._is_lpddr2_family():
             from .dfi_packet import DRAMCommand
@@ -250,12 +255,15 @@ class DFIMasterMC(BusDriver):
         """REF (all-bank refresh).
 
         DDR3-family: (ras_n=0, cas_n=0, we_n=1)
-        LPDDR2/3:    CA1[2:0]=0b110 with REF flag CA1[6]=1
+        LPDDR2/3:    CA opcode CA0r=0, CA1r=0, CA2r=1; CA3r=1 (all-bank,
+                     matching DFISlavePHY's REF -> all-bank handling; add
+                     an ``all_banks=False`` arg here if per-bank REFpb is
+                     ever needed)
         """
         if self._is_lpddr2_family():
             from .dfi_packet import DRAMCommand
             from .lpddr_ca import encode_lpddr2_ca
-            ca = encode_lpddr2_ca(DRAMCommand.REF)
+            ca = encode_lpddr2_ca(DRAMCommand.REF, all_banks=True)
             await self._drive_lpddr2_command(ca)
             return
         await self._drive_command(ras_n=0, cas_n=0, we_n=1)

@@ -46,7 +46,6 @@ from typing import Tuple
 
 from .dfi_packet import DRAMCommand
 
-
 # ---------------------------------------------------------------------
 # Encoded CA word — small wrapper for type clarity
 # ---------------------------------------------------------------------
@@ -105,19 +104,22 @@ def encode_lpddr2_ca(
 
     if cmd in (DRAMCommand.NOP, DRAMCommand.DESEL):
         # CA0r=CA1r=CA2r=CA3r = H
-        rb(0, 1); rb(1, 1); rb(2, 1); rb(3, 1)
+        for ca in range(4):
+            rb(ca, 1)
 
     elif cmd == DRAMCommand.ACT:
         # opcode CA0r=0, CA1r=1 ; bank CA7r..CA9r
         rb(1, 1)
-        rb(7, bank); rb(8, bank >> 1); rb(9, bank >> 2)
+        for i in range(3):
+            rb(7 + i, bank >> i)
         # row hi R8..R12 -> CA2r..CA6r
-        rb(2, row >> 8); rb(3, row >> 9); rb(4, row >> 10)
-        rb(5, row >> 11); rb(6, row >> 12)
+        for i in range(5):
+            rb(2 + i, row >> (8 + i))
         # row lo R0..R7 -> CA0f..CA7f ; R13 -> CA8f ; R14 -> CA9f
         for i in range(8):
             fb(i, row >> i)
-        fb(8, row >> 13); fb(9, row >> 14)
+        fb(8, row >> 13)
+        fb(9, row >> 14)
 
     elif cmd in (DRAMCommand.RD, DRAMCommand.RDA, DRAMCommand.WR, DRAMCommand.WRA):
         is_read = cmd in (DRAMCommand.RD, DRAMCommand.RDA)
@@ -126,21 +128,25 @@ def encode_lpddr2_ca(
         rb(0, 1)
         rb(2, 1 if is_read else 0)
         # bank CA7r..CA9r
-        rb(7, bank); rb(8, bank >> 1); rb(9, bank >> 2)
+        for i in range(3):
+            rb(7 + i, bank >> i)
         # C1,C2 -> CA5r,CA6r  (C0 implied 0)
-        rb(5, col >> 1); rb(6, col >> 2)
+        rb(5, col >> 1)
+        rb(6, col >> 2)
         # AP -> CA0f ; C3..C11 -> CA1f..CA9f
         fb(0, ap)
-        fb(1, col >> 3); fb(2, col >> 4); fb(3, col >> 5); fb(4, col >> 6)
-        fb(5, col >> 7); fb(6, col >> 8); fb(7, col >> 9); fb(8, col >> 10)
-        fb(9, col >> 11)
+        for i in range(9):
+            fb(1 + i, col >> (3 + i))
 
     elif cmd in (DRAMCommand.PRE, DRAMCommand.PREA):
         ab = 1 if (all_banks or cmd == DRAMCommand.PREA) else 0
         # opcode CA0r=1, CA1r=1, CA2r=0, CA3r=1 ; AB -> CA4r ; bank CA7r..CA9r
-        rb(0, 1); rb(1, 1); rb(3, 1)
+        rb(0, 1)
+        rb(1, 1)
+        rb(3, 1)
         rb(4, ab)
-        rb(7, bank); rb(8, bank >> 1); rb(9, bank >> 2)
+        for i in range(3):
+            rb(7 + i, bank >> i)
         # falling edge all don't-care (0)
 
     elif cmd == DRAMCommand.REF:
@@ -150,12 +156,13 @@ def encode_lpddr2_ca(
 
     elif cmd == DRAMCommand.MRS:
         # MRW: opcode CA0r..CA3r=0 ; MA0..MA5 -> CA4r..CA9r
-        rb(4, mr_addr); rb(5, mr_addr >> 1); rb(6, mr_addr >> 2)
-        rb(7, mr_addr >> 3); rb(8, mr_addr >> 4); rb(9, mr_addr >> 5)
+        for i in range(6):
+            rb(4 + i, mr_addr >> i)
         # MA6,MA7 -> CA0f,CA1f ; OP0..OP7 -> CA2f..CA9f
-        fb(0, mr_addr >> 6); fb(1, mr_addr >> 7)
-        fb(2, mr_data); fb(3, mr_data >> 1); fb(4, mr_data >> 2); fb(5, mr_data >> 3)
-        fb(6, mr_data >> 4); fb(7, mr_data >> 5); fb(8, mr_data >> 6); fb(9, mr_data >> 7)
+        fb(0, mr_addr >> 6)
+        fb(1, mr_addr >> 7)
+        for i in range(8):
+            fb(2 + i, mr_data >> i)
 
     else:
         raise ValueError(

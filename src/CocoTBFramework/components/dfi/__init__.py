@@ -10,14 +10,14 @@ Public API:
 - :class:`DFIControlPacket`, :class:`DFIWriteDataPacket`,
   :class:`DFIReadDataPacket` — per-sub-interface transaction types
 - :class:`DRAMCommand` — high-level DRAM command codes
-- :func:`control_field_config`, :func:`write_data_field_config`,
+- :func:`command_field_config`, :func:`write_data_field_config`,
   :func:`read_data_field_config` — packet field configs for the BFMs
 - :func:`signals_for`, :func:`required_signal_names`,
   :func:`optional_signal_names` — signal-envelope helpers
-
-The actual BFM classes (DFIMasterMC, DFISlavePHY, DFIMonitor) land in
-the next commit; this module ships the foundation (signal envelope,
-packet types, field configs) plus Tier 1 unit tests.
+- :class:`DFIBase`, :class:`DFIMasterMC`, :class:`DFISlavePHY`,
+  :class:`DFIMonitor` — the BFM chassis and the three BFM roles
+- :class:`DramStateModel`, :class:`AddressMapping`,
+  :class:`JedecTimings` — DRAM state / address / timing models
 """
 
 from .dfi_base import DFIBase

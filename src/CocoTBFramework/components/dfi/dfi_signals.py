@@ -73,7 +73,7 @@ class MemoryType(str, Enum):
 class SubInterface(str, Enum):
     """The DFI sub-interfaces (scope: v2.1-v5.x).
 
-    v2.1 had six (the first six below plus TRAINING). v5.x grew this
+    v2.1 had six (the first five below plus TRAINING). v5.x grew this
     to roughly a dozen as new functions split out across revisions.
     MVP wires up COMMAND + WRITE_DATA + READ_DATA; Phase 2/3 add the
     rest within this version range.

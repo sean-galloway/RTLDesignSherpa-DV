@@ -59,7 +59,7 @@ pattern so version differences stay isolated.
                              │
        ┌─────────────────────▼─────────────────────┐
        │     dfi_shim.sv  (or your MC RTL)         │
-       │     mc_dfi_* ⇄ phy_dfi_*  (29 signals)    │
+       │     mc_dfi_* ⇄ phy_dfi_*  (33 signals)    │
        └───────────────────────────────────────────┘
 ```
 
@@ -193,14 +193,16 @@ Per-area queues:
 | Disconnect | `slave.disconnect_events` | `DisconnectEvent` (phase) |
 | PHY Master | `slave.takeover_events` | `TakeoverEvent` (reason) |
 
-For automated consumption, see the scoreboard hooks (TBD — separate
-documentation).
+For automated consumption, use
+`CocoTBFramework.scoreboards.dfi_scoreboard.DFIScoreboard` — it drains
+the per-area queues, fires registered `on_<area>(callback)` hooks, and
+tallies counts via `poll()` / `report()`.
 
 ## Driving the wire
 
 | Direction | Driven by | Primitive |
 |---|---|---|
-| Command + write | `DFIMasterMC` | `activate`, `read`, `write`, `precharge`, `refresh`, `nop`, `write_data`, `write_burst` |
+| Command + write | `DFIMasterMC` | `activate`, `read`, `write`, `precharge`, `refresh`, `nop`, `write_data`, `write_burst`, `set_rddata_en` |
 | MC→PHY update / parity / freq / acks | `DFIMasterMC` | `set_ctrlupd_req`, `set_phyupd_ack`, `set_parity_in`, `set_freq_change`, `set_disconnect_ack`, `set_phymstr_ack` |
 | Read data + memory | `DFISlavePHY` | (auto-serves reads via DRAM model + MemoryModel) |
 | PHY→MC error / CRC / update / training / parity / etc. | `DFISlavePHY` | `set_error`, `set_crc_alert`, `set_phyupd_req`, `set_ctrlupd_ack`, `set_training`, `set_parity_check`, `set_freq_change_ack`, `set_disconnect_req`, `set_phymstr_req` |
@@ -208,7 +210,7 @@ documentation).
 ## SystemVerilog shim for two-monitor tests
 
 `tests/sim/rtl/dfi/dfi_shim.sv` is a pure-passthrough RTL module with
-all 29 DFI signals exposed on both MC- and PHY-facing ports. Attach
+all 33 DFI signals exposed on both MC- and PHY-facing ports. Attach
 a master + slave + monitor on either side and verify the same packet
 stream lands on both sides. This is what the cocotb tests in
 `tests/sim/dfi/` use; for your own MC RTL, replace the shim with the
@@ -220,7 +222,3 @@ DUT and connect to one side only.
   [`docs/internal/dfi-semantic-shifts.md`](../../internal/dfi-semantic-shifts.md)
 - **JEDEC timing format:**
   `src/CocoTBFramework/components/dfi/jedec/README.md`
-- **Reference open-source DDR controller (LiteDRAM):**
-  `../mem-ctrl-ref/litedram/`
-- **Reference DRAM simulator (DRAMsim3):**
-  `../mem-ctrl-ref/DRAMsim3/`

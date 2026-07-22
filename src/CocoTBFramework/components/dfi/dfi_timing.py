@@ -19,7 +19,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-
 # Read-return anchor: what the rddata_valid schedule is measured from.
 READ_REF_COMMAND = "command"      # fixed latency after the READ COMMAND (DRAM-like)
 READ_REF_RDDATA_EN = "rddata_en"  # latency after the controller asserts dfi_rddata_en
@@ -206,8 +205,8 @@ class DFITimingProfile:
 #       words_per_cycle = nphases * words_per_beat        (device-word slots)
 #   A FULL BL8 read (bl == 2*nphases DDR beats) fills ALL words_per_cycle slots.
 #   A SHORT burst delivers
-#       burst_words = bl * words_per_beat / ??? ...
-#   -- see bl_anchored_slot_mask below for the exact count -- and fills ONLY the
+#       burst_slots = bl        (one device word per DDR beat on a narrow device)
+#   -- see bl_anchored_slot_mask below -- and fills ONLY the
 #   rd_phase-ANCHORED contiguous slot run. The slots the short burst does NOT
 #   drive hold the PREVIOUS read's beats (STALE), NOT this burst's data and NOT
 #   zeros. A controller that captures ALL words_per_cycle slots as one wide DFI

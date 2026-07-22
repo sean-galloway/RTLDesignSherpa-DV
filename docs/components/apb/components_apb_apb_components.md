@@ -66,6 +66,14 @@ apb_optional_signals = [
 ]
 ```
 
+### Required vs Optional Signal Binding
+
+`cocotb_bus` treats a BFM's `_signals` list as **required** — bus binding fails if the DUT is missing any of them — while `_optional_signals` are best-effort: absent signals are skipped and simply do not appear on `self.bus`.
+
+APBMonitor, APBSlave, and APBMaster therefore bind `apb_signals` as required and `apb_optional_signals` as optional. A DUT that omits PSTRB, PSLVERR, or PPROT still binds, and every access to those signals is guarded by `is_signal_present()`. The same rule applies to the APB5 BFMs, where all AMBA5 extensions (USER / WAKEUP / parity) are optional.
+
+Passing an explicit `signals=[...]` list overrides this: the supplied list becomes the required set with no optional signals, giving the caller full control.
+
 ## Core Classes
 
 ### APBMonitor

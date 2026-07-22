@@ -46,7 +46,44 @@ apb_signals = list(BASE_APB_SIGNALS)
 apb_optional_signals = list(BASE_APB_OPTIONAL_SIGNALS)
 
 
-class APBMonitor(BusMonitor):
+class APBSignalMixin:
+    """Required/optional signal-list handling shared by all APB BFMs.
+
+    ``cocotb_bus`` treats ``_signals`` as *required* — bus binding raises if
+    any of them is missing on the DUT — while ``_optional_signals`` are
+    best-effort: missing ones are skipped and simply absent from
+    ``self.bus``. Optional APB signals (PPROT / PSLVERR / PSTRB, plus the
+    APB5 USER / WAKEUP / parity extensions) must therefore never appear in
+    ``_signals``; otherwise a DUT without them can never bind and the
+    :meth:`is_signal_present` guards are defeated.
+
+    Subclasses (the APB5 BFMs) override the two class attributes to widen
+    the optional set.
+    """
+
+    #: Required signals used when the caller doesn't pass ``signals``.
+    _required_signal_defaults = tuple(BASE_APB_SIGNALS)
+    #: Optional signals used when the caller doesn't pass ``signals``.
+    _optional_signal_defaults = tuple(BASE_APB_OPTIONAL_SIGNALS)
+
+    @classmethod
+    def _resolve_signal_lists(cls, signals):
+        """Return the ``(required, optional)`` signal lists for cocotb_bus.
+
+        An explicit ``signals`` list is used verbatim as the required set
+        with no optional signals — the caller takes full control, matching
+        the historical behavior of the ``signals`` override parameter.
+        """
+        if signals:
+            return list(signals), []
+        return list(cls._required_signal_defaults), list(cls._optional_signal_defaults)
+
+    def is_signal_present(self, signal_name):
+        """True if the (optional) signal was found on the bus at bind time."""
+        return hasattr(self.bus, signal_name) and getattr(self.bus, signal_name) is not None
+
+
+class APBMonitor(APBSignalMixin, BusMonitor):
     """APB Monitor.
 
     Class convention — Slave-via-BusMonitor and extension hooks:
@@ -54,8 +91,9 @@ class APBMonitor(BusMonitor):
         ``docs/components/components_overview.md``). Subclasses (notably
         ``APB5Monitor``) extend by:
 
-        - Setting ``_signals`` / ``_optional_signals`` to include extension
-          signals (USER/WAKEUP/parity).
+        - Overriding ``_required_signal_defaults`` /
+          ``_optional_signal_defaults`` (see :class:`APBSignalMixin`) to add
+          extension signals (USER/WAKEUP/parity) to the *optional* set.
         - Overriding :meth:`_build_packet` to construct the protocol-specific
           packet class with extension fields.
 
@@ -66,14 +104,9 @@ class APBMonitor(BusMonitor):
     def __init__(self, entity, title, prefix, clock, signals=None,
                  bus_width=32, addr_width=12, log=None, **kwargs):
 
-        if signals:
-            self._signals = signals
-        else:
-            self._signals = apb_signals + apb_optional_signals
-            self._optional_signals = apb_optional_signals
+        self._signals, self._optional_signals = self._resolve_signal_lists(signals)
 
         self.count = 0
-        self.bus_width = bus_width
 
         # Normalize prefix: remove trailing underscore if present
         # BusMonitor adds underscore separator automatically
@@ -86,10 +119,6 @@ class APBMonitor(BusMonitor):
         self.bus_width = bus_width
         self.addr_width = addr_width
         self.strb_width = bus_width // 8
-
-    def is_signal_present(self, signal_name):
-        # Check if the bus has the attribute and that it is not None
-        return hasattr(self.bus, signal_name) and getattr(self.bus, signal_name) is not None
 
     def print(self, transaction):
         msg = f'{self.title} - APB Transaction #{self.count}: '
@@ -192,7 +221,7 @@ class APBMonitor(BusMonitor):
             prev_pready = curr_pready
 
 
-class APBSlave(BusMonitor):
+class APBSlave(APBSignalMixin, BusMonitor):
     """APB Slave BFM with extensible response pipeline.
 
     Class convention — Slave-via-BusMonitor:
@@ -223,11 +252,7 @@ class APBSlave(BusMonitor):
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
                     bus_width=32, addr_width=12, randomizer=None,
                     log=None, error_overflow=False, **kwargs):
-        if signals:
-            self._signals = signals
-        else:
-            self._signals = apb_signals + apb_optional_signals
-            self._optional_signals = apb_optional_signals
+        self._signals, self._optional_signals = self._resolve_signal_lists(signals)
         if randomizer is None:
             self.randomizer = FlexRandomizer(self._default_randomizer_constraints())
         else:
@@ -317,10 +342,6 @@ class APBSlave(BusMonitor):
     def set_randomizer(self, randomizer):
         self.randomizer = randomizer
         self.log.info(f"Set new randomizer for APB Slave ({self.title})")
-
-    def is_signal_present(self, signal_name):
-        # Check if the bus has the attribute and that it is not None
-        return hasattr(self.bus, signal_name) and getattr(self.bus, signal_name) is not None
 
     def dump_registers(self):
         msg = f"APB Slave {self.title} - Register Dump:"
@@ -467,7 +488,7 @@ class APBSlave(BusMonitor):
             self.print(transaction)
 
 
-class APBMaster(BusDriver):
+class APBMaster(APBSignalMixin, BusDriver):
     """APB Master BFM with queued + randomized transmit pipeline.
 
     Extension hooks for APB5:
@@ -477,21 +498,20 @@ class APBMaster(BusDriver):
           randomization.
         - :meth:`_init_extension_signals` to zero APB5 output extensions
           (PAUSER/PWUSER) during ``__init__``.
-        - :meth:`_drive_extension_setup_phase` to drive USER signals during
-          the setup phase of ``_finish_xmit``.
-        - :meth:`_capture_extension_response` to sample USER/WAKEUP signals
+        - :meth:`_drive_extension_setup_phase` to drive USER / WAKEUP signals
+          during the setup phase of ``_finish_xmit`` (per AMBA APB5,
+          PWAKEUP is requester-driven and asserts with PSEL).
+        - :meth:`_capture_extension_response` to sample USER signals
           alongside PRDATA / PSLVERR.
+        - :meth:`_clear_extension_signals` to deassert extension outputs
+          whenever the master clears the bus.
 
         Each hook has a no-op default so the APB4 path is unchanged.
     """
     def __init__(self, entity, title, prefix, clock, signals=None,
                     bus_width=32, addr_width=12, randomizer=None,
                     log=None, **kwargs):
-        if signals:
-            self._signals = signals
-        else:
-            self._signals = apb_signals + apb_optional_signals
-            self._optional_signals = apb_optional_signals
+        self._signals, self._optional_signals = self._resolve_signal_lists(signals)
         if randomizer is None:
             self.randomizer = FlexRandomizer(self._default_randomizer_constraints())
         else:
@@ -548,16 +568,21 @@ class APBMaster(BusDriver):
         return None
 
     def _capture_extension_response(self, transaction):
-        """No-op default. APB5Master samples PRUSER / PBUSER / PWAKEUP here."""
+        """No-op default. APB5Master samples PRUSER / PBUSER here."""
+        return None
+
+    def _clear_extension_signals(self):
+        """No-op default. Called whenever the master clears the bus (between
+        queued transactions, at pipeline completion, and on ``reset_bus``).
+
+        APB5Master overrides this to deassert master-driven extensions
+        (PWAKEUP / PAUSER / PWUSER) together with PSEL.
+        """
         return None
 
     def set_randomizer(self, randomizer):
         self.randomizer = randomizer
         self.log.info(f"Set new randomizer for APB Master ({self.title})")
-
-    def is_signal_present(self, signal_name):
-        # Check if the bus has the attribute and that it is not None
-        return hasattr(self.bus, signal_name) and getattr(self.bus, signal_name) is not None
 
     async def reset_bus(self):
         # initialise the transmit queue
@@ -573,6 +598,8 @@ class APBMaster(BusDriver):
             self.bus.PSTRB.value = 0
         if self.is_signal_present('PPROT'):
             self.bus.PPROT.value    = 0
+        # Extension clear hook (no-op in APB4; APB5Master deasserts PWAKEUP etc.)
+        self._clear_extension_signals()
 
     async def busy_send(self, transaction):
         '''
@@ -623,6 +650,8 @@ class APBMaster(BusDriver):
                 self.bus.PPROT.value = 0
             if self.is_signal_present('PSTRB'):
                 self.bus.PSTRB.value = 0
+            # Extension clear hook (no-op in APB4)
+            self._clear_extension_signals()
 
             rand_dict = self.randomizer.next()
             psel_delay = rand_dict['psel']
@@ -645,6 +674,8 @@ class APBMaster(BusDriver):
             self.bus.PPROT.value    = 0
         if self.is_signal_present('PSTRB'):
             self.bus.PSTRB.value = 0
+        # Extension clear hook (no-op in APB4)
+        self._clear_extension_signals()
 
     async def _finish_xmit(self, transaction, psel_delay, penable_delay):
         """Completes an APB transaction.

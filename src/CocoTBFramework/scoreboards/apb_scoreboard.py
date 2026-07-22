@@ -17,6 +17,9 @@
 from collections import defaultdict
 
 from CocoTBFramework.components.apb.apb_packet import APBPacket
+from CocoTBFramework.scoreboards.apb_gaxi_transformer import (
+    APBtoGAXITransformer as _CanonicalAPBtoGAXITransformer,
+)
 from CocoTBFramework.scoreboards.base_scoreboard import BaseScoreboard, ProtocolTransformer
 
 
@@ -247,17 +250,36 @@ class APBCrossbarScoreboard:
         return "\n".join(lines)
 
 
-class APBtoGAXITransformer(ProtocolTransformer):
-    """Transformer from APB to GAXI transactions"""
+class APBtoGAXITransformer(_CanonicalAPBtoGAXITransformer, ProtocolTransformer):
+    """Compatibility shim over the canonical APB-to-GAXI transformer.
+
+    The canonical implementation lives in
+    :mod:`CocoTBFramework.scoreboards.apb_gaxi_transformer` — new code
+    should import :class:`APBtoGAXITransformer` from there and use its
+    ``apb_to_gaxi()`` / ``gaxi_to_apb()`` methods.
+
+    This subclass preserves the historical contract of the
+    ``apb_scoreboard`` import path:
+
+    - constructor ``(gaxi_field_config, packet_class, log=None)`` with the
+      GAXI packet class as the second positional argument;
+    - the :class:`ProtocolTransformer` ``transform()`` API returning a list
+      of GAXI packets (with transformation statistics);
+    - the ``packet_class`` attribute name.
+    """
 
     def __init__(self, gaxi_field_config, packet_class, log=None):
-        super().__init__("APB", "GAXI", log)
-        self.gaxi_field_config = gaxi_field_config
+        ProtocolTransformer.__init__(self, "APB", "GAXI", log)
+        _CanonicalAPBtoGAXITransformer.__init__(
+            self, gaxi_field_config, gaxi_packet_class=packet_class, log=log,
+        )
+        # Historical attribute name used by callers of this import path
         self.packet_class = packet_class
 
     def transform(self, apb_cycle):
         """Transform APB cycle to one or more GAXI transactions"""
         if not isinstance(apb_cycle, APBPacket):
+            self.num_failures += 1
             if self.log:
                 self.log.error("Invalid transaction type for APB to GAXI transformation")
             return []
@@ -279,6 +301,8 @@ class APBtoGAXITransformer(ProtocolTransformer):
 
         if 'strb' in gaxi_packet.fields and apb_cycle.direction == 'WRITE':
             gaxi_packet.fields['strb'] = apb_cycle.pstrb
+
+        self.num_transformations += 1
 
         # Return as a single transaction for now
         # In more complex cases, you might return multiple transactions

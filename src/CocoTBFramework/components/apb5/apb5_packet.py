@@ -222,7 +222,7 @@ class APB5Packet(Packet):
             default=0,
             format="dec",
             display_width=1,
-            description="Wake-up Request (from slave)"
+            description="Wake-up Request (requester-driven, observed by completer)"
         ))
 
         # Parity Error Flags (for monitoring)
@@ -254,6 +254,20 @@ class APB5Packet(Packet):
         ))
 
         return config
+
+    def copy(self):
+        """
+        Create a copy of this packet with ``direction`` kept consistent.
+
+        See :meth:`APBPacket.copy` — the base ``Packet.copy()`` leaves the
+        derived ``direction`` attribute stale for WRITE packets.
+
+        Returns:
+            New packet with the same field values
+        """
+        new_packet = super().copy()
+        new_packet.direction = PWRITE_MAP[new_packet.fields.get('pwrite', 0)]
+        return new_packet
 
     def __str__(self):
         """
@@ -544,11 +558,15 @@ class APB5Transaction(Randomized):
             addr_min_hi = (4 * self.strb_width) - 1
             addr_max_lo = (4 * self.strb_width)
             addr_max_hi = (32 * self.strb_width) - 1
+            strb_all_ones = (1 << self.strb_width) - 1
 
+            # pstrb bins derived from strb_width (weighted towards the
+            # all-lanes-enabled strobe)
             self.randomizer = FlexRandomizer({
                 'pwrite': ([(0, 0), (1, 1)], [1, 1]),
                 'paddr': ([(0, addr_min_hi), (addr_max_lo, addr_max_hi)], [4, 1]),
-                'pstrb': ([(15, 15), (0, 14)], [4, 1]),
+                'pstrb': ([(strb_all_ones, strb_all_ones),
+                           (0, max(strb_all_ones - 1, 0))], [4, 1]),
                 'pprot': ([(0, 0), (1, 7)], [4, 1]),
                 'pauser': ([(0, (1 << auser_width) - 1)], [1]),
                 'pwuser': ([(0, (1 << wuser_width) - 1)], [1]),
@@ -575,12 +593,14 @@ class APB5Transaction(Randomized):
 
     def next(self):
         """
-        Generate next transaction using randomizer.
+        Generate next transaction using the FlexRandomizer.
+
+        (``Randomized.randomize()`` is deliberately not called here — its
+        results were discarded; see APBTransaction.next().)
 
         Returns:
             APB5Packet: Generated packet
         """
-        self.randomize()
         value_dict = self.randomizer.next()
 
         packet = APB5Packet(

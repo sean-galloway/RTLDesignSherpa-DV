@@ -154,6 +154,22 @@ class APBPacket(Packet):
 
         return config
 
+    def copy(self):
+        """
+        Create a copy of this packet with ``direction`` kept consistent.
+
+        The base ``Packet.copy()`` rebuilds via the constructor (which
+        derives ``direction`` from *default* field values) and only then
+        copies the field dict — leaving ``direction`` stale for WRITE
+        packets. Re-derive it from the copied ``pwrite`` here.
+
+        Returns:
+            New packet with the same field values
+        """
+        new_packet = super().copy()
+        new_packet.direction = PWRITE_MAP[new_packet.fields.get('pwrite', 0)]
+        return new_packet
+
     def __str__(self):
         """
         Provide a detailed string representation of the APB packet.
@@ -314,12 +330,15 @@ class APBTransaction(Randomized):
             addr_min_hi = (4 * self.strb_width) - 1
             addr_max_lo = (4 * self.strb_width)
             addr_max_hi = (32 * self.strb_width) - 1
+            strb_all_ones = (1 << self.strb_width) - 1
 
-            # Default randomizer
+            # Default randomizer (pstrb bins derived from strb_width:
+            # weighted towards the all-lanes-enabled strobe)
             self.randomizer = FlexRandomizer({
                 'pwrite': ([(0, 0), (1, 1)], [1, 1]),
                 'paddr': ([(0, addr_min_hi), (addr_max_lo, addr_max_hi)], [4, 1]),
-                'pstrb': ([(15, 15), (0, 14)], [4, 1]),
+                'pstrb': ([(strb_all_ones, strb_all_ones),
+                           (0, max(strb_all_ones - 1, 0))], [4, 1]),
                 'pprot': ([(0, 0), (1, 7)], [4, 1])
             })
         elif isinstance(randomizer, FlexRandomizer):
@@ -343,18 +362,18 @@ class APBTransaction(Randomized):
 
     def next(self):
         """
-        Generate next transaction using randomizer.
+        Generate next transaction using the FlexRandomizer.
 
-        This will use either the Randomized infrastructure or the FlexRandomizer
-        based on the implementation.
+        The packet fields are populated exclusively from the
+        FlexRandomizer. (``Randomized.randomize()`` from cocotb_coverage is
+        deliberately not called here — its results were discarded, making
+        it pure double-randomization overhead. Callers that want the
+        cocotb_coverage path can still invoke :meth:`randomize` directly.)
 
         Returns:
             APBPacket: Generated packet
         """
-        # Use Randomized's randomize method to set self.pwrite, self.paddr, etc.
-        self.randomize()
-
-        # Also get values from FlexRandomizer
+        # Get values from FlexRandomizer
         value_dict = self.randomizer.next()
 
         # Create a new packet
@@ -365,8 +384,7 @@ class APBTransaction(Randomized):
             strb_width=self.strb_width
         )
 
-        # We can choose which source of randomization to use
-        # Here we use FlexRandomizer for consistency with original implementation
+        # Populate fields from the FlexRandomizer values
         packet.fields['pwrite'] = value_dict['pwrite']
         packet.fields['paddr'] = value_dict['paddr'] & ~self.addr_mask
         packet.fields['pstrb'] = value_dict['pstrb']

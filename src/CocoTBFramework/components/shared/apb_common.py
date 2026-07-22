@@ -13,32 +13,23 @@
 
 """Shared constants for APB and APB5 BFMs.
 
-Scope note (issue #8 audit):
-    The original methodology review claimed APB and APB5 share ~80% of code.
-    On closer inspection the duplication is materially smaller:
+Scope note:
+    Since the issue #15 unification, the APB5 BFMs (``APB5Monitor``,
+    ``APB5Master``, ``APB5Slave``) inherit directly from the APB4 BFMs in
+    ``components/apb/apb_components.py`` and extend them via override
+    hooks (packet construction, extension-signal drive/capture, randomizer
+    constraints). The BFM state machines therefore live in one place; this
+    module holds only the protocol constants both layers share:
 
-    - **Master**: ``APBMaster`` uses a queued, randomized transmit pipeline
-      with ``_transmit_pipeline`` / ``_finish_xmit``. ``APB5Master`` directly
-      drives in ``_driver_send`` with no queue and no randomized PSEL/PENABLE
-      delays. These are structurally different implementations, not a
-      common-base candidate.
-    - **Slave**: APBSlave and APB5Slave diverge because APB5 carries
-      USER/WAKEUP/parity fields that change the slave's randomizer and
-      response logic.
-    - **Monitor**: edge-detection loops are heavily duplicated but APB5
-      captures more fields. A clean common-base extraction is possible
-      but defer to a follow-up PR — left siblings here to keep the diff focused.
-
-    What this module factors out today:
-
-    - ``BASE_APB_SIGNALS`` / ``BASE_APB_OPTIONAL_SIGNALS`` — the AMBA APB4
-      common subset (APB5 extends this set).
-    - ``PWRITE_DIR`` — ``("READ", "WRITE")`` direction mapping used by both
-      Monitors.
-
-    The next consolidation step is to extract a common ``_APBMonitorBase``
-    with override hooks for protocol-specific field capture. Tracked as a
-    follow-up; this module is the seed.
+    - ``BASE_APB_SIGNALS`` — the mandatory AMBA APB4 signal set, used as
+      the cocotb_bus *required* signal list by both APB and APB5 BFMs.
+    - ``BASE_APB_OPTIONAL_SIGNALS`` — the APB4 optional signals
+      (PPROT / PSLVERR / PSTRB), declared as cocotb_bus *optional* signals
+      so DUTs without them still bind. APB5 layers its USER / WAKEUP /
+      parity extensions on top of this optional set (see
+      ``components/apb5/apb5_components.py``).
+    - ``PWRITE_DIR`` — ``("READ", "WRITE")`` direction mapping used by all
+      APB BFMs.
 """
 
 from __future__ import annotations

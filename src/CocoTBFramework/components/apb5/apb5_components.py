@@ -38,8 +38,19 @@ Inheritance design (issue #15):
       bytearray and a line index instead of a byte address (would have
       raised TypeError), and ``self.mem.read(line)`` was missing the
       required ``length`` argument.
+
+PWAKEUP direction (AMBA APB5, IHI 0024E):
+    PWAKEUP is driven by the *requester* — :class:`APB5Master` asserts it
+    together with PSEL and holds it until the transfer completes
+    (``wakeup_enable`` constructor parameter / :meth:`APB5Master.set_wakeup_enable`).
+    :class:`APB5Slave` and :class:`APB5Monitor` only observe PWAKEUP and
+    record its value in the captured packet's ``wakeup`` field. The old
+    slave-driven model (``APB5Slave.set_wakeup`` and the never-invoked
+    ``wakeup_generator`` parameter) is gone; ``wakeup_generator`` is still
+    accepted for compatibility but ignored with a DeprecationWarning.
 """
 
+import warnings
 from typing import Any
 
 from cocotb.utils import get_sim_time
@@ -79,6 +90,29 @@ apb5_optional_signals = list(BASE_APB_OPTIONAL_SIGNALS) + list(
 )
 
 
+def _warn_ignored_wakeup_generator(wakeup_generator):
+    """Deprecation shim for the removed slave-side wake-up generation.
+
+    Per AMBA APB5 (IHI 0024E) PWAKEUP is driven by the *requester* (the
+    master), asserted with PSEL and held until the transfer completes. The
+    old ``wakeup_generator`` parameter modeled the wrong direction (and was
+    never invoked). It is accepted for backward compatibility but ignored.
+
+    Returns:
+        None (always) — the stored ``wakeup_generator`` attribute value.
+    """
+    if wakeup_generator is not None:
+        warnings.warn(
+            "APB5Slave(wakeup_generator=...) is deprecated and ignored: "
+            "PWAKEUP is driven by the requester (master) per AMBA APB5 "
+            "(IHI 0024E). Use APB5Master(wakeup_enable=...) or "
+            "APB5Master.set_wakeup_enable() to control PWAKEUP.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+    return None
+
+
 # ----------------------------------------------------------------------
 # APB5Monitor — inherits APBMonitor; overrides only the packet hook.
 # ----------------------------------------------------------------------
@@ -92,20 +126,15 @@ class APB5Monitor(APBMonitor):
     with USER / WAKEUP fields sampled from the bus.
     """
 
+    # APB5 default signal sets for cocotb_bus binding (see APBSignalMixin):
+    # required signals are the APB4 base; every AMBA5 extension is optional.
+    _required_signal_defaults = tuple(apb5_signals)
+    _optional_signal_defaults = tuple(apb5_optional_signals)
+
     def __init__(self, entity, title, prefix, clock, signals=None,
                  bus_width=32, addr_width=12,
                  auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
                  log=None, **kwargs):
-        # APB5 has extended signal sets. If the caller didn't provide an
-        # explicit override, supply the APB5 set before calling super().
-        # APBMonitor's __init__ uses these as defaults when signals is None.
-        if signals is None:
-            self._signals = apb5_signals + apb5_optional_signals
-            self._optional_signals = apb5_optional_signals
-            # Pass `signals=self._signals` to ensure super() doesn't replace
-            # them with the APB4 defaults.
-            signals = self._signals
-
         # APB5-specific width parameters needed by the packet hook
         self.auser_width = auser_width
         self.wuser_width = wuser_width
@@ -178,11 +207,22 @@ class APB5Master(APBMaster):
     busy_send, reset_bus, FlexRandomizer for PSEL/PENABLE delays). APB5
     extensions are layered in via the extension hooks:
 
-    - :meth:`_init_extension_signals` zeroes PAUSER/PWUSER at construction.
-    - :meth:`_drive_extension_setup_phase` drives PAUSER/PWUSER during the
-      setup phase of every transaction.
-    - :meth:`_capture_extension_response` samples PRUSER/PBUSER/PWAKEUP
-      after PREADY rises.
+    - :meth:`_init_extension_signals` zeroes PAUSER/PWUSER/PWAKEUP at
+      construction.
+    - :meth:`_drive_extension_setup_phase` drives PAUSER/PWUSER and (per
+      AMBA APB5, IHI 0024E) PWAKEUP during the setup phase of every
+      transaction — PWAKEUP is a *requester-driven* signal that asserts
+      together with PSEL and holds until the transfer completes.
+    - :meth:`_capture_extension_response` samples PRUSER/PBUSER after
+      PREADY rises.
+    - :meth:`_clear_extension_signals` deasserts PWAKEUP/PAUSER/PWUSER
+      whenever the master clears the bus (so PWAKEUP falls with PSEL).
+
+    Wake-up control:
+        ``wakeup_enable`` (constructor parameter, default True) selects
+        whether PWAKEUP is asserted for each transfer; it can be changed at
+        runtime via :meth:`set_wakeup_enable`. The driven value is recorded
+        in the transaction's ``wakeup`` field.
 
     The convenience methods :meth:`write` and :meth:`read` build an
     :class:`APB5Packet` and forward to the inherited :meth:`send` (queued
@@ -190,22 +230,25 @@ class APB5Master(APBMaster):
     need to wait for completion.
     """
 
+    # APB5 default signal sets for cocotb_bus binding (see APBSignalMixin).
+    _required_signal_defaults = tuple(apb5_signals)
+    _optional_signal_defaults = tuple(apb5_optional_signals)
+
     def __init__(self, entity, title, prefix, clock, signals=None,
                  bus_width=32, addr_width=12,
                  auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
-                 randomizer=None, log=None, **kwargs):
-        # Default to APB5 signal sets so APBMaster's __init__ picks them up.
-        if signals is None:
-            self._signals = apb5_signals + apb5_optional_signals
-            self._optional_signals = apb5_optional_signals
-            signals = self._signals
-
+                 randomizer=None, log=None, wakeup_enable=True, **kwargs):
         # APB5 widths needed by extension hooks and packet construction
         self.auser_width = auser_width
         self.wuser_width = wuser_width
         self.ruser_width = ruser_width
         self.buser_width = buser_width
         self.count = 0
+        # PWAKEUP driving policy: per AMBA APB5 (IHI 0024E) PWAKEUP is
+        # driven by the requester (this master). When enabled and the DUT
+        # has a PWAKEUP wire, the master asserts it together with PSEL and
+        # holds it until the transfer completes.
+        self.wakeup_enable = bool(wakeup_enable)
 
         super().__init__(
             entity=entity, title=title, prefix=prefix, clock=clock,
@@ -223,22 +266,70 @@ class APB5Master(APBMaster):
             self.bus.PAUSER.setimmediatevalue(0)
         if self.is_signal_present('PWUSER'):
             self.bus.PWUSER.setimmediatevalue(0)
+        if self.is_signal_present('PWAKEUP'):
+            self.bus.PWAKEUP.setimmediatevalue(0)
 
     def _drive_extension_setup_phase(self, transaction):
-        """Drive PAUSER / PWUSER during the setup phase."""
+        """Drive PAUSER / PWUSER / PWAKEUP during the setup phase.
+
+        PWAKEUP is requester-driven (AMBA APB5, IHI 0024E): it asserts
+        together with PSEL and is held until the transfer completes
+        (deassertion happens in :meth:`_clear_extension_signals`). The
+        value actually driven is recorded in the transaction's ``wakeup``
+        field so scoreboards see what went on the wire.
+        """
         if self.is_signal_present('PAUSER'):
             self.bus.PAUSER.value = transaction.fields.get('pauser', 0)
         if self.is_signal_present('PWUSER'):
             self.bus.PWUSER.value = transaction.fields.get('pwuser', 0)
+        if self.is_signal_present('PWAKEUP'):
+            wakeup_value = 1 if self.wakeup_enable else 0
+            self.bus.PWAKEUP.value = wakeup_value
+            if 'wakeup' in transaction.fields:
+                transaction.fields['wakeup'] = wakeup_value
 
     def _capture_extension_response(self, transaction):
-        """Sample PRUSER / PBUSER / PWAKEUP after PREADY rises."""
+        """Sample PRUSER / PBUSER after PREADY rises.
+
+        PWAKEUP is *not* sampled here — it is driven by this master (see
+        :meth:`_drive_extension_setup_phase`), not by the completer.
+        """
         if self.is_signal_present('PRUSER'):
             transaction.fields['pruser'] = self.bus.PRUSER.value.integer
         if self.is_signal_present('PBUSER'):
             transaction.fields['pbuser'] = self.bus.PBUSER.value.integer
+
+    def _clear_extension_signals(self):
+        """Deassert master-driven APB5 extensions when the bus is cleared.
+
+        PWAKEUP falls together with PSEL (it is held through the transfer
+        per IHI 0024E); PAUSER / PWUSER return to zero between transfers.
+        """
+        if self.is_signal_present('PAUSER'):
+            self.bus.PAUSER.value = 0
+        if self.is_signal_present('PWUSER'):
+            self.bus.PWUSER.value = 0
         if self.is_signal_present('PWAKEUP'):
-            transaction.fields['wakeup'] = self.bus.PWAKEUP.value.integer
+            self.bus.PWAKEUP.value = 0
+
+    # ---- Wake-up control API ----
+
+    def set_wakeup_enable(self, enable):
+        """Enable/disable PWAKEUP assertion for subsequent transfers.
+
+        Per AMBA APB5 (IHI 0024E) PWAKEUP is driven by the requester and
+        asserted with (or before) PSEL, held until the transfer completes.
+        When enabled (the default), this master asserts PWAKEUP together
+        with PSEL for every transfer and deasserts it when PSEL falls.
+
+        Args:
+            enable: Truthy to assert PWAKEUP on subsequent transfers.
+        """
+        self.wakeup_enable = bool(enable)
+        self.log.info(
+            f"APB5 Master ({self.title}): PWAKEUP driving "
+            f"{'enabled' if self.wakeup_enable else 'disabled'}"
+        )
 
     # ---- APB5-specific convenience methods ----
 
@@ -298,8 +389,10 @@ class APB5Slave(APBSlave):
     """APB5 Slave BFM.
 
     Inherits the unified APB slave state machine from :class:`APBSlave`
-    (see :meth:`APBSlave._monitor_recv`) and adds AMBA5 USER/WAKEUP
-    handling via the extension hooks.
+    (see :meth:`APBSlave._monitor_recv`) and adds AMBA5 USER handling via
+    the extension hooks. PWAKEUP is requester-driven (see module
+    docstring): this slave only observes it and records the sampled value
+    in each captured packet's ``wakeup`` field.
 
     Behavior change from the previous APB5Slave (issue #15 Phase B):
         - **Memory access is now correct.** The previous implementation
@@ -320,6 +413,10 @@ class APB5Slave(APBSlave):
           Observable timing difference is typically 1 cycle.
     """
 
+    # APB5 default signal sets for cocotb_bus binding (see APBSignalMixin).
+    _required_signal_defaults = tuple(apb5_signals)
+    _optional_signal_defaults = tuple(apb5_optional_signals)
+
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
                  bus_width=32, addr_width=12,
                  auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
@@ -332,13 +429,10 @@ class APB5Slave(APBSlave):
         self.wuser_width = wuser_width
         self.ruser_width = ruser_width
         self.buser_width = buser_width
-        self.wakeup_generator = wakeup_generator
-
-        # Default to APB5 signal sets so APBSlave's __init__ picks them up.
-        if signals is None:
-            self._signals = apb5_signals + apb5_optional_signals
-            self._optional_signals = apb5_optional_signals
-            signals = self._signals
+        # Deprecated: PWAKEUP is requester-driven, so slave-side wake-up
+        # generation no longer exists. Accepted (with a DeprecationWarning)
+        # so existing callers don't break; always stored as None.
+        self.wakeup_generator = _warn_ignored_wakeup_generator(wakeup_generator)
 
         super().__init__(
             entity=entity, title=title, prefix=prefix, clock=clock,
@@ -358,13 +452,16 @@ class APB5Slave(APBSlave):
         return constraints
 
     def _init_extension_signals(self):
-        """Zero APB5 output extensions at construction."""
+        """Zero APB5 output extensions at construction.
+
+        Note: PWAKEUP is *not* initialized here — it is a requester-driven
+        signal (AMBA APB5, IHI 0024E) owned by :class:`APB5Master`; the
+        slave only observes it.
+        """
         if self.is_signal_present('PRUSER'):
             self.bus.PRUSER.setimmediatevalue(0)
         if self.is_signal_present('PBUSER'):
             self.bus.PBUSER.setimmediatevalue(0)
-        if self.is_signal_present('PWAKEUP'):
-            self.bus.PWAKEUP.setimmediatevalue(0)
 
     def _capture_extension_input_fields(self):
         """Sample PAUSER / PWUSER from the bus."""
@@ -385,7 +482,10 @@ class APB5Slave(APBSlave):
     def _build_packet(self, *, start_time, count, pwrite, paddr,
                       pwdata, prdata, pstrb, pprot, pslverr,
                       direction, extension_inputs, rand_values) -> Any:
-        """Construct an APB5Packet populated with USER / WAKEUP fields."""
+        """Construct an APB5Packet populated with USER / WAKEUP fields.
+
+        PWAKEUP is observed (sampled) here — it is driven by the master.
+        """
         del direction
         wakeup = (self.bus.PWAKEUP.value.integer
                   if self.is_signal_present('PWAKEUP') else 0)
@@ -418,8 +518,3 @@ class APB5Slave(APBSlave):
         msg = f'{self.title} - APB5 Transaction #{self.count}: '
         msg += transaction.formatted(compact=True)
         self.log.debug(msg)
-
-    async def set_wakeup(self, value):
-        """Set the PWAKEUP signal (driven from the slave side in this BFM)."""
-        if self.is_signal_present('PWAKEUP'):
-            self.bus.PWAKEUP.value = value

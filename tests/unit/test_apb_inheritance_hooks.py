@@ -15,17 +15,20 @@ calling ``mem.write(line, int, strb)`` instead of ``mem.write(addr, bytearray, s
 
 from __future__ import annotations
 
+import logging
+import warnings
+
 import pytest
 
 from CocoTBFramework.components.apb.apb_components import APBMaster, APBMonitor, APBSlave
+from CocoTBFramework.components.apb.apb_packet import APBPacket
 from CocoTBFramework.components.apb5.apb5_components import (
     APB5Master,
     APB5Monitor,
     APB5Slave,
+    _warn_ignored_wakeup_generator,
 )
-from CocoTBFramework.components.apb.apb_packet import APBPacket
 from CocoTBFramework.components.apb5.apb5_packet import APB5Packet
-
 
 # ----------------------------------------------------------------------
 # Test fixtures: BFM instances created via __new__ so cocotb-bus init is
@@ -40,6 +43,9 @@ class _StubBus:
     requested signal names as ``None`` (not present) by default, or as a
     sentinel object (present). The BFM hooks gate on these via
     ``self.is_signal_present(signal_name)``.
+
+    Signals are cached on first access so that value assignments made by
+    the hooks (``bus.PWAKEUP.value = 1``) survive and can be asserted on.
     """
 
     def __init__(self, present_signals: set[str] | None = None,
@@ -49,17 +55,25 @@ class _StubBus:
 
     def __getattr__(self, name: str):
         if name in self._present:
-            return _StubSignal(self._values.get(name, 0))
+            sig = _StubSignal(self._values.get(name, 0))
+            setattr(self, name, sig)  # cache so assignments persist
+            return sig
         raise AttributeError(name)
 
 
 class _StubSignal:
-    """Stub for a cocotb signal handle. ``.value.integer`` is what hooks read."""
+    """Stub for a cocotb signal handle. ``.value.integer`` is what hooks read.
+
+    Hook-driven assignments replace ``.value`` with the raw assigned value;
+    ``setimmediatevalue`` calls are recorded in ``immediate_calls``.
+    """
 
     def __init__(self, integer_value: int = 0):
         self.value = _StubValue(integer_value)
+        self.immediate_calls: list = []
 
-    def setimmediatevalue(self, _v): pass
+    def setimmediatevalue(self, v):
+        self.immediate_calls.append(v)
 
 
 class _StubValue:
@@ -86,6 +100,7 @@ def _make_apb5_master_stub():
     inst.wuser_width = 4
     inst.ruser_width = 4
     inst.buser_width = 4
+    inst.wakeup_enable = True
     return inst
 
 
@@ -119,6 +134,7 @@ def _make_apb5_slave_stub():
     (APBMaster,  "_init_extension_signals"),
     (APBMaster,  "_drive_extension_setup_phase"),
     (APBMaster,  "_capture_extension_response"),
+    (APBMaster,  "_clear_extension_signals"),
     (APBSlave,   "_default_randomizer_constraints"),
     (APBSlave,   "_init_extension_signals"),
     (APBSlave,   "_capture_extension_input_fields"),
@@ -135,6 +151,7 @@ def test_apb4_base_defines_hook(cls, hook):
     (APB5Master,  "_init_extension_signals"),
     (APB5Master,  "_drive_extension_setup_phase"),
     (APB5Master,  "_capture_extension_response"),
+    (APB5Master,  "_clear_extension_signals"),
     (APB5Slave,   "_default_randomizer_constraints"),
     (APB5Slave,   "_init_extension_signals"),
     (APB5Slave,   "_capture_extension_input_fields"),
@@ -369,5 +386,132 @@ def test_apb5_master_drive_extension_setup_phase_writes_pauser():
 
     txn = _Txn()
     stub._drive_extension_setup_phase(txn)
-    # _StubSignal records the last .value assignment in `.value.integer`
-    # but our minimal _StubSignal only exposes `.value`. We just verify no error.
+    assert stub.bus.PAUSER.value == 0xA
+    assert stub.bus.PWUSER.value == 0xB
+
+
+# ----------------------------------------------------------------------
+# PWAKEUP direction (AMBA APB5, IHI 0024E): requester-driven.
+# The MASTER drives PWAKEUP (asserted with PSEL, held through the
+# transfer); the slave and monitor only observe it.
+# ----------------------------------------------------------------------
+
+
+def test_apb5_master_drives_pwakeup_in_setup_phase():
+    """PWAKEUP asserts with PSEL (setup phase) and is recorded in the txn."""
+    stub = _make_apb5_master_stub()
+
+    class _Txn:
+        fields = {"pauser": 0, "pwuser": 0, "wakeup": 0}
+
+    txn = _Txn()
+    stub._drive_extension_setup_phase(txn)
+    assert stub.bus.PWAKEUP.value == 1
+    assert txn.fields["wakeup"] == 1
+
+
+def test_apb5_master_wakeup_disabled_drives_zero():
+    stub = _make_apb5_master_stub()
+    stub.wakeup_enable = False
+
+    class _Txn:
+        fields = {"wakeup": 1}
+
+    txn = _Txn()
+    stub._drive_extension_setup_phase(txn)
+    assert stub.bus.PWAKEUP.value == 0
+    assert txn.fields["wakeup"] == 0
+
+
+def test_apb5_master_set_wakeup_enable_toggles_policy():
+    stub = _make_apb5_master_stub()
+    stub.title = "test_master"
+    stub.log = logging.getLogger("test_apb5_master")
+    stub.set_wakeup_enable(False)
+    assert stub.wakeup_enable is False
+    stub.set_wakeup_enable(1)
+    assert stub.wakeup_enable is True
+
+
+def test_apb5_master_response_capture_does_not_sample_pwakeup():
+    """PWAKEUP is master-driven — the response hook must not overwrite it."""
+    stub = _make_apb5_master_stub()
+    stub.bus = _StubBus(
+        present_signals={"PRUSER", "PBUSER", "PWAKEUP"},
+        signal_values={"PRUSER": 3, "PBUSER": 4, "PWAKEUP": 1},
+    )
+
+    class _Txn:
+        fields = {"wakeup": 0}
+
+    txn = _Txn()
+    stub._capture_extension_response(txn)
+    assert txn.fields["pruser"] == 3
+    assert txn.fields["pbuser"] == 4
+    assert txn.fields["wakeup"] == 0, "capture hook must not sample PWAKEUP"
+
+
+def test_apb5_master_clear_extension_signals_deasserts_wakeup():
+    """PWAKEUP falls together with PSEL when the master clears the bus."""
+    stub = _make_apb5_master_stub()
+
+    class _Txn:
+        fields = {"pauser": 0xA, "pwuser": 0xB, "wakeup": 0}
+
+    stub._drive_extension_setup_phase(_Txn())
+    assert stub.bus.PWAKEUP.value == 1
+    stub._clear_extension_signals()
+    assert stub.bus.PWAKEUP.value == 0
+    assert stub.bus.PAUSER.value == 0
+    assert stub.bus.PWUSER.value == 0
+
+
+def test_apb4_master_clear_extension_signals_is_noop():
+    stub = _make_apb_master_stub()
+    assert APBMaster._clear_extension_signals(stub) is None
+
+
+def test_apb5_master_init_zeroes_pwakeup():
+    stub = _make_apb5_master_stub()
+    stub._init_extension_signals()
+    assert stub.bus.PWAKEUP.immediate_calls == [0]
+
+
+def test_apb5_slave_no_longer_drives_pwakeup():
+    """The old slave-driven wakeup API is gone; slave init leaves PWAKEUP alone."""
+    assert not hasattr(APB5Slave, "set_wakeup")
+
+    stub = _make_apb5_slave_stub()
+    stub._init_extension_signals()
+    assert stub.bus.PRUSER.immediate_calls == [0]
+    assert stub.bus.PBUSER.immediate_calls == [0]
+    assert stub.bus.PWAKEUP.immediate_calls == [], \
+        "APB5Slave must not initialize (drive) the requester-owned PWAKEUP"
+
+
+def test_apb5_slave_build_packet_observes_pwakeup():
+    """The slave records the master-driven PWAKEUP value it observes."""
+    stub = _make_apb5_slave_stub()
+    stub.bus_width = 32
+    stub.addr_width = 12
+    stub.strb_bits = 4
+    stub.bus = _StubBus(present_signals={"PWAKEUP"}, signal_values={"PWAKEUP": 1})
+
+    pkt = stub._build_packet(
+        start_time=1.0, count=1, pwrite=0, paddr=0, pwdata=0, prdata=0,
+        pstrb=0xF, pprot=0, pslverr=0, direction="READ",
+        extension_inputs={}, rand_values={},
+    )
+    assert pkt.fields["wakeup"] == 1
+
+
+def test_wakeup_generator_deprecation_warns_and_returns_none():
+    with pytest.warns(DeprecationWarning, match="requester"):
+        result = _warn_ignored_wakeup_generator(lambda: 1)
+    assert result is None
+
+
+def test_wakeup_generator_none_is_silent():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning would fail the test
+        assert _warn_ignored_wakeup_generator(None) is None

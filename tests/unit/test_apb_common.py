@@ -1,7 +1,22 @@
-"""Unit tests for shared/apb_common.py (issue #8)."""
+"""Unit tests for shared/apb_common.py (issue #8) and the
+required/optional cocotb_bus signal split in the APB/APB5 BFMs."""
 
 from __future__ import annotations
 
+import pytest
+
+from CocoTBFramework.components.apb.apb_components import (
+    APBMaster,
+    APBMonitor,
+    APBSignalMixin,
+    APBSlave,
+)
+from CocoTBFramework.components.apb5.apb5_components import (
+    APB5Master,
+    APB5Monitor,
+    APB5Slave,
+    apb5_optional_signals,
+)
 from CocoTBFramework.components.shared.apb_common import (
     BASE_APB_OPTIONAL_SIGNALS,
     BASE_APB_SIGNALS,
@@ -59,3 +74,67 @@ def test_apb5_extensions_include_expected_user_signals():
     apb5_opt = set(apb5_components.apb5_optional_signals)
     for sig in ("PAUSER", "PWUSER", "PRUSER", "PBUSER", "PWAKEUP"):
         assert sig in apb5_opt, f"APB5 must expose {sig}"
+
+
+# ----------------------------------------------------------------------
+# Required/optional signal split for cocotb_bus binding.
+#
+# cocotb_bus treats `_signals` as REQUIRED (binding fails on a DUT that
+# lacks any of them) and `_optional_signals` as best-effort. Optional APB
+# signals must therefore never appear in the required list — otherwise a
+# DUT without PSTRB/PSLVERR/PPROT (or the APB5 extensions) can't bind.
+# ----------------------------------------------------------------------
+
+APB4_CLASSES = [APBMonitor, APBSlave, APBMaster]
+APB5_CLASSES = [APB5Monitor, APB5Slave, APB5Master]
+
+
+@pytest.mark.parametrize("cls", APB4_CLASSES)
+def test_apb4_default_split_required_vs_optional(cls):
+    """APB4 BFMs: required = mandatory APB4 set; optional = PPROT/PSLVERR/PSTRB."""
+    required, optional = cls._resolve_signal_lists(None)
+    assert set(required) == set(BASE_APB_SIGNALS)
+    assert set(optional) == set(BASE_APB_OPTIONAL_SIGNALS)
+
+
+@pytest.mark.parametrize("cls", APB5_CLASSES)
+def test_apb5_default_split_required_vs_optional(cls):
+    """APB5 BFMs: required stays the APB4 base; every AMBA5 extension is optional."""
+    required, optional = cls._resolve_signal_lists(None)
+    assert set(required) == set(BASE_APB_SIGNALS)
+    assert set(optional) == set(apb5_optional_signals)
+
+
+@pytest.mark.parametrize("cls", APB4_CLASSES + APB5_CLASSES)
+def test_no_optional_signal_in_required_list(cls):
+    """The high-severity bug: optional signals must not be required."""
+    required, optional = cls._resolve_signal_lists(None)
+    overlap = set(required) & set(optional)
+    assert not overlap, f"{cls.__name__} requires optional signals: {overlap}"
+    for sig in ("PPROT", "PSLVERR", "PSTRB"):
+        assert sig not in required, f"{cls.__name__} must not require {sig}"
+
+
+@pytest.mark.parametrize("cls", APB5_CLASSES)
+def test_apb5_extensions_not_required(cls):
+    required, _optional = cls._resolve_signal_lists(None)
+    for sig in ("PAUSER", "PWUSER", "PRUSER", "PBUSER", "PWAKEUP",
+                "PWDATAPARITY", "PREADYPARITY"):
+        assert sig not in required, f"{cls.__name__} must not require {sig}"
+
+
+@pytest.mark.parametrize("cls", APB4_CLASSES + APB5_CLASSES)
+def test_explicit_signals_used_verbatim(cls):
+    """A caller-supplied signal list takes full control (no optional set)."""
+    custom = ["PSEL", "PENABLE", "PADDR"]
+    required, optional = cls._resolve_signal_lists(custom)
+    assert required == custom
+    assert required is not custom, "must copy, not alias, the caller's list"
+    assert optional == []
+
+
+@pytest.mark.parametrize("cls", APB4_CLASSES + APB5_CLASSES)
+def test_all_bfms_use_signal_mixin(cls):
+    """Signal-list resolution and is_signal_present come from one place."""
+    assert issubclass(cls, APBSignalMixin)
+    assert hasattr(cls, "is_signal_present")

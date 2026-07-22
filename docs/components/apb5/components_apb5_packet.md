@@ -109,7 +109,7 @@ The default APB5 field configuration includes all APB4 fields plus AMBA5 extensi
 | pwuser | wuser_width | hex | Write Data User Attributes |
 | pruser | ruser_width | hex | Read Data User Attributes |
 | pbuser | buser_width | hex | Response User Attributes |
-| wakeup | 1 | dec | Wake-up Request (from slave) |
+| wakeup | 1 | dec | Wake-up Request (requester-driven, observed by completer) |
 | parity_error_wdata | 1 | dec | Write Data Parity Error |
 | parity_error_rdata | 1 | dec | Read Data Parity Error |
 | parity_error_ctrl | 1 | dec | Control Signal Parity Error |

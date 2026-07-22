@@ -7,7 +7,14 @@ APB5 Protocol Components providing Monitor, Master, and Slave implementations wi
 The `apb5_components.py` module provides three main classes that implement the APB5 protocol:
 - **APB5Monitor**: Observes and logs APB5 transactions including user signals and wake-up
 - **APB5Slave**: Responds to APB5 transactions with memory backing and randomized user signal responses
-- **APB5Master**: Drives APB5 transactions with user signal and wake-up capture support
+- **APB5Master**: Drives APB5 transactions with user signal support and requester-driven PWAKEUP
+
+### PWAKEUP Direction
+
+Per AMBA APB5 (IHI 0024E), **PWAKEUP is driven by the requester (master)**: it is asserted with (or before) PSEL and held until the transfer completes. Accordingly:
+
+- **APB5Master** drives PWAKEUP (asserted with PSEL for each transfer when `wakeup_enable` is set, deasserted when PSEL falls). The driven value is recorded in the transaction's `wakeup` field.
+- **APB5Slave** and **APB5Monitor** only *observe* PWAKEUP and record the sampled value in captured packets.
 
 ### Key Features
 - **Full APB5 signal support** with optional signal handling for all AMBA5 extensions
@@ -55,6 +62,8 @@ apb5_optional_signals = [
     "PSLVERRPARITY",   # Slave error parity
 ]
 ```
+
+`apb5_signals` is bound as the `cocotb_bus` **required** signal list and `apb5_optional_signals` as the **optional** list, so a DUT that implements only a subset of the AMBA5 extensions still binds. Guard every extension access with `is_signal_present()`.
 
 ## Core Classes
 
@@ -147,8 +156,7 @@ APB5 slave implementation with memory backing, configurable response behavior, a
 APB5Slave(entity, title, prefix, clock, registers, signals=None,
           bus_width=32, addr_width=12,
           auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
-          randomizer=None, log=None, error_overflow=False,
-          wakeup_generator=None, **kwargs)
+          randomizer=None, log=None, error_overflow=False, **kwargs)
 ```
 
 **Parameters:**
@@ -170,7 +178,8 @@ APB5Slave(entity, title, prefix, clock, registers, signals=None,
 | `randomizer` | FlexRandomizer | None | Timing and user signal randomizer |
 | `log` | Logger | None | Logger instance (default: entity logger) |
 | `error_overflow` | bool | False | Generate errors on address overflow |
-| `wakeup_generator` | callable | None | Callback to generate wake-up events |
+
+> **Deprecated:** the old `wakeup_generator` parameter is still accepted for backward compatibility but **ignored** (with a `DeprecationWarning`). PWAKEUP is requester-driven — control it via `APB5Master(wakeup_enable=...)` / `APB5Master.set_wakeup_enable()`.
 
 ```python
 # Create APB5 slave with 256 registers and error overflow detection
@@ -216,17 +225,7 @@ if slave.is_signal_present('PRUSER'):
 ##### `print(transaction)`
 Print transaction for debug logging.
 
-##### `set_wakeup(value)`
-Set the PWAKEUP signal value. Only effective if PWAKEUP is present on the bus.
-
-**Parameters:**
-- `value`: Integer value to drive on PWAKEUP (0 or 1)
-
-```python
-await slave.set_wakeup(1)  # Assert wake-up
-# ... perform operations ...
-await slave.set_wakeup(0)  # Deassert wake-up
-```
+> **Removed:** the previous `set_wakeup(value)` method is gone. PWAKEUP is driven by the requester (master), not the completer (slave) — see [PWAKEUP Direction](#pwakeup-direction) and `APB5Master.set_wakeup_enable()`.
 
 #### Response Behavior
 
@@ -234,7 +233,7 @@ The slave provides configurable response timing and user signal generation:
 - **Ready Delay**: Configurable cycles before asserting PREADY (via `ready` randomizer field)
 - **Error Injection**: Random or deterministic error generation (via `error` randomizer field)
 - **User Signal Response**: Randomized PRUSER and PBUSER values on each response
-- **Wake-up Generation**: Optional wake-up generator callback
+- **PWAKEUP**: Observed only (requester-driven); the sampled value is recorded in each captured packet's `wakeup` field
 - **Address Overflow**: Configurable error on out-of-range addresses
 
 #### Transaction Queue
@@ -251,7 +250,7 @@ APB5 master implementation that drives transactions with user signal support and
 APB5Master(entity, title, prefix, clock, signals=None,
            bus_width=32, addr_width=12,
            auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
-           randomizer=None, log=None, **kwargs)
+           randomizer=None, log=None, wakeup_enable=True, **kwargs)
 ```
 
 **Parameters:**
@@ -271,6 +270,7 @@ APB5Master(entity, title, prefix, clock, signals=None,
 | `buser_width` | int | 4 | PBUSER width in bits |
 | `randomizer` | FlexRandomizer | None | PSEL/PENABLE delay randomizer |
 | `log` | Logger | None | Logger instance (default: entity logger) |
+| `wakeup_enable` | bool | True | Drive requester-owned PWAKEUP (asserted with PSEL, held through the transfer) when present on the bus |
 
 ```python
 # Create APB5 master with 8-bit user signals
@@ -290,6 +290,18 @@ master = APB5Master(
 
 ##### `is_signal_present(signal_name) -> bool`
 Check if a signal is present on the bus.
+
+##### `set_wakeup_enable(enable)`
+Enable or disable requester-driven PWAKEUP assertion for subsequent transfers. When enabled (the default), the master asserts PWAKEUP together with PSEL for every transfer and deasserts it when PSEL falls, per AMBA APB5 (IHI 0024E).
+
+**Parameters:**
+- `enable`: Truthy to assert PWAKEUP on subsequent transfers, falsy to hold it low.
+
+```python
+master.set_wakeup_enable(False)  # stop asserting PWAKEUP
+# ... transfers run with PWAKEUP held low ...
+master.set_wakeup_enable(True)   # resume asserting PWAKEUP with PSEL
+```
 
 ##### `send(transaction)`
 Send an APB5 transaction. Drives all present APB5 signals including user attributes.
@@ -364,11 +376,11 @@ result = await master.read(address=0x300, pauser=0xA)
 #### Transaction Pipeline
 
 The master implements the standard APB transaction pipeline with APB5 extensions:
-1. **Setup Phase**: Drive PSEL, PADDR, PWRITE, PWDATA, PSTRB, PPROT, PAUSER, PWUSER
+1. **Setup Phase**: Drive PSEL, PADDR, PWRITE, PWDATA, PSTRB, PPROT, PAUSER, PWUSER, and PWAKEUP (asserted with PSEL when `wakeup_enable` is set)
 2. **Access Phase**: Assert PENABLE
 3. **Wait for Ready**: Poll PREADY on falling clock edges
-4. **Response Capture**: Sample PRDATA, PSLVERR, PRUSER, PBUSER, PWAKEUP (with 200ps settling delay)
-5. **Deassert**: Clear PSEL and PENABLE
+4. **Response Capture**: Sample PRDATA, PSLVERR, PRUSER, PBUSER (with 200ps settling delay). PWAKEUP is master-driven, so it is not sampled here.
+5. **Deassert**: Clear PSEL and PENABLE; PWAKEUP falls with PSEL
 
 #### Transaction Queue
 
@@ -520,8 +532,8 @@ if master.is_signal_present('PAUSER'):
     # PAUSER is connected
     pass
 
-if slave.is_signal_present('PWAKEUP'):
-    await slave.set_wakeup(1)
+if master.is_signal_present('PWAKEUP'):
+    master.set_wakeup_enable(True)  # requester drives PWAKEUP
 ```
 
 ### 3. **Verify User Signal Round-Trip**

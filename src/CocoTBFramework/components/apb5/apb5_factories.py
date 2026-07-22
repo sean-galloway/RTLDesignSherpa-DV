@@ -50,7 +50,8 @@ def create_apb5_master(
         ruser_width: PRUSER width in bits
         buser_width: PBUSER width in bits
         log: Logger instance
-        **kwargs: Additional arguments passed to APB5Master
+        **kwargs: Additional arguments passed to APB5Master (e.g.
+            ``wakeup_enable`` to control requester-driven PWAKEUP)
 
     Returns:
         APB5Master instance
@@ -107,7 +108,10 @@ def create_apb5_slave(
         randomizer: Optional randomizer for delays and user signals
         log: Logger instance
         error_overflow: Whether to generate error on address overflow
-        wakeup_generator: Optional function to generate wakeup events
+        wakeup_generator: Deprecated and ignored — PWAKEUP is driven by the
+            requester (master) per AMBA APB5 (IHI 0024E). Passing a non-None
+            value raises a DeprecationWarning. Use
+            ``create_apb5_master(..., wakeup_enable=...)`` instead.
         **kwargs: Additional arguments passed to APB5Slave
 
     Returns:

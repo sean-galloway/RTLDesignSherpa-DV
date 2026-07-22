@@ -73,7 +73,7 @@ High-level transaction abstraction for test stimulus:
 Simplified component creation and configuration:
 
 - **create_apb5_master**: One-line master creation with user signal width configuration
-- **create_apb5_slave**: Slave creation with configurable wakeup generator and error overflow
+- **create_apb5_slave**: Slave creation with configurable error overflow
 - **create_apb5_monitor**: Monitor creation with user signal width support
 - **create_apb5_randomizer**: Pre-configured randomizer for APB5 slave responses
 
@@ -88,7 +88,7 @@ Simplified component creation and configuration:
 ### Protocol Features
 - **APB4 Backward Compatibility**: Full support for all APB4 signals and behavior
 - **User Signals**: Four independent user signal channels (PAUSER, PWUSER, PRUSER, PBUSER)
-- **Wake-up Support**: PWAKEUP signal for low-power wake-up notification
+- **Wake-up Support**: Requester-driven PWAKEUP signal for low-power wake-up (driven by the master, observed by slave/monitor)
 - **Parity Protection**: Optional parity signals for data, address, and control integrity
 - **Error Handling**: PSLVERR generation and detection
 
@@ -100,7 +100,7 @@ Simplified component creation and configuration:
 | Write Data User | PWUSER | Master -> Slave | User-defined write data attributes |
 | Read Data User | PRUSER | Slave -> Master | User-defined read data attributes |
 | Response User | PBUSER | Slave -> Master | User-defined response attributes |
-| Wake-up | PWAKEUP | Slave -> Master | Wake-up request from slave |
+| Wake-up | PWAKEUP | Master -> Slave | Requester-driven wake-up (asserted with PSEL, per IHI 0024E) |
 | Write Data Parity | PWDATAPARITY | Master -> Slave | Write data parity check |
 | Address Parity | PADDRPARITY | Master -> Slave | Address parity check |
 | Control Parity | PCTRLPARITY | Master -> Slave | Control signal parity check |
@@ -126,7 +126,7 @@ Simplified component creation and configuration:
 | PSLVERR | in | PSLVERR | out |
 | PRUSER | in | PRUSER | out |
 | PBUSER | in | PBUSER | out |
-| PWAKEUP | in | PWAKEUP | out |
+| PWAKEUP | out | PWAKEUP | in |
 
 ## Design Principles
 
@@ -146,7 +146,7 @@ Simplified component creation and configuration:
 - Memory model backing for slave responses
 - Randomized user signal values on slave responses (PRUSER, PBUSER)
 - Configurable ready delays and error conditions
-- Wake-up generator callback for realistic low-power scenarios
+- Master-side PWAKEUP policy (`wakeup_enable`) for realistic low-power scenarios
 
 ### 4. **Ease of Use**
 - Factory functions provide one-line component creation
@@ -242,7 +242,7 @@ apb4_again = apb5_pkt.to_apb4_packet()
 - **Automatic Queuing**: Transaction pipelining via sentQ deque
 - **Timing Control**: Configurable delays via FlexRandomizer
 - **User Signal Randomization**: Slave automatically randomizes PRUSER and PBUSER
-- **Wake-up Support**: Configurable wake-up generator callback
+- **Wake-up Support**: Master-driven PWAKEUP via `wakeup_enable` / `set_wakeup_enable()`
 
 ### Verification Support
 - **Protocol Checking**: APB5 specification compliance monitoring
@@ -260,7 +260,7 @@ apb4_again = apb5_pkt.to_apb4_packet()
 
 ### Advanced Usage
 1. **Custom User Signal Widths**: Configure independent widths for each user channel
-2. **Wake-up Testing**: Provide a wakeup_generator callback to the slave
+2. **Wake-up Testing**: Control requester-driven PWAKEUP with `APB5Master(wakeup_enable=...)` or `master.set_wakeup_enable()`
 3. **Parity Monitoring**: Monitor parity error flags in captured packets
 4. **APB4 Migration**: Convert existing APB4 packets to APB5 using `from_apb4_packet()`
 

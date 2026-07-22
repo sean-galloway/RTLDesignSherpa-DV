@@ -69,7 +69,7 @@ class GAXIPacket(Packet):
             Delay in cycles (0 if no randomizer)
         """
         if self.master_delay is None and self.master_randomizer:
-            self.master_delay = self.master_randomizer.choose_valid_delay()
+            self.master_delay = self.master_randomizer.get_delay('valid_delay')
         return self.master_delay or 0
 
     def get_slave_delay(self) -> int:
@@ -80,5 +80,5 @@ class GAXIPacket(Packet):
             Delay in cycles (0 if no randomizer)
         """
         if self.slave_delay is None and self.slave_randomizer:
-            self.slave_delay = self.slave_randomizer.choose_ready_delay()
+            self.slave_delay = self.slave_randomizer.get_delay('ready_delay')
         return self.slave_delay or 0

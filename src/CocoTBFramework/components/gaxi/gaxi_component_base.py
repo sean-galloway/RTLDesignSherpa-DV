@@ -89,7 +89,8 @@ class GAXIComponentBase:
             prefix: Bus prefix
             clock: Clock signal
             field_config: Field configuration (FieldConfig or dict)
-            protocol_type: Protocol type ('gaxi_master', 'gaxi_slave', 'axis_master', or 'axis_slave')
+            protocol_type: Protocol type ('gaxi_master', 'gaxi_slave', 'axis_master',
+                        'axis_slave', 'fifo_master', or 'fifo_slave')
             mode: GAXI mode ('skid', 'fifo_mux', 'fifo_flop')
             bus_name: Bus/channel name
             pkt_prefix: Packet field prefix

@@ -62,6 +62,8 @@ CocoTBFramework/components/fifo/
 
 ### Basic FIFO Test Setup
 ```python
+from CocoTBFramework.components.fifo.fifo_factories import create_simple_fifo_test
+
 # Create simple FIFO components
 components = create_simple_fifo_test(dut, clock, data_width=32)
 master = components['master']
@@ -75,6 +77,8 @@ await master.send(packet)
 
 ### Complete Test Environment
 ```python
+from CocoTBFramework.components.fifo.fifo_factories import create_fifo_test_environment
+
 # Create full test environment with monitors
 components = create_fifo_test_environment(
     dut=dut,

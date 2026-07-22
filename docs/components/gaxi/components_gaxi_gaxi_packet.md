@@ -70,7 +70,7 @@ Set the master randomizer for valid delay generation.
 - `randomizer`: FlexRandomizer instance for master timing
 
 ```python
-from CocoTBFramework.shared.flex_randomizer import FlexRandomizer
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
 # Create master randomizer
 master_randomizer = FlexRandomizer({
@@ -124,8 +124,8 @@ print(f"Slave should wait {ready_delay} cycles before asserting ready")
 ### Basic Packet Creation
 
 ```python
-from CocoTBFramework.components.gaxi import GAXIPacket
-from CocoTBFramework.shared.field_config import FieldConfig
+from CocoTBFramework.components.gaxi.gaxi_packet import GAXIPacket
+from CocoTBFramework.components.shared.field_config import FieldConfig
 
 # Create field configuration
 field_config = FieldConfig()
@@ -150,7 +150,7 @@ print(f"Command: {packet.cmd}")
 ### Packet with Timing Randomizers
 
 ```python
-from CocoTBFramework.shared.flex_randomizer import FlexRandomizer
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
 # Create randomizers for timing
 master_randomizer = FlexRandomizer({

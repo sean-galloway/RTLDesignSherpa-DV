@@ -179,17 +179,14 @@ def create_gaxi_monitor(dut, title, prefix, clock, field_config=None,
         prefix: Signal prefix
         clock: Clock signal
         field_config: Field configuration (default: standard data field)
-        field_mode: Field mode (unused - kept for compatibility)
-        packet_class: Packet class to use
         is_slave: If True, monitor slave side; if False, monitor master side
         log: Logger instance (default: dut's logger)
         mode: Operating mode ('skid', 'fifo_mux', 'fifo_flop')
-        signal_map: Signal mapping (unused - kept for compatibility)
-        optional_signal_map: Optional signal mapping (unused - kept for compatibility)
         multi_sig: Whether using multi-signal mode
         bus_name: Bus/channel name
         pkt_prefix: Packet field prefix
-        **kwargs: Additional arguments
+        **kwargs: Additional arguments forwarded to GAXIMonitor
+                  (e.g. signal_map for manual signal mapping)
 
     Returns:
         GAXIMonitor instance
@@ -312,19 +309,21 @@ def create_gaxi_components(dut, clock, title_prefix="", field_config=None, field
         optional_signal_map=optional_signal_map,
         multi_sig=multi_sig,
         bus_name=bus_name,
+        pkt_prefix=pkt_prefix,
         **kwargs
     )
 
+    # NOTE: create_gaxi_monitor does not accept the legacy compatibility
+    # kwargs (field_mode, packet_class, optional_signal_map) — they would
+    # leak through **kwargs into cocotb's BusMonitor and raise TypeError.
+    # signal_map IS forwarded: GAXIMonitor supports manual signal mapping.
     master_monitor = create_gaxi_monitor(
         dut, f"{title_prefix}MasterMonitor", "", clock,
         field_config=field_config,
-        field_mode=field_mode,
-        packet_class=packet_class,
         is_slave=False,
         log=log,
         mode=mode,
         signal_map=signal_map,
-        optional_signal_map=optional_signal_map,
         multi_sig=multi_sig,
         bus_name=bus_name,
         pkt_prefix=pkt_prefix,
@@ -334,13 +333,10 @@ def create_gaxi_components(dut, clock, title_prefix="", field_config=None, field
     slave_monitor = create_gaxi_monitor(
         dut, f"{title_prefix}SlaveMonitor", "", clock,
         field_config=field_config,
-        field_mode=field_mode,
-        packet_class=packet_class,
         is_slave=True,
         log=log,
         mode=mode,
         signal_map=signal_map,
-        optional_signal_map=optional_signal_map,
         multi_sig=multi_sig,
         bus_name=bus_name,
         pkt_prefix=pkt_prefix,

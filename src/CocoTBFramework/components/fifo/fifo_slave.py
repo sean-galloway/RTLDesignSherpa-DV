@@ -169,10 +169,14 @@ class FIFOSlave(FIFOMonitorBase):
             return
 
         # Check if valid on this cycle, if so we can't drop read
-        if not (not self.empty_sig.value.is_resolvable or
-                not self.read_sig.value.is_resolvable or
-                self.empty_sig.value.integer != 0 or
-                self.read_sig.value.integer != 1):
+        # (same predicate as before, De Morgan'd, with None guards so a DUT
+        # without the optional signals doesn't AttributeError here)
+        if (getattr(self, 'empty_sig', None) is not None and
+                getattr(self, 'read_sig', None) is not None and
+                self.empty_sig.value.is_resolvable and
+                self.read_sig.value.is_resolvable and
+                self.empty_sig.value.integer == 0 and
+                self.read_sig.value.integer == 1):
             # Previous read in progress, no delay
             return
 

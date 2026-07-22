@@ -302,8 +302,10 @@ command_handler = create_fifo_command_handler(master, slave)
 await command_handler.process_sequence(sequence)
 
 # 3. Analyze results
+# Note: command_handler.get_stats() nests each component's full get_stats()
+# dict, so the master's own counters live under ['master_stats']['master_stats']
 stats = command_handler.get_stats()
-print(f"Processed {stats['master_stats']['transactions_completed']} transactions")
+print(f"Processed {stats['master_stats']['master_stats']['transactions_completed']} transactions")
 ```
 
 ### Advanced Monitoring
@@ -350,8 +352,8 @@ write_monitor.add_callback(analyze_transaction)
 scoreboard = create_fifo_scoreboard("MainScoreboard", field_config)
 
 # Connect monitors to scoreboard
-write_monitor.add_callback(scoreboard.add_expected_transaction)
-read_monitor.add_callback(scoreboard.add_actual_transaction)
+write_monitor.add_callback(scoreboard.add_expected)
+read_monitor.add_callback(scoreboard.add_actual)
 ```
 
 ### With Test Frameworks

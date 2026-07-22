@@ -5,7 +5,7 @@
 # https://github.com/sean-galloway/RTLDesignSherpa
 #
 # Module: GAXIScoreboard
-# Purpose: GAXI Scoreboard for verifying GAXI transactions - Updated for new field config a
+# Purpose: GAXI Scoreboard for verifying GAXI transactions - Updated for new field config and packet classes
 #
 # Documentation: bin/CocoTBFramework/README.md
 # Subsystem: framework

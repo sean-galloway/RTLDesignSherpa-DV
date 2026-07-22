@@ -44,8 +44,9 @@ Inherits all common functionality from GAXIMonitorBase including signal resoluti
 ```python
 class GAXIMonitor(GAXIMonitorBase):
     def __init__(self, dut, title, prefix, clock, field_config, is_slave=False,
-                 bus_name='', pkt_prefix='', multi_sig=False,
-                 log=None, super_debug=False, signal_map=None, **kwargs)
+                 mode='skid', bus_name='', pkt_prefix='', multi_sig=False,
+                 log=None, super_debug=False, signal_map=None,
+                 protocol_type=None, **kwargs)
 ```
 
 **Parameters:**
@@ -59,7 +60,7 @@ class GAXIMonitor(GAXIMonitorBase):
 - `bus_name`: Bus/channel name
 - `pkt_prefix`: Packet field prefix
 - `multi_sig`: Whether using multi-signal mode
-- `log`: Logger instance
+- `log`: Logger instance (required — raises ValueError if None; pass your TBBase logger)
 - `super_debug`: Enable detailed debugging
 - `signal_map`: Optional manual signal mapping override
 - `**kwargs`: Additional arguments
@@ -113,7 +114,7 @@ print(f"Protocol violations: {stats['monitor_stats']['protocol_violations']}")
 import cocotb
 from cocotb.triggers import Timer
 from CocoTBFramework.components.gaxi import GAXIMonitor
-from CocoTBFramework.shared.field_config import FieldConfig
+from CocoTBFramework.components.shared.field_config import FieldConfig
 
 @cocotb.test()
 async def test_master_monitoring(dut):
@@ -132,7 +133,8 @@ async def test_master_monitoring(dut):
         clock=clock,
         field_config=field_config,
         is_slave=False,  # Monitor master side
-        mode='skid'
+        mode='skid',
+        log=log  # Required
     )
     
     # Add callback to process observed transactions
@@ -420,19 +422,19 @@ async def test_scoreboard_integration(dut):
                                is_slave=True)
     
     # Connect monitors to scoreboard
-    master_monitor.add_callback(scoreboard.add_expected_transaction)
-    slave_monitor.add_callback(scoreboard.add_actual_transaction)
+    master_monitor.add_callback(scoreboard.add_expected)
+    slave_monitor.add_callback(scoreboard.add_actual)
     
     # Run test
     await Timer(2000, units='ns')
     
     # Check scoreboard results
-    scoreboard_stats = scoreboard.get_stats()
-    print(f"Scoreboard: {scoreboard_stats['matches']} matches, "
-          f"{scoreboard_stats['mismatches']} mismatches")
+    error_count = scoreboard.report()
+    print(f"Scoreboard: {scoreboard.transaction_count} transactions compared, "
+          f"{error_count} errors")
     
     # Verify all transactions matched
-    assert scoreboard_stats['mismatches'] == 0, "Transaction mismatches detected"
+    assert error_count == 0, "Transaction mismatches detected"
 ```
 
 ### Memory Validation Monitoring

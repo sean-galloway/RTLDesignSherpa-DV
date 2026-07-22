@@ -67,6 +67,7 @@ create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_class=No
                    randomizer=None, memory_model=None, memory_fields=None, log=None,
                    signal_map=None, optional_signal_map=None, field_mode=False,
                    multi_sig=False, mode='skid', bus_name='', pkt_prefix='',
+                   **kwargs)
 ```
 
 **Parameters:**
@@ -123,6 +124,7 @@ create_gaxi_slave(dut, title, prefix, clock, field_config=None, field_mode=False
                   packet_class=None, randomizer=None, memory_model=None,
                   memory_fields=None, log=None, mode='skid', signal_map=None,
                   optional_signal_map=None, multi_sig=False, bus_name='',
+                  pkt_prefix='', **kwargs)
 ```
 
 **Parameters:** Same as `create_gaxi_master()` with slave-specific defaults
@@ -155,7 +157,8 @@ Create a GAXI Monitor component with simplified configuration.
 
 ```python
 create_gaxi_monitor(dut, title, prefix, clock, field_config=None, is_slave=False,
-                    log=None, mode='skid', multi_sig=False, bus_name='',
+                    log=None, mode='skid', bus_name='', pkt_prefix='',
+                    multi_sig=False, **kwargs)
 ```
 
 **Parameters:**
@@ -233,6 +236,7 @@ create_gaxi_components(dut, clock, title_prefix="", field_config=None,
                        field_mode=False, packet_class=None, memory_model=None,
                        log=None, mode='skid', signal_map=None, optional_signal_map=None,
                        multi_sig=False, bus_name='', pkt_prefix='',
+                       **kwargs)
 ```
 
 **Parameters:**
@@ -278,6 +282,7 @@ Create a complete GAXI system with all components - alias for `create_gaxi_compo
 ```python
 create_gaxi_system(dut, clock, title_prefix="", field_config=None,
                    memory_model=None, log=None, bus_name='', pkt_prefix='',
+                   **kwargs)
 ```
 
 **Parameters:** Simplified version of `create_gaxi_components()` parameters
@@ -299,7 +304,7 @@ system = create_gaxi_system(
 Create a complete GAXI test environment ready for immediate use.
 
 ```python
-create_gaxi_test_environment(dut, clock, bus_name='', pkt_prefix='',
+create_gaxi_test_environment(dut, clock, bus_name='', pkt_prefix='', **kwargs)
 ```
 
 **Parameters:**
@@ -378,12 +383,13 @@ async def test_complete_system(dut):
     """Test with complete GAXI system"""
     
     # Create complete system
+    # (data_width/memory_size are create_gaxi_test_environment options;
+    #  create_gaxi_system takes a field_config and memory_model instead)
     system = create_gaxi_system(
         dut=dut,
         clock=dut.clk,
         title_prefix="Test_",
-        data_width=32,
-        memory_size=1024
+        log=log
     )
     
     # Extract components
@@ -395,8 +401,8 @@ async def test_complete_system(dut):
     memory = system['memory_model']
     
     # Connect monitors to scoreboard
-    master_monitor.add_callback(scoreboard.master_transaction)
-    slave_monitor.add_callback(scoreboard.slave_transaction)
+    master_monitor.add_callback(scoreboard.add_expected)
+    slave_monitor.add_callback(scoreboard.add_actual)
     
     # Run test sequence
     await run_test_sequence(master, slave)

@@ -45,8 +45,6 @@ class GAXISequence:
             field_config: Field configuration (FieldConfig object or dictionary)
             packet_class: Packet class to use (defaults to GAXIPacket)
         """
-        print(f"🔍 GAXISequence.__init__: Starting with name='{name}'")
-
         # Basic attributes (always fast)
         self.name = name
         self.packet_class = packet_class or GAXIPacket
@@ -57,10 +55,9 @@ class GAXISequence:
         if hasattr(field_config, 'get_total_bits'):
             total_bits = field_config.get_total_bits()
 
-        print(f"🔍 GAXISequence.__init__: Field config total bits: {total_bits}")
-
         if total_bits > 50:  # Threshold for performance optimization
-            print(f"⚠️  Large field config detected ({total_bits} bits) - using optimized initialization")
+            if log:
+                log.debug(f"GAXISequence '{name}': large field config ({total_bits} bits) - using optimized initialization")
 
             # Direct assignment without expensive validation
             self.field_config = field_config
@@ -79,12 +76,9 @@ class GAXISequence:
             # Flag to use simplified mode in other methods
             self.large_field_mode = True
 
-            print("🔍 GAXISequence.__init__: ✅ Optimized initialization completed")
             return
 
         # Normal initialization for smaller field configs
-        print(f"🔍 GAXISequence.__init__: Using normal initialization for {total_bits} bits")
-
         # Normalize field_config using standard pattern
         if isinstance(field_config, FieldConfig):
             self.field_config = field_config
@@ -105,7 +99,6 @@ class GAXISequence:
         }
 
         self.large_field_mode = False
-        print("🔍 GAXISequence.__init__: ✅ Normal initialization completed")
 
     def set_randomizer(self, constraints_dict):
         """

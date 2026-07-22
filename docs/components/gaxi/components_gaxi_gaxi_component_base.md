@@ -44,7 +44,7 @@ All existing parameters are preserved and used exactly as before, with the addit
 class GAXIComponentBase:
     def __init__(self, dut, title, prefix, clock, field_config,
                  protocol_type,  # Must be specified by subclass
-                 bus_name='', pkt_prefix='', multi_sig=False,
+                 mode='skid', bus_name='', pkt_prefix='', multi_sig=False,
                  randomizer=None, memory_model=None, log=None,
                  super_debug=False, signal_map=None, **kwargs)
 ```
@@ -55,7 +55,7 @@ class GAXIComponentBase:
 - `prefix`: Bus prefix
 - `clock`: Clock signal
 - `field_config`: Field configuration (FieldConfig or dict)
-- `protocol_type`: Protocol type ('gaxi_master' or 'gaxi_slave')
+- `protocol_type`: Protocol type ('gaxi_master', 'gaxi_slave', 'axis_master', 'axis_slave', 'fifo_master', or 'fifo_slave')
 - `mode`: GAXI mode ('skid', 'fifo_mux', 'fifo_flop')
 - `bus_name`: Bus/channel name
 - `pkt_prefix`: Packet field prefix
@@ -177,7 +177,7 @@ Set new randomizer for timing control.
 - `randomizer`: FlexRandomizer instance
 
 ```python
-from CocoTBFramework.shared.flex_randomizer import FlexRandomizer
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
 new_randomizer = FlexRandomizer({
     'valid_delay': ([(0, 0), (1, 5)], [0.8, 0.2])
@@ -191,7 +191,7 @@ component.set_randomizer(new_randomizer)
 
 ```python
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
-from CocoTBFramework.shared.field_config import FieldConfig
+from CocoTBFramework.components.shared.field_config import FieldConfig
 
 # Create field configuration
 field_config = FieldConfig()
@@ -206,7 +206,8 @@ master = GAXIMaster(
     clock=clock,
     field_config=field_config,
     mode='skid',
-    multi_sig=True  # Individual signals for each field
+    multi_sig=True,  # Individual signals for each field
+    log=log          # Required by GAXIMaster
 )
 ```
 
@@ -234,7 +235,7 @@ master = GAXIMaster(
 ### Memory Integration
 
 ```python
-from CocoTBFramework.shared.memory_model import MemoryModel
+from CocoTBFramework.components.shared.memory_model import MemoryModel
 
 # Create memory model
 memory = MemoryModel(num_lines=1024, bytes_per_line=4, log=log)

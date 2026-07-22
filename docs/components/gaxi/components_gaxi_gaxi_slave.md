@@ -44,9 +44,10 @@ Inherits from GAXIMonitorBase which provides common monitoring functionality and
 ```python
 class GAXISlave(GAXIMonitorBase):
     def __init__(self, dut, title, prefix, clock, field_config,
+                 timeout_cycles=1000, mode='skid', bus_name='', pkt_prefix='',
                  multi_sig=False, randomizer=None, memory_model=None,
                  log=None, super_debug=False, pipeline_debug=False,
-                 signal_map=None, **kwargs)
+                 signal_map=None, protocol_type='gaxi_slave', **kwargs)
 ```
 
 **Parameters:**
@@ -62,7 +63,7 @@ class GAXISlave(GAXIMonitorBase):
 - `multi_sig`: Whether using multi-signal mode
 - `randomizer`: Optional randomizer for ready delays
 - `memory_model`: Optional memory model for transactions
-- `log`: Logger instance
+- `log`: Logger instance (required — raises ValueError if None; pass your TBBase logger)
 - `super_debug`: Enable detailed debugging
 - `pipeline_debug`: Enable pipeline phase debugging
 - `signal_map`: Optional manual signal mapping override
@@ -233,7 +234,7 @@ The GAXISlave uses a structured 3-phase receive pipeline:
 import cocotb
 from cocotb.triggers import RisingEdge
 from CocoTBFramework.components.gaxi import GAXISlave
-from CocoTBFramework.shared.field_config import FieldConfig
+from CocoTBFramework.components.shared.field_config import FieldConfig
 
 @cocotb.test()
 async def test_gaxi_slave(dut):
@@ -252,6 +253,7 @@ async def test_gaxi_slave(dut):
         clock=clock,
         field_config=field_config,
         mode='skid',
+        log=log,             # Required
         pipeline_debug=True  # Enable pipeline debugging
     )
     
@@ -302,8 +304,8 @@ flop_slave = GAXISlave(
 ### Advanced Configuration with Memory
 
 ```python
-from CocoTBFramework.shared.flex_randomizer import FlexRandomizer
-from CocoTBFramework.shared.memory_model import MemoryModel
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
+from CocoTBFramework.components.shared.memory_model import MemoryModel
 
 # Create randomizer for ready delays
 randomizer = FlexRandomizer({

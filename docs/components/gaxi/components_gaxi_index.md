@@ -46,10 +46,10 @@ This directory contains the GAXI (Generic AXI) protocol components for the CocoT
 
 ### Basic Usage
 ```python
-from CocoTBFramework.components.gaxi import create_gaxi_system
+from CocoTBFramework.components.gaxi.gaxi_factories import create_gaxi_system
 
-# Create complete GAXI system
-system = create_gaxi_system(dut, clock)
+# Create complete GAXI system (log is required by the underlying components)
+system = create_gaxi_system(dut, clock, log=log)
 master = system['master']
 slave = system['slave']
 
@@ -59,14 +59,13 @@ await master.send(master.create_packet(data=0xDEADBEEF))
 
 ### Advanced Usage
 ```python
-from CocoTBFramework.components.gaxi import (
-    GAXIMaster, GAXISlave, GAXIMonitor, GAXISequence
-)
+from CocoTBFramework.components.gaxi import GAXIMaster, GAXISlave, GAXIMonitor
+from CocoTBFramework.components.gaxi.gaxi_sequence import GAXISequence
 
-# Create individual components
-master = GAXIMaster(dut, "TestMaster", "", clock, field_config)
-slave = GAXISlave(dut, "TestSlave", "", clock, field_config)
-monitor = GAXIMonitor(dut, "Monitor", "", clock, field_config)
+# Create individual components (log is required)
+master = GAXIMaster(dut, "TestMaster", "", clock, field_config, log=log)
+slave = GAXISlave(dut, "TestSlave", "", clock, field_config, log=log)
+monitor = GAXIMonitor(dut, "Monitor", "", clock, field_config, log=log)
 
 # Create test sequence
 sequence = GAXISequence("test_pattern", field_config)

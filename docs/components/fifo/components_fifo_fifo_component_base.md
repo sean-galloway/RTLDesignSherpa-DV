@@ -25,6 +25,15 @@
 
 Unified base class for all FIFO components that consolidates common functionality across FIFOMaster, FIFOMonitor, and FIFOSlave, eliminating code duplication while preserving exact APIs and timing.
 
+> **Deprecation note:** `FIFOComponentBase` is now a thin compatibility shim over
+> [`GAXIComponentBase`](../gaxi/components_gaxi_gaxi_component_base.md) (see issue #6).
+> The GAXI base is the canonical ready/valid component chassis and accepts
+> `protocol_type='fifo_master'` / `'fifo_slave'` directly. The only behavioral
+> delta in the shim is the default `mode='fifo_mux'` (vs. `'skid'` for GAXI).
+> New code should subclass `GAXIComponentBase` directly; this shim will be
+> removed in a future release. The functionality documented below is provided
+> by the inherited GAXI base.
+
 ## Overview
 
 The `FIFOComponentBase` class provides shared infrastructure for all FIFO protocol components, including signal resolution, data handling strategies, memory integration, and statistics collection. It leverages the shared framework components for maximum performance and consistency.

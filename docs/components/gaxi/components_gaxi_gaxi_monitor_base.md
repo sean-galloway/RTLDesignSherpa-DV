@@ -44,7 +44,7 @@ This base class eliminates code duplication between monitor components while pre
 ```python
 class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
     def __init__(self, dut, title, prefix, clock, field_config,
-                 bus_name='', pkt_prefix='', multi_sig=False,
+                 mode='skid', bus_name='', pkt_prefix='', multi_sig=False,
                  protocol_type=None,  # Set by subclass
                  log=None, super_debug=False, signal_map=None, **kwargs)
 ```
@@ -60,7 +60,7 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
 - `pkt_prefix`: Packet field prefix
 - `multi_sig`: Whether using multi-signal mode
 - `protocol_type`: Must be set by subclass ('gaxi_master' or 'gaxi_slave')
-- `log`: Logger instance
+- `log`: Logger instance (required — raises ValueError if None; pass your TBBase logger)
 - `super_debug`: Enable detailed debugging
 - `signal_map`: Optional manual signal mapping override
 - `**kwargs`: Additional arguments for BusMonitor

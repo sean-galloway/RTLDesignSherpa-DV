@@ -44,9 +44,10 @@ Inherits common functionality from GAXIComponentBase and extends CocoTB BusDrive
 ```python
 class GAXIMaster(GAXIComponentBase, BusDriver):
     def __init__(self, dut, title, prefix, clock, field_config,
+                 timeout_cycles=1000, mode='skid', bus_name='', pkt_prefix='',
                  multi_sig=False, randomizer=None, memory_model=None,
                  log=None, super_debug=False, pipeline_debug=False,
-                 signal_map=None, **kwargs)
+                 signal_map=None, protocol_type='gaxi_master', **kwargs)
 ```
 
 **Parameters:**
@@ -62,7 +63,7 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
 - `multi_sig`: Whether using multi-signal mode
 - `randomizer`: Optional randomizer for timing
 - `memory_model`: Optional memory model for transactions
-- `log`: Logger instance
+- `log`: Logger instance (required — raises ValueError if None; pass your TBBase logger)
 - `super_debug`: Enable detailed debugging
 - `pipeline_debug`: Enable pipeline phase debugging
 - `signal_map`: Optional manual signal mapping override
@@ -248,7 +249,7 @@ The GAXIMaster uses a structured 3-phase pipeline:
 import cocotb
 from cocotb.triggers import RisingEdge
 from CocoTBFramework.components.gaxi import GAXIMaster
-from CocoTBFramework.shared.field_config import FieldConfig
+from CocoTBFramework.components.shared.field_config import FieldConfig
 
 @cocotb.test()
 async def test_gaxi_master(dut):
@@ -266,6 +267,7 @@ async def test_gaxi_master(dut):
         prefix="",
         clock=clock,
         field_config=field_config,
+        log=log,             # Required
         pipeline_debug=True  # Enable pipeline debugging
     )
     
@@ -288,8 +290,8 @@ async def test_gaxi_master(dut):
 ### Advanced Configuration
 
 ```python
-from CocoTBFramework.shared.flex_randomizer import FlexRandomizer
-from CocoTBFramework.shared.memory_model import MemoryModel
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
+from CocoTBFramework.components.shared.memory_model import MemoryModel
 
 # Create randomizer for timing
 randomizer = FlexRandomizer({
@@ -382,7 +384,7 @@ async def send_burst_transactions(master, base_addr, count):
     
     print(f"Burst complete:")
     print(f"  Transactions: {master_stats['transactions_completed']}")
-    print(f"  Average latency: {master_stats['avg_latency']:.2f}ns")
+    print(f"  Average latency: {master_stats['average_latency_ms']:.2f}ms")
     print(f"  Throughput: {master_stats['current_throughput_tps']:.1f} TPS")
 ```
 

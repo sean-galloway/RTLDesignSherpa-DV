@@ -377,9 +377,6 @@ class GAXISlave(GAXIMonitorBase):
             packet = GAXIPacket(self.field_config)
             packet.start_time = current_time
 
-            # Record transaction received (using MonitorStatistics interface)
-            get_sim_time('ns')
-
             if self.mode == 'fifo_flop':
                 # 'fifo_flop' mode: note handshake time, defer data capture to next cycle
                 if self.pipeline_debug:

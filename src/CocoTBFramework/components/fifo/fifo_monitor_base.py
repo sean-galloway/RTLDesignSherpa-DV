@@ -22,6 +22,7 @@ All existing parameters are maintained and used exactly as before.
 
 from cocotb_bus.monitors import BusMonitor
 
+from ..shared.init_kwargs import strip_framework_kwargs
 from ..shared.monitor_statistics import MonitorStatistics
 from .fifo_component_base import FIFOComponentBase
 from .fifo_packet import FIFOPacket
@@ -67,9 +68,12 @@ class FIFOMonitorBase(FIFOComponentBase, BusMonitor):
             super_debug: Enable detailed debugging
             **kwargs: Additional arguments for BusMonitor
         """
-        # Extract parameters that shouldn't go to BusMonitor
+        # Extract values we need to forward to FIFOComponentBase, then strip
+        # the remaining framework-only kwargs (pipeline_debug, ...) so the
+        # remainder is safe for BusMonitor. Mirrors GAXIMonitorBase.
         memory_model = kwargs.pop('memory_model', None)
         randomizer = kwargs.pop('randomizer', None)
+        strip_framework_kwargs(kwargs)
 
         # Initialize base class with all parameters preserved
         FIFOComponentBase.__init__(

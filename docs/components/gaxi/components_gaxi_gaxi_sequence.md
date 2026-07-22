@@ -407,8 +407,8 @@ transaction_count = len(sequence)
 ### Basic Sequence Creation
 
 ```python
-from CocoTBFramework.components.gaxi import GAXISequence
-from CocoTBFramework.shared.field_config import FieldConfig
+from CocoTBFramework.components.gaxi.gaxi_sequence import GAXISequence
+from CocoTBFramework.components.shared.field_config import FieldConfig
 
 # Create field configuration
 field_config = FieldConfig()

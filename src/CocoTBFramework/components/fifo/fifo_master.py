@@ -27,6 +27,7 @@ from cocotb.triggers import RisingEdge, Timer
 from cocotb.utils import get_sim_time
 from cocotb_bus.drivers import BusDriver
 
+from ..shared.init_kwargs import strip_framework_kwargs
 from ..shared.master_statistics import MasterStatistics
 from .fifo_component_base import FIFOComponentBase
 from .fifo_packet import FIFOPacket
@@ -81,8 +82,10 @@ class FIFOMaster(FIFOComponentBase, BusDriver):
         self.timeout_cycles = timeout_cycles
         self.reset_occurring = False
 
-        # Remove prefix from kwargs so it doesn't get passed to BusDriver/BusMonitor
-        kwargs.pop('prefix', None)
+        # Strip framework-only kwargs (memory_model, pipeline_debug, ...) and
+        # `prefix` so they don't get passed to cocotb's BusDriver, which would
+        # reject them. Mirrors the GAXIMaster init pattern.
+        strip_framework_kwargs(kwargs, extra=('prefix',))
 
         # Initialize parent BusDriver - MUST BE CALLED WITH EXACT PATTERN
         BusDriver.__init__(self, dut, prefix, clock, **kwargs)

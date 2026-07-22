@@ -42,8 +42,9 @@ graph TB
         end
 
         Master --> CompBase
-        Slave --> CompBase
+        Slave --> MonBase
         Monitor --> MonBase
+        MonBase --> CompBase
     end
 
     subgraph Shared["Shared Infrastructure"]

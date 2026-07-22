@@ -2,18 +2,102 @@
 
 ## [Unreleased]
 
-### Changed
+A full quality audit of every component family and its documentation. Many
+convenience entry points (factories, compliance checkers, randomization
+managers, protocol scoreboards) raised on their first call or silently did
+nothing; those paths now work and are covered by unit tests (505 → 727).
 
-- **Removed the unused `psutil` runtime dependency and the unused `crc`
-  optional extra** (neither is imported anywhere in the package; `psutil`
-  served TBBase, which lives in the main repo, and SMBus computes CRC-8 PEC
-  by hand). `pip install cocotb-framework[all]` now pulls only `ortools`.
+### Breaking
+
+- **`APB5Slave.set_wakeup()` removed; PWAKEUP direction reversed.** Per AMBA
+  APB5 (IHI 0024E) PWAKEUP is driven by the *requester*: `APB5Master` now
+  asserts it with PSEL and clears it with PSEL, and the slave/monitor only
+  observe. Use `APB5Master(wakeup_enable=True)` / `set_wakeup_enable()`. A
+  testbench whose DUT drove PWAKEUP toward the master will now see contention.
+  `APB5Slave(wakeup_generator=...)` is accepted but ignored with a
+  `DeprecationWarning`.
+- **`MemoryModel.write()` strobe validation tightened.** A strobe carrying
+  more byte-enable bits than `len(data)` now raises `ValueError` instead of
+  being silently truncated (the check compared bits against bytes). Callers
+  passing at most one strobe bit per byte are unaffected.
+- **AXIS5 parity is now odd parity** per AMBA AXI5-Stream TPARITY (was even).
+- **Wavedrom transaction boundaries are now enforced** in the CP-SAT model
+  rather than only logged, and idle filtering no longer assumes the signal
+  names `wr_valid`/`rd_ready` — set `TemporalConstraint.idle_signals` if your
+  constraint does not bind those signals.
+
+### Added
+
+- `GAXIMonitorBase.enable_completed_packet_tracking()` /
+  `get_completed_packets(count=None)` — an opt-in completed-packet drain,
+  inherited by `GAXIMonitor` and `GAXISlave`, kept separate from `_recvQ` so
+  the documented `monitor._recvQ.popleft()` pattern is unchanged. The AXI4,
+  AXI5 and AXIL4 compliance checkers consume it.
+- `AXI4TimingConfig` and `create_axi4_timing_config()` in
+  `components.axi4.axi4_randomization_manager` (the module previously raised
+  `ImportError` on any use), plus symmetric AXI4 package exports.
+- `APBSignalMixin` (`components.apb.apb_components`) resolving required vs.
+  optional signal lists in one place; `APB5Master(wakeup_enable=)`,
+  `APBMaster._clear_extension_signals()`.
+- `TemporalConstraint.idle_signals` / `skip_boundary_detection` /
+  `post_match_cycles` fields; `WaveJSONGenerator(log=)`.
+- Arbiter WRR compliance tunables: `wrr_check_window_size`,
+  `wrr_check_min_grants`, `wrr_share_tolerance`.
 
 ### Fixed
 
+Entry points that previously raised on every call:
+
+- `create_apb_components()` (missing prefix argument, plus a reference to a
+  nonexistent APB command handler), `create_gaxi_components()` /
+  `create_gaxi_system()` (legacy kwargs leaked into cocotb's `BusMonitor`),
+  all five `AXIL4Packet.create_*_packet()` factories and the AXIL4 compliance
+  checker's `setup_monitors()` (stale `user_width` argument), `AXI4` /
+  `FIFO` / `GAXI` packet delay helpers (called randomizer methods that do not
+  exist), `axi4_randomization_manager` (unimportable),
+  `AXI4Sequence`-adjacent `finalize_test_with_log_compliance()` (missing
+  `io` import), and `axi4.read_transaction(user=...)` (`NameError`).
+
+Silent wrong behavior:
+
+- **APB/APB5 optional signals** (PPROT/PSLVERR/PSTRB and all APB5
+  extensions) were in cocotb-bus's *required* list, so binding failed on DUTs
+  that omit them; they are optional now.
+- **`APBPacket.copy()` left `direction` stale**, so `APBTransaction.next()`
+  returned write packets labelled `READ` — every randomized write was
+  mis-driven and mis-compared.
+- **AXIS4 slaves and monitors never observed a handshake** (`valid_signal` /
+  `ready_signal` attributes never existed; the resolver sets `*_sig`), and
+  `AXISMaster` could not transmit at all.
+- **AXI4/AXI5/AXIL4 packet-level compliance checks never ran**; handshake
+  checks were stubs; outstanding-transaction dicts dropped same-ID
+  transactions; AXIL4 flagged legal concurrent AR+AW and legal back-to-back
+  transfers.
+- **`AXI4Scoreboard` could not attach to any framework monitor** and compared
+  field names no packet used, so mismatches went undetected.
+- **`randomize_fields()` returned `{}`** for every real field name on AXI4 and
+  AXI5; AXI4 additionally randomized `awlen`/`awsize`/`awburst`/`awid` through
+  the *address* randomizer.
+- **Arbiter compliance statistics never accumulated** at the default sampling
+  rate, so fairness always read 1.0, starvation flagged every client and WRR
+  weight checks reported nothing; the ACK-mode round-robin check and the WRR
+  check were unimplemented stubs.
+- **`RandomizationConfig` CONSTRAINED mode crashed** on every constrained
+  field; `generate_values()` dropped fields with no dependencies.
+- **SMBus mid-byte STOP / repeated-START detection was unreachable**, and the
+  slave could consume the next transaction's address byte as write data.
+- **Wavedrom sampling died silently** when signals were bound after
+  `add_constraint()`.
+- **AXI5 dropped W beats** in the case AXI4 had already fixed.
+- `DFIMasterMC.refresh()` encoded a per-bank LPDDR2/3 REF while the rest of
+  the stack treated REF as all-bank.
 - **`BaseScoreboard.clear()` now also clears the `mismatched` history list**,
   matching its documented "reset scoreboard state" contract. Previously
   mismatch pairs from a prior test phase survived a `clear()`.
+- Default `pstrb` randomization now scales with `strb_width` instead of
+  assuming a 32-bit bus; `gaxi_command_handler` no longer aliases memory
+  addresses into 64 KiB; `Packet` accepts `field_config=None`;
+  `FieldConfig.validate_and_create()` no longer mutates the caller's dict.
 
 ### Documentation
 

@@ -37,7 +37,7 @@ from collections import deque
 from typing import Any, Callable, Dict, List, Optional
 
 import cocotb
-from cocotb.triggers import Edge, FallingEdge, First, RisingEdge, Timer
+from cocotb.triggers import FallingEdge, First, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from .smbus_packet import SMBusCondition, SMBusPacket, SMBusTransactionType
@@ -69,6 +69,63 @@ class SMBusCRC:
                 else:
                     crc = (crc << 1) & 0xFF
         return crc
+
+
+def classify_sda_event(scl_level: int, sda_level_after: int) -> SMBusCondition:
+    """
+    Classify an SDA transition per I2C/SMBus bus rules.
+
+    A transition on SDA while SCL is high signals a bus condition:
+    SDA falling = START (or repeated START), SDA rising = STOP.
+    A transition while SCL is low is a normal data change (IDLE).
+
+    Args:
+        scl_level: SCL level (0/1) at the moment of the SDA transition
+        sda_level_after: SDA level (0/1) after the transition
+
+    Returns:
+        SMBusCondition.START, SMBusCondition.STOP, or SMBusCondition.IDLE
+    """
+    if scl_level != 1:
+        return SMBusCondition.IDLE
+    return SMBusCondition.STOP if sda_level_after else SMBusCondition.START
+
+
+async def _wait_scl_edge_or_condition(scl, sda, rising: bool = True) -> SMBusCondition:
+    """
+    Wait for an SCL edge or a START/STOP condition on SDA.
+
+    Races the requested SCL edge against both SDA edges. The trigger
+    returned by First() is compared against the trigger objects passed
+    in, so the edge that actually fired is attributed correctly and the
+    SDA edge direction is known without re-sampling.
+
+    Args:
+        scl: SCL signal handle (monitor input side)
+        sda: SDA signal handle (monitor input side)
+        rising: wait for RisingEdge(scl) if True, else FallingEdge(scl)
+
+    Returns:
+        SMBusCondition.IDLE when the requested SCL edge occurred,
+        SMBusCondition.START / SMBusCondition.STOP when a bus condition
+        occurred first.
+    """
+    scl_edge = RisingEdge(scl) if rising else FallingEdge(scl)
+    sda_rise = RisingEdge(sda)
+    sda_fall = FallingEdge(sda)
+
+    while True:
+        fired = await First(scl_edge, sda_rise, sda_fall)
+
+        if fired is scl_edge:
+            return SMBusCondition.IDLE
+
+        # SDA moved - classify by SCL level at the moment of the edge
+        sda_after = 1 if fired is sda_rise else 0
+        condition = classify_sda_event(scl.value.integer, sda_after)
+        if condition is not SMBusCondition.IDLE:
+            return condition
+        # SDA changed while SCL low: normal data transition, keep waiting
 
 
 class SMBusMonitor:
@@ -194,11 +251,17 @@ class SMBusMonitor:
         """Main monitor receive coroutine"""
         self.log.debug(f"Monitor '{self.title}' starting receive loop")
 
+        # Set when a repeated START was consumed while receiving bytes:
+        # the next transaction begins immediately, without a new START.
+        pending_repeated_start = False
+
         while self._running:
             try:
-                # Wait for START condition
-                if not await self._wait_for_start():
-                    break
+                # Wait for START condition (unless already seen)
+                if not pending_repeated_start:
+                    if not await self._wait_for_start():
+                        break
+                pending_repeated_start = False
 
                 start_time = get_sim_time('ns')
                 self.log.debug(f"START detected at {start_time}ns")
@@ -207,8 +270,17 @@ class SMBusMonitor:
                 self._current_packet = SMBusPacket(start_time=start_time)
                 self._bytes_received = []
 
-                # Receive address byte
-                addr_byte, ack = await self._receive_byte(with_ack=True)
+                # Receive address byte, watching for mid-byte START/STOP
+                addr_byte, ack, condition, byte_complete = \
+                    await self._receive_byte_with_conditions()
+
+                if not byte_complete:
+                    # Bus condition interrupted the address byte
+                    self._current_packet.completed = False
+                    self._finalize_packet()
+                    pending_repeated_start = (condition == SMBusCondition.START)
+                    continue
+
                 self._current_packet.slave_addr = (addr_byte >> 1) & 0x7F
                 self._current_packet.read_write = addr_byte & 0x01
                 self._current_packet.ack_received = ack
@@ -218,27 +290,37 @@ class SMBusMonitor:
                     # No ACK - transaction aborted
                     self._current_packet.completed = False
                     self._finalize_packet()
+                    pending_repeated_start = (condition == SMBusCondition.START)
                     continue
 
                 # Set direction based on R/W bit
                 self._current_packet.direction = 'RX' if self._current_packet.read_write else 'TX'
 
+                if condition != SMBusCondition.IDLE:
+                    # STOP or repeated START directly after the address ACK
+                    pending_repeated_start = (condition == SMBusCondition.START)
+                    self._parse_transaction()
+                    self._finalize_packet()
+                    continue
+
                 # Continue receiving bytes until STOP or repeated START
-                transaction_complete = False
-                while not transaction_complete:
+                while True:
                     # Try to receive next byte, watching for STOP/START
-                    byte_val, ack, condition = await self._receive_byte_with_conditions()
+                    byte_val, ack, condition, byte_complete = \
+                        await self._receive_byte_with_conditions()
+
+                    if byte_complete:
+                        self._bytes_received.append(byte_val)
 
                     if condition == SMBusCondition.STOP:
-                        transaction_complete = True
-                    elif condition == SMBusCondition.START:
-                        # Repeated START - treat as new transaction
-                        transaction_complete = True
-                    else:
-                        self._bytes_received.append(byte_val)
-                        if not ack:
-                            # NAK typically ends the data phase
-                            break
+                        break
+                    if condition == SMBusCondition.START:
+                        # Repeated START - next transaction starts immediately
+                        pending_repeated_start = True
+                        break
+                    if not ack:
+                        # NAK typically ends the data phase
+                        break
 
                 # Parse the transaction
                 self._parse_transaction()
@@ -254,59 +336,47 @@ class SMBusMonitor:
         """
         Receive byte while watching for START/STOP conditions.
 
+        Every clock phase (SCL rising to sample, SCL falling to complete
+        the bit) is raced against SDA edges so a mid-byte START/STOP is
+        detected the moment it occurs, including during the SCL-high
+        phase after a bit or the ACK was sampled.
+
         Returns:
-            Tuple of (byte_value, ack, condition)
+            Tuple of (byte_value, ack, condition, byte_complete):
+            - byte_value: bits received so far (partial if interrupted)
+            - ack: True if ACK bit was 0 (only meaningful if complete)
+            - condition: IDLE, or the START/STOP condition observed
+            - byte_complete: True if all 8 data bits and the ACK bit
+              were sampled before any bus condition occurred
         """
         byte_val = 0
 
-        for i in range(8):
+        for _ in range(8):
             # Wait for SCL rising, but check for START/STOP
-            result = await self._wait_scl_or_condition()
-            if result == SMBusCondition.STOP:
-                return byte_val, False, SMBusCondition.STOP
-            elif result == SMBusCondition.START:
-                return byte_val, False, SMBusCondition.START
+            result = await _wait_scl_edge_or_condition(self.scl, self.sda, rising=True)
+            if result != SMBusCondition.IDLE:
+                return byte_val, False, result, False
 
             bit = self.sda.value.integer
             byte_val = (byte_val << 1) | bit
 
-            # Wait for SCL falling
-            await FallingEdge(self.scl)
+            # Wait for SCL falling; SDA moving while SCL is high is a condition
+            result = await _wait_scl_edge_or_condition(self.scl, self.sda, rising=False)
+            if result != SMBusCondition.IDLE:
+                return byte_val, False, result, False
 
         # Receive ACK
-        result = await self._wait_scl_or_condition()
-        if result == SMBusCondition.STOP:
-            return byte_val, False, SMBusCondition.STOP
-        elif result == SMBusCondition.START:
-            return byte_val, False, SMBusCondition.START
+        result = await _wait_scl_edge_or_condition(self.scl, self.sda, rising=True)
+        if result != SMBusCondition.IDLE:
+            return byte_val, False, result, False
 
         ack = (self.sda.value.integer == 0)
-        await FallingEdge(self.scl)
 
-        return byte_val, ack, SMBusCondition.IDLE
+        # Byte and ACK fully sampled; a condition here ends the transaction
+        # but the byte is still valid.
+        result = await _wait_scl_edge_or_condition(self.scl, self.sda, rising=False)
 
-    async def _wait_scl_or_condition(self) -> SMBusCondition:
-        """Wait for SCL rising or START/STOP condition"""
-        while True:
-            # Create combined trigger
-            scl_rise = RisingEdge(self.scl)
-            sda_edge = Edge(self.sda)
-
-            await First(scl_rise, sda_edge)
-
-            # Check what triggered
-            if self.scl.value.integer == 1:
-                # SCL went high
-                # Check if SDA also changed (START/STOP)
-                # For now, just return that we got SCL rising
-                return SMBusCondition.IDLE
-
-            # SDA changed while SCL high = START or STOP
-            if self.scl.value.integer == 1:
-                if self.sda.value.integer == 1:
-                    return SMBusCondition.STOP
-                else:
-                    return SMBusCondition.START
+        return byte_val, ack, result, True
 
     def _parse_transaction(self):
         """Parse received bytes to determine transaction type"""
@@ -552,21 +622,53 @@ class SMBusSlave:
                 return True
         return False
 
-    async def _check_for_stop(self) -> bool:
-        """Check if STOP condition occurred"""
-        # STOP is SDA rising while SCL high
-        return (self.scl_i.value.integer == 1 and
-                self.sda_i.value.integer == 1)
+    async def _receive_byte_or_condition(self) -> tuple:
+        """
+        Receive a byte from master, aborting on a START/STOP condition.
+
+        Each clock phase is raced against SDA edges so a STOP or repeated
+        START occurring between (or within) bytes is detected immediately
+        instead of consuming the next transaction's bits as data.
+
+        Returns:
+            Tuple of (byte_value, condition, byte_complete):
+            - byte_value: bits received so far (partial if interrupted)
+            - condition: IDLE, or the START/STOP condition observed
+            - byte_complete: True if all 8 bits were sampled
+        """
+        byte_val = 0
+
+        for _ in range(8):
+            condition = await _wait_scl_edge_or_condition(
+                self.scl_i, self.sda_i, rising=True)
+            if condition != SMBusCondition.IDLE:
+                return byte_val, condition, False
+
+            bit = self.sda_i.value.integer
+            byte_val = (byte_val << 1) | bit
+
+            condition = await _wait_scl_edge_or_condition(
+                self.scl_i, self.sda_i, rising=False)
+            if condition != SMBusCondition.IDLE:
+                return byte_val, condition, False
+
+        return byte_val, SMBusCondition.IDLE, True
 
     async def _slave_loop(self):
         """Main slave processing loop"""
         self.log.debug(f"Slave '{self.title}' starting main loop")
 
+        # Set when a repeated START ended the previous phase: the next
+        # address byte follows immediately, without a fresh START edge.
+        pending_repeated_start = False
+
         while self._running:
             try:
-                # Wait for START
-                if not await self._wait_for_start():
-                    break
+                # Wait for START (unless a repeated START was already seen)
+                if not pending_repeated_start:
+                    if not await self._wait_for_start():
+                        break
+                pending_repeated_start = False
 
                 self.log.debug("START detected")
 
@@ -591,28 +693,41 @@ class SMBusSlave:
                     await self._handle_read()
                 else:
                     # Master write - slave receives data
-                    await self._handle_write()
+                    condition = await self._handle_write()
+                    # A repeated START begins the next transaction
+                    # (e.g. the read phase of Read Byte/Block Read)
+                    pending_repeated_start = (condition == SMBusCondition.START)
 
             except Exception as e:
                 self.log.error(f"Slave error: {e}")
 
-    async def _handle_write(self):
-        """Handle master write transaction"""
+    async def _handle_write(self) -> SMBusCondition:
+        """
+        Handle master write transaction.
+
+        Receives the command byte then data bytes, terminating cleanly
+        on a STOP or repeated START so the next transaction's address
+        byte is parsed as an address, not consumed as write data.
+
+        Returns:
+            The bus condition that ended the transaction
+            (STOP, START for repeated START)
+        """
         bytes_received = []
 
         # First byte after address is typically command/register address
-        byte = await self._receive_byte()
-        self._current_addr = byte
-        bytes_received.append(byte)
-        await self._send_ack()
+        byte, condition, byte_complete = await self._receive_byte_or_condition()
+        if byte_complete:
+            self._current_addr = byte
+            bytes_received.append(byte)
+            await self._send_ack()
 
-        # Receive remaining data bytes
-        while True:
-            # Check for STOP before receiving
-            await Timer(10, units='ns')  # Small delay to check bus state
+            # Receive remaining data bytes until STOP or repeated START
+            while True:
+                byte, condition, byte_complete = await self._receive_byte_or_condition()
+                if not byte_complete:
+                    break
 
-            try:
-                byte = await self._receive_byte()
                 bytes_received.append(byte)
 
                 # Store in memory
@@ -620,12 +735,15 @@ class SMBusSlave:
                 self._current_addr = (self._current_addr + 1) % self.memory_size
 
                 await self._send_ack()
-            except Exception:
-                # Likely STOP condition
-                break
 
-        self.log.info(f"[{self.title}] Write: cmd=0x{bytes_received[0]:02X}, "
-                      f"data={[f'0x{b:02X}' for b in bytes_received[1:]]}")
+        if bytes_received:
+            self.log.info(f"[{self.title}] Write: cmd=0x{bytes_received[0]:02X}, "
+                          f"data={[f'0x{b:02X}' for b in bytes_received[1:]]}")
+        else:
+            # Address-only write (Quick Command)
+            self.log.info(f"[{self.title}] Write: quick command (no data)")
+
+        return condition
 
     async def _handle_read(self):
         """Handle master read transaction"""

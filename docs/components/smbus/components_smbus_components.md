@@ -144,6 +144,14 @@ The monitor detects transactions through the following process:
 4. **Parse transaction**: Determine transaction type from byte count and direction
 5. **Finalize**: Timestamp, queue, log, and invoke callback
 
+Bus conditions are attributed edge-accurately: every clock phase of a
+byte (including the SCL-high phase after a bit or ACK is sampled) races
+the expected SCL edge against SDA edges, so a mid-byte STOP or repeated
+START is detected the moment it occurs. A condition that interrupts a
+byte aborts that byte (the partial bits are discarded) and the packet is
+finalized; a repeated START immediately begins capture of the next
+transaction without waiting for a fresh START edge.
+
 Transaction type is automatically determined from the number of data bytes and the R/W direction:
 
 | Data Bytes After Address | Write Type | Read Type |
@@ -279,9 +287,10 @@ slave.clear_memory()
 The slave processes transactions through the following flow:
 1. **Wait for START**: Detect SDA falling while SCL high
 2. **Address Match**: Receive address byte, compare with `slave_addr`, send ACK if match
-3. **Write Handling**: First data byte becomes command/register address; subsequent bytes written to memory with auto-increment
+3. **Write Handling**: First data byte becomes command/register address; subsequent bytes written to memory with auto-increment. Byte reception is raced against SDA edges, so a STOP or repeated START between (or within) bytes terminates the write cleanly instead of consuming the next transaction's address byte as data
 4. **Read Handling**: Send bytes from memory starting at current address; continue until master sends NAK
-5. **Bus Release**: Release SDA/SCL after each operation
+5. **Repeated START**: A repeated START ending a write phase flows directly into re-addressing (e.g. the read phase of Read Byte Data / Block Read), without waiting for a fresh START edge
+6. **Bus Release**: Release SDA/SCL after each operation
 
 ### SMBusMaster
 

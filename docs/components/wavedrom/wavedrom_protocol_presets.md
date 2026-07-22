@@ -315,10 +315,11 @@ from CocoTBFramework.tbclasses.wavedrom_user.axi4 import setup_axi4_constraints_
 wave_solver = TemporalConstraintSolver(dut=dut, log=dut._log)
 wave_solver.add_clock_group('default', dut.axi_aclk)
 
-# Auto-bind each channel
-wave_solver.auto_bind_signals('axi4_aw', signal_prefix='m_axi_', field_config=aw_config)
-wave_solver.auto_bind_signals('axi4_w', signal_prefix='m_axi_', field_config=w_config)
-# etc.
+# Auto-bind the read channels (AR + R). Note: 'axi4_read' is currently the
+# only AXI4 protocol type supported by auto_bind_signals(); bind write-channel
+# signals manually with add_signal_binding() or add_interface().
+wave_solver.auto_bind_signals('axi4_read', signal_prefix='m_axi_',
+                              field_config=field_configs['AR'])
 
 # Setup constraints
 setup_axi4_constraints_with_boundaries(

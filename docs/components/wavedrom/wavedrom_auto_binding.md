@@ -244,11 +244,10 @@ For protocols with packet fields:
 from CocoTBFramework.components.shared.field_config import FieldConfig, FieldDefinition
 
 # Create field configuration
-field_config = FieldConfig([
-    FieldDefinition('addr', 32, 0),
-    FieldDefinition('data', 64, 32),
-    FieldDefinition('ctrl', 8, 96)
-])
+field_config = FieldConfig()
+field_config.add_field(FieldDefinition('addr', bits=32))
+field_config.add_field(FieldDefinition('data', bits=64))
+field_config.add_field(FieldDefinition('ctrl', bits=8))
 
 gaxi_wave = GAXIWaveDromTemplate(
     dut,
@@ -414,10 +413,16 @@ wave_solver = TemporalConstraintSolver(dut=dut, log=dut._log)
 wave_solver.add_clock_group('default', dut.clk)
 
 # Auto-bind signals
+# Note: providing signal_map bypasses automatic discovery entirely,
+# so list ALL required signals when using it
 num_signals = wave_solver.auto_bind_signals(
     protocol_type='gaxi',
-    signal_prefix='wr_',
-    signal_map={'valid': 'custom_valid'}  # Partial override
+    signal_prefix='',
+    signal_map={
+        'valid': 'custom_valid',
+        'ready': 'wr_ready',
+        'data': 'wr_data'
+    }
 )
 
 # Add custom constraints
@@ -454,10 +459,10 @@ wave_solver.auto_bind_signals(
 
 **Old approach:**
 ```python
-# Manual binding (deprecated)
-wave_solver.add_signal_binding('wr_valid', wr_valid_handle)
-wave_solver.add_signal_binding('wr_ready', wr_ready_handle)
-wave_solver.add_signal_binding('wr_data', wr_data_handle)
+# Manual binding (still supported, but verbose)
+wave_solver.add_signal_binding('wr_valid', 'wr_valid')
+wave_solver.add_signal_binding('wr_ready', 'wr_ready')
+wave_solver.add_signal_binding('wr_data', 'wr_data')
 ```
 
 **New approach:**

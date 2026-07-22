@@ -4,10 +4,10 @@
 # RTL Design Sherpa - Industry-Standard RTL Design and Verification
 # https://github.com/sean-galloway/RTLDesignSherpa
 #
-# Module: WavedromSignalBinder
+# Module: signal_binder
 # Purpose: Wavedrom Signal Binding using SignalResolver Methodology
 #
-# Documentation: bin/CocoTBFramework/README.md
+# Documentation: docs/components/wavedrom/wavedrom_auto_binding.md
 # Subsystem: framework
 #
 # Author: sean galloway
@@ -69,7 +69,7 @@ class WavedromSignalBinder:
         Args:
             dut: CocoTB DUT handle
             log: Logger instance
-            protocol_type: Protocol type ('gaxi', 'apb', 'axis', 'axi4_read', 'axi4_write')
+            protocol_type: Protocol type ('gaxi', 'apb', 'axis', 'axi4_read')
             signal_prefix: Prefix for all signals (e.g., 's_', 'wr_', 'm_axi_')
             bus_name: Bus/channel name for additional prefix handling
             pkt_prefix: Packet field prefix for multi-field protocols

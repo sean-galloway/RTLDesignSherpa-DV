@@ -159,8 +159,8 @@ graph TB
 - **Script for PNG/SVG generation**: `val/amba/wd_cmd.sh`
 
 ### Documentation
-- **This directory**: `docs/markdown/CocoTBFramework/components/wavedrom/`
-- **Assets**: `docs/markdown/assets/WAVES/` (generated PNG/SVG files)
+- **This directory**: `docs/components/wavedrom/`
+- **Assets**: generated PNG/SVG files (in the [RTLDesignSherpa](https://github.com/sean-galloway/RTLDesignSherpa) repo under `docs/markdown/assets/WAVES/`)
 
 ---
 

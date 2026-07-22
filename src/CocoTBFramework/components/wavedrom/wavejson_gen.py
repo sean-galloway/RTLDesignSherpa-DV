@@ -4,10 +4,10 @@
 # RTL Design Sherpa - Industry-Standard RTL Design and Verification
 # https://github.com/sean-galloway/RTLDesignSherpa
 #
-# Module: SignalType
+# Module: wavejson_gen
 # Purpose: WaveJSON Generator with FieldConfig Integration
 #
-# Documentation: bin/CocoTBFramework/README.md
+# Documentation: docs/components/wavedrom/wavedrom_index.md
 # Subsystem: framework
 #
 # Author: sean galloway

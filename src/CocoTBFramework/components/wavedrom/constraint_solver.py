@@ -4,10 +4,10 @@
 # RTL Design Sherpa - Industry-Standard RTL Design and Verification
 # https://github.com/sean-galloway/RTLDesignSherpa
 #
-# Module: ClockEdge
+# Module: constraint_solver
 # Purpose: Temporal Sequence Constraint Solver with Fixed Boundary Detection and Edge Nodes
 #
-# Documentation: bin/CocoTBFramework/README.md
+# Documentation: docs/components/wavedrom/wavedrom_index.md
 # Subsystem: framework
 #
 # Author: sean galloway
@@ -382,7 +382,7 @@ class TemporalConstraintSolver:
         pattern-matching infrastructure to find signals on the DUT and bind them.
 
         Args:
-            protocol_type: Protocol type ('gaxi', 'apb', 'axis', 'axi4_read', 'axi4_write')
+            protocol_type: Protocol type ('gaxi', 'apb', 'axis', 'axi4_read')
             signal_prefix: Prefix for all signals (e.g., 's_', 'wr_', 'm_axi_')
             bus_name: Bus/channel name for additional prefix handling
             pkt_prefix: Packet field prefix for multi-field protocols
@@ -896,7 +896,7 @@ class TemporalConstraintSolver:
             if hasattr(dut_signal.value, 'integer'):
                 return dut_signal.value.integer
             return int(dut_signal.value)
-        except:
+        except Exception:
             return 0
 
     async def _solve_temporal_constraint(self, constraint_name: str, constraint: TemporalConstraint):
@@ -1633,7 +1633,3 @@ class TemporalConstraintSolver:
             self.log.info(f"    Interface groups: {stats['interface_groups']}")
             self.log.info(f"    Protocol configs: {stats.get('protocol_configs', 0)}")
             self.log.info(f"    FieldConfig signals: {stats.get('fieldconfig_signals', 0)}")
-
-
-# Compatibility alias for backward compatibility
-TemporalConstraintSolver = TemporalConstraintSolver

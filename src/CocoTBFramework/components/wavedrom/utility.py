@@ -7,7 +7,7 @@
 # Module: utility
 # Purpose: Utility Functions with FieldConfig Integration
 #
-# Documentation: bin/CocoTBFramework/README.md
+# Documentation: docs/components/wavedrom/wavedrom_index.md
 # Subsystem: framework
 #
 # Author: sean galloway
@@ -133,7 +133,6 @@ def _create_field_definition_from_signal(field_name: str, full_signal_name: str,
                                         addr_width: int) -> FieldDefinition:
     """Create FieldDefinition from signal name with protocol awareness"""
     signal_lower = field_name.lower()
-    full_signal_name.lower()
 
     # Protocol-specific field definitions
     if protocol_hint.lower() == "apb":

@@ -212,8 +212,8 @@ mkdir -p ./PNG ./SVG
 find ./ -name "*.json" | while read file; do
     test_name=$(echo "$file" | sed 's|^\./local_sim_build/\([^/]*\)/.*|\1|')
     base_name=$(basename "${file%.json}")
-    wavedrom-cli -i "$file" \\
-                 -s "./SVG/${test_name}_${base_name}.svg" \\
+    wavedrom-cli -i "$file" \
+                 -s "./SVG/${test_name}_${base_name}.svg" \
                  -p "./PNG/${test_name}_${base_name}.png"
 done
 ```
@@ -298,7 +298,8 @@ wave_solver.clear_windows()
 
 3. Check if patterns were detected:
    ```python
-   results = await wave_solver.stop_sampling()
+   await wave_solver.stop_sampling()
+   results = wave_solver.get_results()
    print(f"Solutions: {len(results['solutions'])}")
    ```
 

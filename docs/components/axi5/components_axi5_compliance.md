@@ -11,11 +11,24 @@ The `AXI5ComplianceChecker` provides non-intrusive AXI5 protocol compliance chec
 - **Poison propagation tracking**: POISON indicator monitoring and statistics
 - **Trace consistency**: TRACE signal matching between request and response channels
 
-> **Implementation status:** the transaction-level checks (ATOP, MTE, chunking, response
-> codes, RLAST matching) are gated on a `monitor.get_completed_packets()` API that
-> `GAXIMonitor` does not currently provide, and the handshake-rule coroutine is a stub.
-> In practice the checker currently tracks cycle counts and statistics scaffolding only;
-> violations from those categories will not yet be reported.
+**Wiring:** the transaction-level checks (ATOP, MTE, chunking, response codes, RLAST
+matching) are fed by the `GAXIMonitorBase.get_completed_packets()` drain API.
+`setup_monitors()` calls `enable_completed_packet_tracking()` on each channel monitor,
+and the `monitor_transactions()` coroutine drains each monitor every clock cycle and
+runs the `validate_*` checks on every observed packet. The drain queue is separate from
+the cocotb `_recvQ`, so the documented `monitor._recvQ.popleft()` verification pattern
+is unaffected.
+
+The `monitor_handshakes()` coroutine checks the VALID/READY rule live on DUT signals:
+once VALID is asserted it must stay asserted until the cycle where READY is also high
+(AMBA AXI A3.2.1). A VALID deassertion without a completed handshake is reported as
+`VALID_DROPPED`; deassertion after a completed handshake is recognized as legal.
+
+Outstanding reads, writes, and atomic transactions are tracked as **per-ID FIFO
+queues**: AXI5 permits multiple outstanding transactions with the same ID (they
+complete in order), so R beats and CHUNKV checks are matched against the oldest
+outstanding read for their ID, and each B response retires the oldest outstanding
+write/atomic for its ID (including the TRACE consistency check).
 
 ## Class Signature
 

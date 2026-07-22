@@ -22,8 +22,9 @@ All existing parameters are maintained and used exactly as before.
 
 from __future__ import annotations
 
+from collections import deque
 from logging import Logger
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from cocotb.utils import get_sim_time
 from cocotb_bus.monitors import BusMonitor
@@ -139,6 +140,12 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
         # Statistics - unified setup for all GAXI monitoring components
         self.stats = MonitorStatistics()
 
+        # Completed-packet drain queue (opt-in). This is SEPARATE from the
+        # cocotb _recvQ so the documented `monitor._recvQ.popleft()` usage is
+        # completely unaffected. See enable_completed_packet_tracking().
+        self._completed_packet_tracking = False
+        self._completedQ: deque = deque()
+
         side_description = "slave" if protocol_type == 'gaxi_slave' else "master"
         self.log.info(f"GAXIMonitorBase '{title}' initialized: {side_description} side, "
                         f"mode={mode}, multi_sig={self.use_multi_signal}")
@@ -201,8 +208,64 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
         current_time = get_sim_time('ns')
         self.log.debug(f"GAXIMonitorBase({self.title}) Transaction at {current_time}ns: {packet_str}")
 
+        # Record for the opt-in completed-packet drain API (no-op unless enabled)
+        self._record_completed_packet(packet)
+
         # ESSENTIAL: Use cocotb _recv method to add to _recvQ and trigger callbacks
         self._recv(packet)
+
+    # ------------------------------------------------------------------
+    # Completed-packet drain API (opt-in)
+    #
+    # Contract:
+    # - The drain queue is fed from _finish_packet() alongside (not instead
+    #   of) the standard cocotb _recvQ. Draining it never touches _recvQ, so
+    #   the documented `monitor._recvQ.popleft()` verification pattern keeps
+    #   working unchanged.
+    # - Tracking is OFF by default to avoid unbounded growth for the vast
+    #   majority of monitors that nobody drains. Consumers (e.g. the AXI4/
+    #   AXI5/AXIL4 compliance checkers) call enable_completed_packet_tracking()
+    #   once at setup; only packets observed AFTER enabling are recorded.
+    # - get_completed_packets() is destructive on the drain queue only: each
+    #   packet is returned exactly once, in observation order.
+    # ------------------------------------------------------------------
+
+    def enable_completed_packet_tracking(self) -> None:
+        """Opt in to recording completed packets for get_completed_packets().
+
+        Idempotent. Only packets observed after this call are recorded.
+        """
+        self._completed_packet_tracking = True
+
+    def _record_completed_packet(self, packet) -> None:
+        """Append a finished packet to the drain queue if tracking is enabled."""
+        if self._completed_packet_tracking:
+            self._completedQ.append(packet)
+
+    def get_completed_packets(self, count: Optional[int] = None) -> List[Any]:
+        """Drain and return completed packets observed since the last call.
+
+        Auto-enables tracking on first use (in which case the first call
+        returns only packets observed after a prior explicit
+        enable_completed_packet_tracking(), or an empty list).
+
+        Args:
+            count: Maximum number of packets to drain (None = all)
+
+        Returns:
+            List of packets in observation order; each packet is returned
+            exactly once. The standard cocotb _recvQ is NOT modified.
+        """
+        if not self._completed_packet_tracking:
+            self.enable_completed_packet_tracking()
+
+        if count is None:
+            drained = list(self._completedQ)
+            self._completedQ.clear()
+        else:
+            drained = [self._completedQ.popleft()
+                       for _ in range(min(count, len(self._completedQ)))]
+        return drained
 
     def create_packet(self, **field_values):
         """

@@ -1038,6 +1038,32 @@ class AXI5SlaveWrite:
                         transaction_id = tid
                     break
 
+        # Bug fix (ported from AXI4): pending_transactions is non-empty but
+        # contains only complete-pending-cleanup entries (their completion
+        # tasks haven't yet removed them from the list, and the next AW
+        # hasn't arrived under stalled awready). Without this branch, the
+        # matching below silently drops the W beat. Treat it as orphaned so
+        # _match_orphaned_w_packets picks it up when the next AW lands.
+        if transaction_id is None and self.pending_transactions:
+            if self.log:
+                self.log.debug(
+                    "AXI5SlaveWrite: pending list has only complete-"
+                    "pending-cleanup txns (keys=%s); routing W to orphan "
+                    "path for next AW",
+                    list(self.pending_transactions.keys()),
+                )
+            self.orphaned_w_packets.append(w_packet)
+            if is_last:
+                self.w_transaction_queue.append(
+                    self.orphaned_w_packets.copy())
+                self.orphaned_w_packets.clear()
+            return
+
+        # Debug: Log when W packet arrives but no transaction available
+        if transaction_id is None and self.log:
+            self.log.warning(f"AXI5SlaveWrite: W packet arrived but no pending transactions! "
+                             f"pending_keys={list(self.pending_transactions.keys())}")
+
         if transaction_id is not None and transaction_id in self.pending_transactions:
             transaction_list = self.pending_transactions[transaction_id]
             transaction = None
@@ -1064,25 +1090,55 @@ class AXI5SlaveWrite:
                         cocotb.start_soon(self._complete_write_transaction(transaction_id))
 
     def _match_orphaned_w_packets(self):
-        """Match orphaned W packets to AW transactions."""
+        """Match orphaned W packets to newly arrived AW transactions.
+
+        Mirrors the AXI4 implementation: drains via a matched_any flag with
+        logging instead of early returns, and also matches partial orphaned
+        W packets (not just complete queued bursts).
+        """
         if not self.w_transaction_queue and not self.orphaned_w_packets:
             return
+
+        matched_any = False
 
         for aw_id, aw_transaction_list in self.pending_transactions.items():
             for aw_transaction in aw_transaction_list:
                 if aw_transaction['complete']:
                     continue
 
+                # First check if we have a complete queued burst
                 if self.w_transaction_queue:
                     w_burst = self.w_transaction_queue.pop(0)
                     aw_transaction['w_packets'] = w_burst
                     aw_transaction['complete'] = True
+                    matched_any = True
+
+                    if self.log:
+                        self.log.debug(f"AXI5SlaveWrite: Matched orphaned W burst ({len(w_burst)} beats) to AW id={aw_id}")
+
+                    # Complete the transaction
                     cocotb.start_soon(self._complete_write_transaction(aw_id))
-                    return
+                    break
+                # If no complete burst, but we have partial orphaned W packets,
+                # transfer them to this AW transaction so they can receive the
+                # remaining W beats
                 elif self.orphaned_w_packets:
                     aw_transaction['w_packets'] = self.orphaned_w_packets.copy()
                     self.orphaned_w_packets.clear()
-                    return
+                    matched_any = True
+
+                    if self.log:
+                        self.log.debug(f"AXI5SlaveWrite: Matched {len(aw_transaction['w_packets'])} partial orphaned W packets to AW id={aw_id}, "
+                                       f"expecting {aw_transaction['expected_beats']} total beats")
+                    # Don't mark as complete - more W beats will arrive
+                    break
+
+            if matched_any:
+                break
+
+        if matched_any and self.log:
+            self.log.debug(f"AXI5SlaveWrite: W-before-AW matching complete, remaining queued bursts: {len(self.w_transaction_queue)}, "
+                           f"remaining orphaned packets: {len(self.orphaned_w_packets)}")
 
     def _calculate_ooo_delay(self, transaction_id):
         """Calculate delay for OOO response."""

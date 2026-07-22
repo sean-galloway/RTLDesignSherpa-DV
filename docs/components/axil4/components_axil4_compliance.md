@@ -1,6 +1,6 @@
 # AXIL4 Compliance Checker
 
-Non-intrusive AXIL4 (AXI4-Lite) protocol compliance checker that validates handshake rules, address alignment, write strobe patterns, response codes, and concurrent transaction restrictions. Designed for optional integration into existing testbenches without requiring code changes.
+Non-intrusive AXIL4 (AXI4-Lite) protocol compliance checker that validates handshake rules, address alignment, write strobe patterns, and response codes. Designed for optional integration into existing testbenches without requiring code changes.
 
 ## Overview
 
@@ -8,13 +8,13 @@ The `AXIL4ComplianceChecker` provides:
 
 - **Environment-controlled activation** via `AXIL4_COMPLIANCE_CHECK=1` or `AXI4_COMPLIANCE_CHECK=1` -- zero code changes required
 - **Automatic signal monitoring** on all five AXIL4 channels (AR, AW, W, R, B)
-- **Handshake protocol validation** (VALID must stay asserted until handshake)
-- **Data/address stability checking** (signals must not change while VALID is asserted)
+- **Handshake protocol validation** (VALID must stay asserted until handshake; deassertion after a completed handshake is recognized as legal)
+- **Data/address stability checking** (payload must not change while VALID is asserted and the transfer has not yet been accepted; legal back-to-back transfers with VALID held high are NOT flagged)
 - **Address alignment validation** (must be aligned to data width boundary)
 - **Write strobe validation** (must be valid and non-zero)
 - **Response code validation** (must be 0-3)
-- **Concurrent transaction detection** (AXIL4 does not support simultaneous read/write)
 - **PROT field validation** (must be 3-bit value)
+- **Outstanding-depth statistics** (`max_outstanding_reads` / `max_outstanding_writes`)
 - **Detailed violation reporting** with per-cycle timestamps
 
 Key differences from the AXI4 compliance checker:
@@ -22,13 +22,22 @@ Key differences from the AXI4 compliance checker:
 - No ID tracking or ordering checks
 - Simplified transaction flow validation
 - Register access pattern validation
-- Concurrent transaction detection (not supported in AXIL4)
 
-> **Implementation status:** the signal-level checks (VALID_DROPPED, DATA_UNSTABLE,
-> concurrent-transaction detection) run live against DUT signals. The packet-level checks
-> (address alignment, PROT, strobe, response codes) are gated on a
-> `monitor.get_completed_packets()` API that `GAXIMonitor` does not currently provide, so
-> those violations will not yet be reported.
+> **Note on concurrency:** concurrent read and write activity (ARVALID together with
+> AWVALID/WVALID) is **legal** in AXI4-Lite -- the read and write channels are
+> independent -- and multiple outstanding transactions are permitted by the protocol.
+> The checker therefore performs no cross-channel concurrency check and reports
+> outstanding depth as an informational statistic only. The `CONCURRENT_TRANSACTIONS`
+> violation type is retained for API compatibility but is no longer emitted.
+
+**Wiring:** the packet-level checks (address alignment, PROT, strobe, response codes)
+are fed by the `GAXIMonitorBase.get_completed_packets()` drain API. `setup_monitors()`
+calls `enable_completed_packet_tracking()` on each channel monitor, and the
+`monitor_transactions()` coroutine drains each monitor every clock cycle and runs the
+`validate_*` checks on every observed packet. The drain queue is separate from the
+cocotb `_recvQ`, so the documented `monitor._recvQ.popleft()` verification pattern is
+unaffected. The signal-level checks (VALID_DROPPED, DATA_UNSTABLE) run live against
+DUT signals in the `monitor_handshakes()` coroutine.
 
 ---
 
@@ -55,7 +64,7 @@ Enumeration of all violation types the checker can detect.
 | `DATA_WIDTH_VIOLATION` | Data | Data exceeds configured width |
 | `STROBE_VIOLATION` | Data | Invalid write strobe pattern |
 | `STROBE_DATA_CONSISTENCY` | Data | Strobe/data consistency issue |
-| `CONCURRENT_TRANSACTIONS` | Protocol | Simultaneous read and write (not allowed) |
+| `CONCURRENT_TRANSACTIONS` | Protocol | Retained for API compatibility; no longer emitted (concurrent read/write is legal in AXI4-Lite) |
 | `BURST_ATTEMPT` | Protocol | Burst transaction attempted (single transfer only) |
 | `RESET_VIOLATION` | Timing | Signals not properly reset |
 | `CLOCK_VIOLATION` | Timing | Clock domain issue |
@@ -110,8 +119,8 @@ class AXIL4ComplianceChecker:
 | `stats` | `Dict[str, Any]` | Transaction and check statistics |
 | `monitors` | `Dict[str, GAXIMonitor]` | Per-channel monitor instances |
 | `enabled` | `bool` | Whether the checker is active |
-| `outstanding_read` | `AXIL4Packet` or `None` | Currently outstanding read transaction |
-| `outstanding_write` | `AXIL4Packet` or `None` | Currently outstanding write transaction |
+| `outstanding_reads` | `int` | Current outstanding read depth (informational) |
+| `outstanding_writes` | `int` | Current outstanding write depth (informational) |
 
 ---
 

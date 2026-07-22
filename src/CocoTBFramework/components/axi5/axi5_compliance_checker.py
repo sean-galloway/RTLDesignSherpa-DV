@@ -162,11 +162,17 @@ class AXI5ComplianceChecker:
         self.violation_counts: Dict[AXI5ViolationType, int] = {}
         self.cycle_count = 0
 
-        # Transaction tracking for ordering and matching
-        self.outstanding_reads: Dict[int, Any] = {}  # ID -> transaction info
-        self.outstanding_writes: Dict[int, Any] = {}
+        # Transaction tracking for ordering and matching.
+        # Per-ID FIFO queues: AXI5 allows multiple outstanding transactions
+        # with the same ID (completed in order), so each ID maps to a list of
+        # transaction-info dicts rather than a single entry.
+        self.outstanding_reads: Dict[int, List[Any]] = {}  # ID -> [txn info, ...]
+        self.outstanding_writes: Dict[int, List[Any]] = {}
         self.write_data_queue: Dict[int, List[Any]] = {}  # ID -> W beats
-        self.atomic_transactions: Dict[int, Any] = {}  # ID -> atomic info
+        self.atomic_transactions: Dict[int, List[Any]] = {}  # ID -> [atomic info, ...]
+
+        # Previous-cycle handshake state for VALID-dropped detection
+        self.prev_signals: Dict[str, Any] = {}
 
         # Statistics
         self.stats = {
@@ -292,6 +298,11 @@ class AXI5ComplianceChecker:
                     log=self.log
                 )
 
+            # Opt in to the completed-packet drain API so monitor_transactions()
+            # actually receives packets (see GAXIMonitorBase.get_completed_packets)
+            for monitor in self.monitors.values():
+                monitor.enable_completed_packet_tracking()
+
             # Start monitoring tasks
             if self.monitors:
                 self.monitors_active = True
@@ -367,7 +378,14 @@ class AXI5ComplianceChecker:
                 self.log.debug(f"Monitor handshakes stopped: {e}")
 
     async def check_handshake_rules(self, channel: str):
-        """Check handshake protocol rules for a specific channel."""
+        """Check handshake protocol rules for a specific channel.
+
+        Rule (AMBA AXI A3.2.1): once VALID is asserted it must remain
+        asserted until the rising clock edge where READY is also asserted.
+        We track the previous cycle's (VALID, READY) pair per channel; if
+        VALID was high without READY (no handshake) and VALID is now low,
+        that is a protocol violation. READY before VALID is always legal.
+        """
         try:
             valid_signal = getattr(self.dut, f'{self.prefix}{channel}valid', None)
             ready_signal = getattr(self.dut, f'{self.prefix}{channel}ready', None)
@@ -375,6 +393,20 @@ class AXI5ComplianceChecker:
             if valid_signal is None or ready_signal is None:
                 return
 
+            valid_val = bool(valid_signal.value)
+            ready_val = bool(ready_signal.value)
+
+            prev = self.prev_signals.get(f'{channel}_handshake')
+            if prev is not None:
+                prev_valid, prev_ready = prev
+                if prev_valid and not prev_ready and not valid_val:
+                    self.record_violation(
+                        AXI5ViolationType.VALID_DROPPED,
+                        channel.upper(),
+                        f"{channel.upper()}VALID deasserted before handshake completed"
+                    )
+
+            self.prev_signals[f'{channel}_handshake'] = (valid_val, ready_val)
             self.stats['checks_performed'] += 1
 
         except Exception:
@@ -453,16 +485,16 @@ class AXI5ComplianceChecker:
         if trace:
             self.stats['traced_transactions'] += 1
 
-        # Track outstanding read
+        # Track outstanding read (per-ID FIFO: same-ID transactions queue up)
         transaction_id = getattr(packet, 'id', 0)
-        self.outstanding_reads[transaction_id] = {
+        self.outstanding_reads.setdefault(transaction_id, []).append({
             'packet': packet,
             'expected_beats': burst_len,
             'received_beats': 0,
             'chunken': chunken,
             'tagop': tagop,
             'trace': trace,
-        }
+        })
 
     async def validate_aw_transaction(self, packet: AXI5Packet):
         """Validate AW (Address Write) transaction."""
@@ -500,12 +532,12 @@ class AXI5ComplianceChecker:
                     f"Invalid ATOP type: {atop_type}"
                 )
 
-            # Track atomic transaction
+            # Track atomic transaction (per-ID FIFO)
             transaction_id = getattr(packet, 'id', 0)
-            self.atomic_transactions[transaction_id] = {
+            self.atomic_transactions.setdefault(transaction_id, []).append({
                 'atop': atop,
                 'addr': getattr(packet, 'addr', 0),
-            }
+            })
 
         # AXI5-specific: Check tagop
         tagop = getattr(packet, 'tagop', 0)
@@ -518,16 +550,16 @@ class AXI5ComplianceChecker:
                     f"Invalid TAGOP value: {tagop} (must be 0-3)"
                 )
 
-        # Track outstanding write
+        # Track outstanding write (per-ID FIFO: same-ID transactions queue up)
         transaction_id = getattr(packet, 'id', 0)
-        self.outstanding_writes[transaction_id] = {
+        self.outstanding_writes.setdefault(transaction_id, []).append({
             'packet': packet,
             'expected_beats': burst_len,
             'received_beats': 0,
             'atop': atop,
             'tagop': tagop,
             'trace': getattr(packet, 'trace', 0),
-        }
+        })
 
     async def validate_w_transaction(self, packet: AXI5Packet):
         """Validate W (Write Data) transaction."""
@@ -556,24 +588,25 @@ class AXI5ComplianceChecker:
         if poison:
             self.stats['poisoned_beats'] += 1
 
-        # AXI5-specific: Check chunk fields
-        chunkv = getattr(packet, 'chunkv', 0)
-        if chunkv:
-            transaction_id = getattr(packet, 'id', 0)
-            if transaction_id in self.outstanding_reads:
-                if not self.outstanding_reads[transaction_id].get('chunken', 0):
-                    self.record_violation(
-                        AXI5ViolationType.CHUNK_ENABLE_VIOLATION,
-                        'R',
-                        f"CHUNKV=1 but CHUNKEN was not set in AR for ID {transaction_id}"
-                    )
-
-        # Check RLAST matching
+        # R beats for a given ID belong to the oldest outstanding read for
+        # that ID (same-ID reads complete in order).
         transaction_id = getattr(packet, 'id', 0)
         is_last = getattr(packet, 'last', 0)
+        read_queue = self.outstanding_reads.get(transaction_id)
 
-        if transaction_id in self.outstanding_reads:
-            outstanding = self.outstanding_reads[transaction_id]
+        # AXI5-specific: Check chunk fields
+        chunkv = getattr(packet, 'chunkv', 0)
+        if chunkv and read_queue:
+            if not read_queue[0].get('chunken', 0):
+                self.record_violation(
+                    AXI5ViolationType.CHUNK_ENABLE_VIOLATION,
+                    'R',
+                    f"CHUNKV=1 but CHUNKEN was not set in AR for ID {transaction_id}"
+                )
+
+        # Check RLAST matching
+        if read_queue:
+            outstanding = read_queue[0]
             outstanding['received_beats'] += 1
 
             expected_last = (outstanding['received_beats'] == outstanding['expected_beats'])
@@ -585,7 +618,9 @@ class AXI5ComplianceChecker:
                 )
 
             if is_last:
-                del self.outstanding_reads[transaction_id]
+                read_queue.pop(0)
+                if not read_queue:
+                    del self.outstanding_reads[transaction_id]
 
     async def validate_b_transaction(self, packet: AXI5Packet):
         """Validate B (Write Response) transaction."""
@@ -600,17 +635,23 @@ class AXI5ComplianceChecker:
                 f"Invalid response code {resp}"
             )
 
-        # AXI5-specific: Check atomic response
+        # AXI5-specific: Check atomic response. A B response completes the
+        # oldest outstanding atomic for its ID (same-ID writes complete in order).
         transaction_id = getattr(packet, 'id', 0)
-        if transaction_id in self.atomic_transactions:
+        atomic_queue = self.atomic_transactions.get(transaction_id)
+        if atomic_queue:
             # Atomic transactions can return EXOKAY
             # but should not return OKAY for exclusive atomics
-            del self.atomic_transactions[transaction_id]
+            atomic_queue.pop(0)
+            if not atomic_queue:
+                del self.atomic_transactions[transaction_id]
 
-        # AXI5-specific: Check trace consistency
+        # AXI5-specific: Check trace consistency against the oldest
+        # outstanding write for this ID, then retire it.
         trace = getattr(packet, 'trace', 0)
-        if transaction_id in self.outstanding_writes:
-            expected_trace = self.outstanding_writes[transaction_id].get('trace', 0)
+        write_queue = self.outstanding_writes.get(transaction_id)
+        if write_queue:
+            expected_trace = write_queue[0].get('trace', 0)
             if trace != expected_trace:
                 self.record_violation(
                     AXI5ViolationType.TRACE_CONSISTENCY_VIOLATION,
@@ -618,7 +659,9 @@ class AXI5ComplianceChecker:
                     f"TRACE mismatch for ID {transaction_id}: expected {expected_trace}, got {trace}",
                     severity='WARNING'
                 )
-            del self.outstanding_writes[transaction_id]
+            write_queue.pop(0)
+            if not write_queue:
+                del self.outstanding_writes[transaction_id]
 
     def record_violation(self, violation_type: AXI5ViolationType, channel: str,
                          message: str, **kwargs):

@@ -120,10 +120,16 @@ class AXI4ComplianceChecker:
         self.violation_counts: Dict[AXI4ViolationType, int] = {}
         self.cycle_count = 0
 
-        # Transaction tracking for ordering and matching
-        self.outstanding_reads: Dict[int, Any] = {}  # ID -> transaction info
-        self.outstanding_writes: Dict[int, Any] = {}
+        # Transaction tracking for ordering and matching.
+        # Per-ID FIFO queues: AXI4 allows multiple outstanding transactions
+        # with the same ID (completed in order), so each ID maps to a list of
+        # transaction-info dicts rather than a single entry.
+        self.outstanding_reads: Dict[int, List[Any]] = {}  # ID -> [txn info, ...]
+        self.outstanding_writes: Dict[int, List[Any]] = {}
         self.write_data_queue: Dict[int, List[Any]] = {}  # ID -> W beats
+
+        # Previous-cycle handshake state for VALID-dropped detection
+        self.prev_signals: Dict[str, Any] = {}
 
         # Statistics
         self.stats = {
@@ -244,6 +250,11 @@ class AXI4ComplianceChecker:
                     log=self.log
                 )
 
+            # Opt in to the completed-packet drain API so monitor_transactions()
+            # actually receives packets (see GAXIMonitorBase.get_completed_packets)
+            for monitor in self.monitors.values():
+                monitor.enable_completed_packet_tracking()
+
             # Start monitoring tasks
             if self.monitors:
                 self.monitors_active = True
@@ -322,7 +333,14 @@ class AXI4ComplianceChecker:
                 self.log.debug(f"Monitor handshakes stopped: {e}")
 
     async def check_handshake_rules(self, channel: str):
-        """Check handshake protocol rules for a specific channel."""
+        """Check handshake protocol rules for a specific channel.
+
+        Rule (AMBA AXI A3.2.1): once VALID is asserted it must remain
+        asserted until the rising clock edge where READY is also asserted.
+        We track the previous cycle's (VALID, READY) pair per channel; if
+        VALID was high without READY (no handshake) and VALID is now low,
+        that is a protocol violation. READY before VALID is always legal.
+        """
         try:
             valid_signal = getattr(self.dut, f'{self.prefix}{channel}valid', None)
             ready_signal = getattr(self.dut, f'{self.prefix}{channel}ready', None)
@@ -330,15 +348,20 @@ class AXI4ComplianceChecker:
             if valid_signal is None or ready_signal is None:
                 return
 
-            bool(valid_signal.value)
-            bool(ready_signal.value)
+            valid_val = bool(valid_signal.value)
+            ready_val = bool(ready_signal.value)
 
-            # Rule: Once VALID is asserted, it must remain asserted until READY
-            # (This requires state tracking which we'll implement simply)
+            prev = self.prev_signals.get(f'{channel}_handshake')
+            if prev is not None:
+                prev_valid, prev_ready = prev
+                if prev_valid and not prev_ready and not valid_val:
+                    self.record_violation(
+                        AXI4ViolationType.VALID_DROPPED,
+                        channel.upper(),
+                        f"{channel.upper()}VALID deasserted before handshake completed"
+                    )
 
-            # Rule: READY can be asserted before VALID (this is allowed)
-            # Rule: Data must be stable while VALID is asserted
-
+            self.prev_signals[f'{channel}_handshake'] = (valid_val, ready_val)
             self.stats['checks_performed'] += 1
 
         except Exception:
@@ -385,13 +408,13 @@ class AXI4ComplianceChecker:
                 f"Burst size {burst_size} exceeds maximum of 7"
             )
 
-        # Track outstanding read
+        # Track outstanding read (per-ID FIFO: same-ID transactions queue up)
         transaction_id = getattr(packet, 'id', 0)
-        self.outstanding_reads[transaction_id] = {
+        self.outstanding_reads.setdefault(transaction_id, []).append({
             'packet': packet,
             'expected_beats': burst_len,
             'received_beats': 0
-        }
+        })
 
     async def validate_aw_transaction(self, packet: AXI4Packet):
         """Validate AW (Address Write) transaction."""
@@ -406,13 +429,13 @@ class AXI4ComplianceChecker:
                 f"Burst length {burst_len} exceeds maximum of 256"
             )
 
-        # Track outstanding write
+        # Track outstanding write (per-ID FIFO: same-ID transactions queue up)
         transaction_id = getattr(packet, 'id', 0)
-        self.outstanding_writes[transaction_id] = {
+        self.outstanding_writes.setdefault(transaction_id, []).append({
             'packet': packet,
             'expected_beats': burst_len,
             'received_beats': 0
-        }
+        })
 
     async def validate_w_transaction(self, packet: AXI4Packet):
         """Validate W (Write Data) transaction."""
@@ -435,12 +458,14 @@ class AXI4ComplianceChecker:
                 f"Invalid response code {resp}"
             )
 
-        # Check RLAST matching
+        # Check RLAST matching. R beats for a given ID belong to the oldest
+        # outstanding read for that ID (same-ID reads complete in order).
         transaction_id = getattr(packet, 'id', 0)
         is_last = getattr(packet, 'last', 0)
 
-        if transaction_id in self.outstanding_reads:
-            outstanding = self.outstanding_reads[transaction_id]
+        read_queue = self.outstanding_reads.get(transaction_id)
+        if read_queue:
+            outstanding = read_queue[0]
             outstanding['received_beats'] += 1
 
             expected_last = (outstanding['received_beats'] == outstanding['expected_beats'])
@@ -452,7 +477,9 @@ class AXI4ComplianceChecker:
                 )
 
             if is_last:
-                del self.outstanding_reads[transaction_id]
+                read_queue.pop(0)
+                if not read_queue:
+                    del self.outstanding_reads[transaction_id]
 
     async def validate_b_transaction(self, packet: AXI4Packet):
         """Validate B (Write Response) transaction."""
@@ -466,6 +493,16 @@ class AXI4ComplianceChecker:
                 'B',
                 f"Invalid response code {resp}"
             )
+
+        # A B response completes the oldest outstanding write for its ID
+        # (same-ID writes complete in order). Without this, the write queue
+        # would grow without bound.
+        transaction_id = getattr(packet, 'id', 0)
+        write_queue = self.outstanding_writes.get(transaction_id)
+        if write_queue:
+            write_queue.pop(0)
+            if not write_queue:
+                del self.outstanding_writes[transaction_id]
 
     def record_violation(self, violation_type: AXI4ViolationType, channel: str, message: str, **kwargs):
         """Record a protocol violation."""

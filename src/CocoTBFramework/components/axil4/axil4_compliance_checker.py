@@ -79,7 +79,9 @@ class AXIL4ViolationType(Enum):
     STROBE_DATA_CONSISTENCY = "strobe_data_consistency"
 
     # Protocol violations
-    CONCURRENT_TRANSACTIONS = "concurrent_transactions"  # AXIL4 doesn't support this
+    # Retained for API compatibility. Concurrent reads and writes are LEGAL
+    # in AXI4-Lite (independent channels); the checker no longer emits this.
+    CONCURRENT_TRANSACTIONS = "concurrent_transactions"
     BURST_ATTEMPT = "burst_attempt"  # AXIL4 is single transfer only
 
     # Timing violations
@@ -134,9 +136,12 @@ class AXIL4ComplianceChecker:
         self.violation_counts: Dict[AXIL4ViolationType, int] = {}
         self.cycle_count = 0
 
-        # Transaction state tracking (simpler than AXI4)
-        self.outstanding_read = None
-        self.outstanding_write = None
+        # Transaction state tracking (simpler than AXI4).
+        # AXI4-Lite permits multiple outstanding transactions (and concurrent
+        # reads and writes -- the channels are independent), so we track
+        # outstanding depth as informational statistics, not violations.
+        self.outstanding_reads = 0
+        self.outstanding_writes = 0
         self.write_data_received = False
 
         # Previous state tracking for stability checks
@@ -152,7 +157,9 @@ class AXIL4ComplianceChecker:
             'total_violations': 0,
             'checks_performed': 0,
             'address_alignment_checks': 0,
-            'strobe_checks': 0
+            'strobe_checks': 0,
+            'max_outstanding_reads': 0,
+            'max_outstanding_writes': 0
         }
 
         # Start monitoring if signals exist
@@ -265,6 +272,11 @@ class AXIL4ComplianceChecker:
                     log=self.log
                 )
 
+            # Opt in to the completed-packet drain API so monitor_transactions()
+            # actually receives packets (see GAXIMonitorBase.get_completed_packets)
+            for monitor in self.monitors.values():
+                monitor.enable_completed_packet_tracking()
+
             # Start monitoring tasks
             if self.monitors:
                 self.monitors_active = True
@@ -331,14 +343,15 @@ class AXIL4ComplianceChecker:
 
         try:
             while True:
-                # Check handshake rules for each channel
+                # Check handshake rules for each channel.
+                # NOTE: concurrent read and write activity (ARVALID together
+                # with AWVALID/WVALID) is LEGAL in AXI4-Lite -- the read and
+                # write channels are independent -- so no cross-channel
+                # concurrency check is performed.
                 for channel in ['ar', 'aw', 'w', 'r', 'b']:
                     if self._has_channel_signals(channel):
                         await self.check_handshake_rules(channel)
                         await self.check_data_stability(channel)
-
-                # Check for concurrent transactions (not allowed in AXIL4)
-                await self.check_concurrent_transactions()
 
                 await RisingEdge(self.clock)
 
@@ -347,7 +360,15 @@ class AXIL4ComplianceChecker:
                 self.log.debug(f"Monitor handshakes stopped: {e}")
 
     async def check_handshake_rules(self, channel: str):
-        """Check handshake protocol rules for a specific channel."""
+        """Check handshake protocol rules for a specific channel.
+
+        Rule (AMBA AXI A3.2.1): once VALID is asserted it must remain
+        asserted until the rising clock edge where READY is also asserted.
+        We track the previous cycle's (VALID, READY) pair per channel; VALID
+        may legally deassert after a completed handshake (previous cycle had
+        VALID and READY both high), so only a drop with no prior handshake
+        is a violation.
+        """
         try:
             valid_signal = getattr(self.dut, f'{self.prefix}{channel}valid', None)
             ready_signal = getattr(self.dut, f'{self.prefix}{channel}ready', None)
@@ -358,20 +379,20 @@ class AXIL4ComplianceChecker:
             valid_val = bool(valid_signal.value)
             ready_val = bool(ready_signal.value)
 
-            # Store current state
-            prev_key = f'{channel}_valid'
-            prev_valid = self.prev_signals.get(prev_key, False)
+            prev = self.prev_signals.get(f'{channel}_handshake')
 
             # Rule: Once VALID is asserted, it must remain asserted until handshake
-            if prev_valid and not valid_val and not ready_val:
-                self.record_violation(
-                    AXIL4ViolationType.VALID_DROPPED,
-                    channel.upper(),
-                    f"{channel.upper()}VALID dropped before handshake completed"
-                )
+            if prev is not None:
+                prev_valid, prev_ready = prev
+                if prev_valid and not prev_ready and not valid_val:
+                    self.record_violation(
+                        AXIL4ViolationType.VALID_DROPPED,
+                        channel.upper(),
+                        f"{channel.upper()}VALID dropped before handshake completed"
+                    )
 
             # Update state
-            self.prev_signals[prev_key] = valid_val
+            self.prev_signals[f'{channel}_handshake'] = (valid_val, ready_val)
             self.stats['checks_performed'] += 1
 
         except Exception:
@@ -379,71 +400,60 @@ class AXIL4ComplianceChecker:
             pass
 
     async def check_data_stability(self, channel: str):
-        """Check that data/address signals are stable while VALID is asserted."""
+        """Check that data/address signals are stable while VALID is asserted.
+
+        Stability is only required from VALID assertion until the handshake
+        (VALID and READY both high) completes. The held value is therefore
+        cleared whenever VALID is low OR a handshake completes, so legal
+        back-to-back transfers (VALID high across two beats with different
+        payloads) are NOT flagged.
+        """
         try:
             valid_signal = getattr(self.dut, f'{self.prefix}{channel}valid', None)
-            if valid_signal is None or not bool(valid_signal.value):
+            if valid_signal is None:
                 return
 
-            # Check address stability for address channels
+            # Payload signal under stability check for this channel
             if channel in ['ar', 'aw']:
-                addr_signal = getattr(self.dut, f'{self.prefix}{channel}addr', None)
-                if addr_signal is not None:
-                    addr_key = f'{channel}_addr'
-                    prev_addr = self.prev_signals.get(addr_key)
-                    current_addr = int(addr_signal.value)
+                payload_name = f'{self.prefix}{channel}addr'
+                payload_desc = f"{channel.upper()}ADDR"
+            elif channel in ['w', 'r']:
+                payload_name = f'{self.prefix}{channel}data'
+                payload_desc = f"{channel.upper()}DATA"
+            else:
+                return  # B channel: no payload stability check
 
-                    if prev_addr is not None and prev_addr != current_addr:
-                        self.record_violation(
-                            AXIL4ViolationType.DATA_UNSTABLE,
-                            channel.upper(),
-                            f"{channel.upper()}ADDR changed while {channel.upper()}VALID asserted"
-                        )
+            payload_signal = getattr(self.dut, payload_name, None)
+            if payload_signal is None:
+                return
 
-                    self.prev_signals[addr_key] = current_addr
+            stable_key = f'{channel}_stable_payload'
 
-            # Check data stability for data channels
-            if channel in ['w', 'r']:
-                data_signal = getattr(self.dut, f'{self.prefix}{channel}data', None)
-                if data_signal is not None:
-                    data_key = f'{channel}_data'
-                    prev_data = self.prev_signals.get(data_key)
-                    current_data = int(data_signal.value)
+            if not bool(valid_signal.value):
+                # VALID low: nothing to hold stable
+                self.prev_signals.pop(stable_key, None)
+                return
 
-                    if prev_data is not None and prev_data != current_data:
-                        self.record_violation(
-                            AXIL4ViolationType.DATA_UNSTABLE,
-                            channel.upper(),
-                            f"{channel.upper()}DATA changed while {channel.upper()}VALID asserted"
-                        )
+            current_value = int(payload_signal.value)
+            held_value = self.prev_signals.get(stable_key)
 
-                    self.prev_signals[data_key] = current_data
-
-        except Exception:
-            pass
-
-    async def check_concurrent_transactions(self):
-        """Check that AXIL4 doesn't have concurrent transactions."""
-        try:
-            # AXIL4 should not have overlapping address and data phases
-            ar_valid = False
-            aw_valid = False
-            w_valid = False
-
-            if self._has_channel_signals('ar'):
-                ar_valid = bool(getattr(self.dut, f'{self.prefix}arvalid', False).value)
-            if self._has_channel_signals('aw'):
-                aw_valid = bool(getattr(self.dut, f'{self.prefix}awvalid', False).value)
-            if self._has_channel_signals('w'):
-                w_valid = bool(getattr(self.dut, f'{self.prefix}wvalid', False).value)
-
-            # Check for read/write concurrency
-            if ar_valid and (aw_valid or w_valid):
+            if held_value is not None and held_value != current_value:
                 self.record_violation(
-                    AXIL4ViolationType.CONCURRENT_TRANSACTIONS,
-                    'SYSTEM',
-                    "AXIL4 does not support concurrent read and write transactions"
+                    AXIL4ViolationType.DATA_UNSTABLE,
+                    channel.upper(),
+                    f"{payload_desc} changed while {channel.upper()}VALID asserted"
                 )
+
+            ready_signal = getattr(self.dut, f'{self.prefix}{channel}ready', None)
+            ready_val = bool(ready_signal.value) if ready_signal is not None else False
+
+            if ready_val:
+                # Handshake completes this cycle -- the next beat may legally
+                # present a new payload, so stop holding the current value.
+                self.prev_signals.pop(stable_key, None)
+            else:
+                # Transfer not yet accepted: payload must hold next cycle
+                self.prev_signals[stable_key] = current_value
 
         except Exception:
             pass
@@ -488,15 +498,12 @@ class AXIL4ComplianceChecker:
                 f"Invalid PROT value {prot} (should be 0-7)"
             )
 
-        # Track outstanding read (AXIL4 allows only one)
-        if self.outstanding_read is not None:
-            self.record_violation(
-                AXIL4ViolationType.CONCURRENT_TRANSACTIONS,
-                'AR',
-                "Multiple outstanding read transactions not allowed in AXIL4"
-            )
-
-        self.outstanding_read = packet
+        # Track outstanding read depth. AXI4-Lite does not forbid multiple
+        # outstanding transactions (ordering is implicit -- no IDs), so depth
+        # is recorded as an informational statistic, not a violation.
+        self.outstanding_reads += 1
+        self.stats['max_outstanding_reads'] = max(
+            self.stats['max_outstanding_reads'], self.outstanding_reads)
 
     async def validate_aw_transaction(self, packet: AXIL4Packet):
         """Validate AW (Address Write) transaction."""
@@ -520,15 +527,10 @@ class AXIL4ComplianceChecker:
                 f"Invalid PROT value {prot} (should be 0-7)"
             )
 
-        # Track outstanding write
-        if self.outstanding_write is not None:
-            self.record_violation(
-                AXIL4ViolationType.CONCURRENT_TRANSACTIONS,
-                'AW',
-                "Multiple outstanding write transactions not allowed in AXIL4"
-            )
-
-        self.outstanding_write = packet
+        # Track outstanding write depth (informational -- see validate_ar)
+        self.outstanding_writes += 1
+        self.stats['max_outstanding_writes'] = max(
+            self.stats['max_outstanding_writes'], self.outstanding_writes)
 
     async def validate_w_transaction(self, packet: AXIL4Packet):
         """Validate W (Write Data) transaction."""
@@ -560,8 +562,8 @@ class AXIL4ComplianceChecker:
                 f"Invalid response code {resp} (should be 0-3)"
             )
 
-        # Clear outstanding read
-        self.outstanding_read = None
+        # Retire one outstanding read
+        self.outstanding_reads = max(0, self.outstanding_reads - 1)
 
     async def validate_b_transaction(self, packet: AXIL4Packet):
         """Validate B (Write Response) transaction."""
@@ -576,8 +578,8 @@ class AXIL4ComplianceChecker:
                 f"Invalid response code {resp} (should be 0-3)"
             )
 
-        # Clear outstanding write
-        self.outstanding_write = None
+        # Retire one outstanding write
+        self.outstanding_writes = max(0, self.outstanding_writes - 1)
         self.write_data_received = False
 
     def check_address_alignment(self, addr: int) -> bool:

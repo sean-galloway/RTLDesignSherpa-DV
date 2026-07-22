@@ -332,6 +332,25 @@ setup_gaxi_constraints_with_boundaries(
 )
 ```
 
+### Match spans two transactions, or idle filtering not working?
+
+Boundary constraints are enforced during solving — a match cannot straddle a
+declared/auto-detected transaction boundary. If you use
+`boundary_min_idle_cycles`, define what "idle" means for your DUT:
+
+```python
+constraint = TemporalConstraint(
+    name="isolated_write",
+    events=[...],
+    boundary_min_idle_cycles=3,
+    idle_signals={"wr_valid": 0, "rd_ready": 0},  # signal -> idle value
+)
+```
+
+If `idle_signals` is unset, the solver derives control/handshake signals from
+the constraint's own events; if none can be derived, idle filtering is skipped
+with a log message. See [Boundaries & Isolation](wavedrom_index.md#transaction-boundaries--scenario-isolation).
+
 ---
 
 ## Next Steps

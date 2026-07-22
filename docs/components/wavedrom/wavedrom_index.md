@@ -141,6 +141,73 @@ graph TB
 
 ---
 
+## Transaction Boundaries & Scenario Isolation
+
+The constraint solver supports isolating a match to a single transaction using
+boundary constraints and an idle-cycle filter. Both are enforced during CP-SAT
+solving.
+
+### Boundary Constraints (enforced in the solver)
+
+Boundaries declared with `add_transaction_boundary()` (manual, by cycle) or
+`auto_detect_boundaries()` (signal transition, e.g. `valid` 1→0) are translated
+into real CP-SAT constraints: **a match may not straddle a boundary** — all of a
+constraint's events must fall entirely before the boundary cycle or entirely
+at/after it.
+
+```python
+# Manual boundary at window cycle 25
+wave_solver.add_transaction_boundary("write_handshake", boundary_cycle=25)
+
+# Auto-detected boundary: two cycles after every wr_valid 1->0 transition
+wave_solver.auto_detect_boundaries("write_handshake",
+                                   transition_signal="wr_valid",
+                                   transition_value=(1, 0))
+```
+
+Per-constraint boundary handling can be disabled with
+`TemporalConstraint(skip_boundary_detection=True)` (skips the boundary
+detect/solve/flush cycle during sampling for that constraint).
+
+### Idle-Cycle Filter (`boundary_min_idle_cycles`)
+
+When `TemporalConstraint.boundary_min_idle_cycles > 0`, matches are only kept if
+the N cycles before the match start are idle. What "idle" means is now
+configurable per constraint:
+
+```python
+constraint = TemporalConstraint(
+    name="isolated_write",
+    events=[...],
+    boundary_min_idle_cycles=3,
+    # Explicit idle definition: signal_name -> value when idle
+    idle_signals={"wr_valid": 0, "rd_ready": 0},
+)
+```
+
+Resolution order:
+
+1. **`idle_signals` set** — used as-is (configured signals missing from the
+   captured data are ignored with a warning).
+2. **`idle_signals` empty** — the solver derives an idle set from the
+   constraint's own events: control/handshake signals (names containing
+   `valid`, `ready`, `req`, `ack`, `gnt`, `psel`, `penable`, `enable`) are
+   assumed idle at 0.
+3. **Nothing derivable** — filtering is skipped with an explicit log message
+   (it never passes vacuously). Set `idle_signals` to enable it.
+
+> **Migration note:** earlier versions hardcoded idle as
+> `wr_valid == 0 AND rd_ready == 0`. If you relied on those exact names on a
+> constraint whose events do not reference them, set
+> `idle_signals={"wr_valid": 0, "rd_ready": 0}` explicitly.
+
+### Post-Match Window Extension
+
+`TemporalConstraint(post_match_cycles=N)` extends the rendered window by N
+cycles after the matched sequence (in addition to `context_cycles_after`).
+
+---
+
 ## File Locations
 
 ### Source Code
@@ -175,6 +242,7 @@ graph TB
 
 ## Version History
 
+- **v3.1 (2026-07)**: Boundary constraints now enforced in CP-SAT solving (matches cannot straddle a transaction boundary); configurable `idle_signals` for `boundary_min_idle_cycles` filtering (auto-derived from constraint events when unset, explicit skip otherwise); `skip_boundary_detection` / `post_match_cycles` promoted to proper `TemporalConstraint` fields; signals bound after `add_constraint()` no longer kill sampling; sampling errors are logged with tracebacks; switched to the non-deprecated `enumerate_all_solutions` CP-SAT API
 - **v3.0 (2025-10-06)**: Added AXI4/AXIL4/AXIS protocol presets, arrow annotations, labeled groups
 - **v2.0 (2025-10-04)**: SignalResolver auto-binding integration
 - **v1.5 (2025-10-05)**: Segmented capture implementation

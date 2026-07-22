@@ -22,6 +22,7 @@ Key fixes:
 3. Better constraint isolation between transactions
 """
 
+import traceback
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
@@ -108,6 +109,19 @@ class TemporalConstraint:
 
     # Scenario isolation
     boundary_min_idle_cycles: int = 0  # Minimum idle cycles before match to consider it isolated
+
+    # Idle-signal definition used by boundary_min_idle_cycles filtering.
+    # Maps signal name -> value the signal holds when the interface is idle
+    # (e.g. {"wr_valid": 0, "rd_ready": 0}). When empty, the solver derives
+    # handshake/control signals from this constraint's own events (idle value 0);
+    # if nothing can be derived, idle filtering is skipped with a log message.
+    idle_signals: Dict[str, int] = field(default_factory=dict)
+
+    # Boundary handling: skip automatic boundary detection/solve for this constraint
+    skip_boundary_detection: bool = False
+
+    # Extra cycles to include after the matched sequence in the rendered window
+    post_match_cycles: int = 0
 
     # FieldConfig integration
     field_config: Optional[FieldConfig] = None
@@ -206,7 +220,8 @@ class TemporalConstraintSolver:
         if not self.wavejson_generator:
             self.wavejson_generator = WaveJSONGenerator(
                 debug_level=debug_level,
-                default_field_config=default_field_config
+                default_field_config=default_field_config,
+                log=log
             )
 
         # Clock groups with FieldConfig support
@@ -662,8 +677,18 @@ class TemporalConstraintSolver:
                 await self._sample_signals_for_clock_group(clock_group.name)
 
         except Exception as e:
-            if self.debug_level >= 1:
-                self.log.info(f"Temporal sampling stopped for {clock_group.name}: {e}")
+            # Distinguish deliberate shutdown from a genuine sampling failure.
+            # (cocotb task cancellation raises BaseException subclasses that
+            # propagate past this handler; anything caught here while
+            # is_sampling is still True is a real error and must be loud.)
+            if not self.is_sampling:
+                if self.debug_level >= 1:
+                    self.log.info(f"Temporal sampling stopped for {clock_group.name}: {e}")
+            else:
+                self.log.error(
+                    f"Temporal sampling FAILED for clock group '{clock_group.name}': {e}\n"
+                    f"{traceback.format_exc()}"
+                )
 
     async def _sample_signals_for_clock_group(self, clock_group_name: str):
         """Signal sampling with improved boundary detection"""
@@ -691,10 +716,17 @@ class TemporalConstraintSolver:
             self.constraint_cycle_counters[constraint_name] += 1
 
             # Check if this constraint should skip boundary detection
-            skip_boundaries = getattr(constraint, 'skip_boundary_detection', False)
+            skip_boundaries = constraint.skip_boundary_detection
+
+            # Ensure every currently-bound signal has a rolling window.
+            # Signals may be bound AFTER add_constraint() was called; without
+            # this, appending below would raise KeyError and kill sampling.
+            constraint_windows = self.constraint_windows[constraint_name]
+            for signal_name in current_values:
+                constraint_windows.setdefault(signal_name, deque(maxlen=constraint.max_window_size))
 
             # FIXED: Check for boundary BEFORE adding to windows (only if not skipped)
-            window_size = len(self.constraint_windows[constraint_name][list(self.constraint_windows[constraint_name].keys())[0]])
+            window_size = max((len(w) for w in constraint_windows.values()), default=0)
             boundary_detected = False
 
             if not skip_boundaries:
@@ -712,12 +744,11 @@ class TemporalConstraintSolver:
                         self.log.info(f"Cleared windows for {constraint_name} after boundary detection")
 
             # Add current values to rolling windows
-            constraint_windows = self.constraint_windows[constraint_name]
             for signal_name, value in current_values.items():
                 constraint_windows[signal_name].append(value)
 
             # Get updated window size
-            window_size = len(constraint_windows[list(constraint_windows.keys())[0]])
+            window_size = max((len(w) for w in constraint_windows.values()), default=0)
 
             # Solve if window is full
             if window_size >= constraint.max_window_size:
@@ -935,12 +966,16 @@ class TemporalConstraintSolver:
                 cycle = boundary['cycle']
                 reset_signals = boundary['reset_signals']
 
-                if cycle < window_size:
-                    self._apply_boundary_constraints_to_model(model, signal_data, cycle, reset_signals)
+                if 0 < cycle < window_size:
+                    self._apply_boundary_constraints_to_model(
+                        model, event_cycle_vars, signal_data, cycle, reset_signals
+                    )
 
         # Apply auto-boundary detection if configured
         if constraint_name in self.auto_boundary_configs:
-            self._apply_auto_boundary_detection(model, signal_data, constraint_name, window_size)
+            self._apply_auto_boundary_detection(
+                model, event_cycle_vars, signal_data, constraint_name, window_size
+            )
 
         # Find cycles where each event can occur
         for event in constraint.events:
@@ -982,13 +1017,15 @@ class TemporalConstraintSolver:
         # Add temporal relationship constraints
         self._add_temporal_relationship_constraints(model, constraint, event_cycle_vars, window_size)
 
-        # Solve the model
+        # Solve the model, enumerating all solutions
+        # (SearchForAllSolutions is deprecated in ortools >= 9.x)
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = 5.0
+        solver.parameters.enumerate_all_solutions = True
 
         # Collect solutions
         solution_collector = TemporalSolutionCollector(constraint_name, event_cycle_vars)
-        status = solver.SearchForAllSolutions(model, solution_collector)
+        status = solver.Solve(model, solution_collector)
 
         if status in [cp_model.OPTIMAL, cp_model.FEASIBLE] and solution_collector.solutions:
             if self.debug_level >= 1:
@@ -1071,15 +1108,40 @@ class TemporalConstraintSolver:
             model.Add(duration >= constraint.min_sequence_duration - 1)
             model.Add(duration <= constraint.max_sequence_duration - 1)
 
-    def _apply_boundary_constraints_to_model(self, model, signal_data, boundary_cycle, reset_signals):
-        """Apply boundary constraints to the CP-SAT model"""
-        for signal_name, reset_value in reset_signals.items():
-            if signal_name in signal_data and boundary_cycle < len(signal_data[signal_name]):
-                if self.debug_level >= 2:
+    def _apply_boundary_constraints_to_model(self, model, event_cycle_vars, signal_data,
+                                             boundary_cycle, reset_signals):
+        """
+        Apply a transaction boundary to the CP-SAT model.
+
+        A boundary at ``boundary_cycle`` marks a transaction edge inside the
+        window: a single match must not straddle it. This adds a reified
+        constraint forcing every event-position variable to fall entirely
+        before the boundary or entirely at/after it.
+
+        ``reset_signals`` (signal -> expected reset value) is used for
+        diagnostics: the expected-vs-actual values at the boundary are logged
+        so mis-detected boundaries are visible.
+        """
+        if not event_cycle_vars:
+            return
+
+        if self.debug_level >= 2:
+            for signal_name, reset_value in reset_signals.items():
+                if signal_name in signal_data and boundary_cycle < len(signal_data[signal_name]):
                     actual_val = signal_data[signal_name][boundary_cycle]
                     self.log.info(f"Boundary constraint: {signal_name}[{boundary_cycle}] = {reset_value} (actual: {actual_val})")
 
-    def _apply_auto_boundary_detection(self, model, signal_data, constraint_name, window_size):
+        # All events on the same side of the boundary
+        before_boundary = model.NewBoolVar(f"before_boundary_{boundary_cycle}")
+        for event_var in event_cycle_vars.values():
+            model.Add(event_var < boundary_cycle).OnlyEnforceIf(before_boundary)
+            model.Add(event_var >= boundary_cycle).OnlyEnforceIf(before_boundary.Not())
+
+        if self.debug_level >= 2:
+            self.log.info(f"Applied boundary constraint at cycle {boundary_cycle}: match may not straddle it")
+
+    def _apply_auto_boundary_detection(self, model, event_cycle_vars, signal_data,
+                                       constraint_name, window_size):
         """Apply auto-detected boundary constraints"""
         config = self.auto_boundary_configs[constraint_name]
         transition_signal = config['transition_signal']
@@ -1093,9 +1155,34 @@ class TemporalConstraintSolver:
                 if values[cycle] == from_val and values[cycle + 1] == to_val:
                     boundary_cycle = cycle + 2
                     if boundary_cycle < window_size:
-                        self._apply_boundary_constraints_to_model(model, signal_data, boundary_cycle, reset_signals)
+                        self._apply_boundary_constraints_to_model(
+                            model, event_cycle_vars, signal_data, boundary_cycle, reset_signals
+                        )
                         if self.debug_level >= 2:
                             self.log.info(f"Auto-boundary at cycle {boundary_cycle} after {transition_signal} {from_val}→{to_val}")
+
+    # Signal-name fragments treated as active-high control/handshake signals
+    # when deriving an idle definition from a constraint's events.
+    IDLE_CONTROL_PATTERNS = ('valid', 'ready', 'req', 'ack', 'gnt', 'psel', 'penable', 'enable')
+
+    def _derive_idle_signals(self, constraint: TemporalConstraint,
+                             signal_data: Dict[str, List[int]]) -> Dict[str, int]:
+        """
+        Derive an idle-signal map {signal_name: idle_value} from a constraint's own events.
+
+        Control/handshake signals referenced by the constraint's events (matched by
+        IDLE_CONTROL_PATTERNS) are assumed idle at 0. Only signals present in the
+        captured data are included.
+        """
+        derived = {}
+        for event in constraint.events:
+            signal_name = event.pattern.signal
+            if signal_name not in signal_data:
+                continue
+            signal_lower = signal_name.lower()
+            if any(pattern in signal_lower for pattern in self.IDLE_CONTROL_PATTERNS):
+                derived[signal_name] = 0
+        return derived
 
     def _filter_solutions_by_idle_boundary(self, solutions: List[Dict],
                                            signal_data: Dict[str, List[int]],
@@ -1104,8 +1191,38 @@ class TemporalConstraintSolver:
         """
         Filter solutions to only include those with sufficient idle cycles before match.
 
-        Idle is defined as: wr_valid=0 AND rd_ready=0 (no activity on either interface)
+        The idle definition comes from the constraint's ``idle_signals`` field
+        ({signal_name: idle_value}). When that is empty, an idle-signal set is
+        derived from the constraint's own events (control/handshake signals,
+        idle value 0). If no idle signals can be determined, filtering is
+        skipped explicitly (with a log message) rather than passing vacuously.
         """
+        constraint = self.constraints.get(constraint_name)
+
+        # Resolve the idle-signal definition: configured > derived
+        idle_signals: Dict[str, int] = {}
+        if constraint is not None and constraint.idle_signals:
+            idle_signals = dict(constraint.idle_signals)
+            missing = [name for name in idle_signals if name not in signal_data]
+            if missing:
+                self.log.warning(
+                    f"Idle filter for '{constraint_name}': configured idle signals "
+                    f"{missing} not present in captured data; ignoring them"
+                )
+                idle_signals = {name: val for name, val in idle_signals.items() if name not in missing}
+        elif constraint is not None:
+            idle_signals = self._derive_idle_signals(constraint, signal_data)
+            if idle_signals and self.debug_level >= 2:
+                self.log.info(f"Idle filter for '{constraint_name}': derived idle signals {idle_signals}")
+
+        if not idle_signals:
+            self.log.info(
+                f"Idle filter for '{constraint_name}': no idle signals configured or derivable "
+                f"from constraint events - skipping idle-boundary filtering "
+                f"(set TemporalConstraint.idle_signals to enable it)"
+            )
+            return list(solutions)
+
         filtered = []
 
         for solution in solutions:
@@ -1117,20 +1234,19 @@ class TemporalConstraintSolver:
                 # Not enough room before match to have idle period
                 continue
 
-            # Check if the cycles before start_cycle are idle
+            # Check if the cycles before start_cycle are idle on ALL idle signals
             is_idle = True
             check_start = max(0, start_cycle - min_idle_cycles)
 
-            # Define idle as: wr_valid=0 AND rd_ready=0
-            wr_valid_data = signal_data.get('wr_valid', [])
-            rd_ready_data = signal_data.get('rd_ready', [])
-
             for cycle in range(check_start, start_cycle):
-                wr_active = wr_valid_data[cycle] if cycle < len(wr_valid_data) else 0
-                rd_active = rd_ready_data[cycle] if cycle < len(rd_ready_data) else 0
-
-                if wr_active != 0 or rd_active != 0:
-                    is_idle = False
+                for signal_name, idle_value in idle_signals.items():
+                    values = signal_data[signal_name]
+                    # Out-of-range cycles are treated as idle
+                    actual = values[cycle] if cycle < len(values) else idle_value
+                    if actual != idle_value:
+                        is_idle = False
+                        break
+                if not is_idle:
                     break
 
             if is_idle:
@@ -1164,11 +1280,9 @@ class TemporalConstraintSolver:
             context_after = max(3, window_size // 4)
 
         # Check for post-match cycles extension
-        post_match_cycles = 0
-        if constraint and hasattr(constraint, 'post_match_cycles'):
-            post_match_cycles = constraint.post_match_cycles
-            if self.debug_level >= 2:
-                self.log.info(f"  Adding {post_match_cycles} post-match cycles for {constraint.name}")
+        post_match_cycles = constraint.post_match_cycles if constraint else 0
+        if post_match_cycles and self.debug_level >= 2:
+            self.log.info(f"  Adding {post_match_cycles} post-match cycles for {constraint.name}")
 
         start_idx = max(0, seq_start - context_before)
         end_idx = min(data_length, seq_end + context_after + post_match_cycles + 1)

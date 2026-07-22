@@ -73,16 +73,19 @@ class WaveJSONGenerator:
     - Compliant with WaveDrom specification
     """
 
-    def __init__(self, debug_level: int = 1, default_field_config: Optional[FieldConfig] = None):
+    def __init__(self, debug_level: int = 1, default_field_config: Optional[FieldConfig] = None,
+                 log: Optional[Any] = None):
         """
         Initialize WaveJSON generator.
 
         Args:
             debug_level: Debug output level (0=none, 1=basic, 2=verbose)
             default_field_config: Default FieldConfig for signal configuration
+            log: Optional logger for diagnostics; falls back to print() when unset
         """
         self.debug_level = debug_level
         self.default_field_config = default_field_config
+        self.log = log
         self.signal_configs: Dict[str, SignalConfig] = {}
         self.interface_groups: Dict[str, List[str]] = {}
         self.protocol_configs: Dict[str, FieldConfig] = {}
@@ -104,11 +107,18 @@ class WaveJSONGenerator:
 
         self.clock_patterns = ['clk', 'clock']
 
+    def _emit(self, message: str) -> None:
+        """Route diagnostics through the configured logger, print() as fallback"""
+        if self.log is not None:
+            self.log.info(message)
+        else:
+            print(message)
+
     def set_protocol_config(self, protocol_name: str, field_config: FieldConfig):
         """Set FieldConfig for a specific protocol"""
         self.protocol_configs[protocol_name] = field_config
         if self.debug_level >= 1:
-            print(f"Set FieldConfig for {protocol_name}: {len(field_config.field_names())} fields")
+            self._emit(f"Set FieldConfig for {protocol_name}: {len(field_config.field_names())} fields")
 
     def add_signal_config(self, signal_name: str, config: SignalConfig):
         """Add signal configuration"""
@@ -152,7 +162,7 @@ class WaveJSONGenerator:
             configured_signals.append(signal_name)
 
             if self.debug_level >= 2:
-                print(f"Configured from FieldConfig: {signal_name} -> {field_def.bits}b {field_def.format}")
+                self._emit(f"Configured from FieldConfig: {signal_name} -> {field_def.bits}b {field_def.format}")
 
         # Add interface group if we have a protocol name
         if protocol_name != "default" and configured_signals:
@@ -774,8 +784,8 @@ class WaveJSONGenerator:
 
         if self.debug_level >= 2:
             for sig, nodes in signal_nodes.items():
-                print(f"Generated nodes for {sig}: {nodes}")
-            print(f"Generated edges: {edges}")
+                self._emit(f"Generated nodes for {sig}: {nodes}")
+            self._emit(f"Generated edges: {edges}")
 
         return edges, signal_nodes
 
@@ -830,14 +840,14 @@ class WaveJSONGenerator:
                     if node_string:
                         item['node'] = node_string
                         if self.debug_level >= 2:
-                            print(f"{indent}Applied nodes to '{display_name}': {node_string}")
+                            self._emit(f"{indent}Applied nodes to '{display_name}': {node_string}")
                     elif self.debug_level >= 2:
-                        print(f"{indent}No nodes found for '{display_name}' (available: {list(node_mappings.keys())})")
+                        self._emit(f"{indent}No nodes found for '{display_name}' (available: {list(node_mappings.keys())})")
 
                 elif isinstance(item, list) and len(item) > 1:
                     # This is a signal group - recursively process
                     if self.debug_level >= 2 and isinstance(item[0], str):
-                        print(f"{indent}Processing group '{item[0]}'")
+                        self._emit(f"{indent}Processing group '{item[0]}'")
                     apply_to_signal_list(item[1:], indent + "  ")  # Skip group name
 
         apply_to_signal_list(signals)
@@ -854,7 +864,7 @@ class WaveJSONGenerator:
             json.dump(wavejson, f, indent=2)
 
         if self.debug_level >= 1:
-            print(f"Generated WaveJSON: {filename}")
+            self._emit(f"Generated WaveJSON: {filename}")
 
         return filename
 

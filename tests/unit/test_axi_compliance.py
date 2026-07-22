@@ -198,6 +198,149 @@ def test_axi4_b_response_retires_oldest_same_id_write():
     assert checker.violations == []
 
 
+# --- AXI4 WLAST validation ------------------------------------------------
+#
+# AXI4 removed write data interleaving (there is no WID -- that was AXI3), so
+# W bursts arrive strictly in AW order across ALL IDs. The checker associates
+# W beats with AW commands through a single global FIFO.
+
+def w(last: int, **kwargs) -> SimpleNamespace:
+    """Build a W beat. W has no ID field in AXI4/AXI5."""
+    return SimpleNamespace(last=last, data=kwargs.pop('data', 0), **kwargs)
+
+
+def test_axi4_correct_bl4_write_burst_has_no_violations():
+    checker = make_axi4()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=1, len=3)))  # 4 beats
+
+    run(checker.validate_w_transaction(w(0)))
+    run(checker.validate_w_transaction(w(0)))
+    run(checker.validate_w_transaction(w(0)))
+    run(checker.validate_w_transaction(w(1)))   # WLAST on beat 4 of 4
+
+    assert checker.violations == []
+    assert checker.stats['total_w_beats'] == 4
+    # Data phase finished, but the transaction is still awaiting its B response
+    assert len(checker.aw_awaiting_w) == 0
+    assert len(checker.outstanding_writes[1]) == 1
+
+
+def test_axi4_early_wlast_detected():
+    checker = make_axi4()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=1, len=3)))  # 4 beats
+
+    run(checker.validate_w_transaction(w(0)))
+    run(checker.validate_w_transaction(w(1)))   # WLAST on beat 2 of 4
+
+    assert violation_types(checker) == [AXI4ViolationType.WLAST_MISMATCH]
+    assert 'early' in checker.violations[0].message
+    # WLAST still ends the data phase: checker advances to the next AW
+    assert len(checker.aw_awaiting_w) == 0
+
+
+def test_axi4_missing_wlast_on_final_beat_detected():
+    checker = make_axi4()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=2, len=1)))  # 2 beats
+
+    run(checker.validate_w_transaction(w(0)))
+    run(checker.validate_w_transaction(w(0)))   # beat 2 of 2 without WLAST
+
+    assert violation_types(checker) == [AXI4ViolationType.WLAST_MISMATCH]
+    assert 'missing' in checker.violations[0].message
+
+
+def test_axi4_overrun_after_missing_wlast_resyncs_not_spams():
+    """After a missing WLAST the checker resyncs to the next AW rather than
+    emitting a violation for every subsequent beat."""
+    checker = make_axi4()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=2, len=0)))  # 1 beat
+
+    run(checker.validate_w_transaction(w(0)))   # beat 1 of 1, no WLAST -> 1 violation
+    run(checker.validate_w_transaction(w(1)))   # overrun beat, no AW pending -> 1 violation
+
+    assert violation_types(checker) == [
+        AXI4ViolationType.WLAST_MISMATCH,
+        AXI4ViolationType.WLAST_MISMATCH,
+    ]
+    assert 'no outstanding AW' in checker.violations[1].message
+
+
+def test_axi4_w_beat_with_no_pending_aw_detected():
+    checker = make_axi4()
+    run(checker.validate_w_transaction(w(1)))
+
+    assert violation_types(checker) == [AXI4ViolationType.WLAST_MISMATCH]
+    assert 'no outstanding AW' in checker.violations[0].message
+    assert checker.stats['total_w_beats'] == 1
+
+
+def test_axi4_back_to_back_bursts_different_ids_associate_in_aw_order():
+    """W data is associated by AW arrival order, NOT by ID: AXI4 has no WID."""
+    checker = make_axi4()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=9, len=1)))   # 2 beats
+    run(checker.validate_aw_transaction(SimpleNamespace(id=4, len=0)))   # 1 beat
+
+    assert [e['id'] for e in checker.aw_awaiting_w] == [9, 4]
+
+    # First burst (ID 9) takes 2 beats, second burst (ID 4) takes 1
+    run(checker.validate_w_transaction(w(0)))
+    run(checker.validate_w_transaction(w(1)))
+    assert [e['id'] for e in checker.aw_awaiting_w] == [4]
+    run(checker.validate_w_transaction(w(1)))
+
+    assert checker.violations == []
+    assert len(checker.aw_awaiting_w) == 0
+
+
+def test_axi4_wrong_order_bursts_flagged_via_beat_counts():
+    """Sending the 1-beat burst's data first, while a 2-beat AW is at the head,
+    is detected: the head expects 2 beats but sees WLAST on beat 1."""
+    checker = make_axi4()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=9, len=1)))   # 2 beats
+    run(checker.validate_aw_transaction(SimpleNamespace(id=4, len=0)))   # 1 beat
+
+    run(checker.validate_w_transaction(w(1)))   # single beat sent first
+
+    assert violation_types(checker) == [AXI4ViolationType.WLAST_MISMATCH]
+    assert 'early' in checker.violations[0].message
+
+
+def test_axi4_wlast_queue_and_b_retirement_do_not_fight():
+    """The W association queue and the per-ID B retirement queue are separate
+    containers over shared entries; neither pops the other's head."""
+    checker = make_axi4()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=1, len=1)))   # 2 beats
+    run(checker.validate_aw_transaction(SimpleNamespace(id=1, len=0)))   # 1 beat
+
+    # Full data phase of the first burst
+    run(checker.validate_w_transaction(w(0)))
+    run(checker.validate_w_transaction(w(1)))
+    # B for the first burst retires it from the per-ID queue only
+    run(checker.validate_b_transaction(SimpleNamespace(id=1, resp=0)))
+    assert len(checker.outstanding_writes[1]) == 1
+    # Second AW is still the head of the association queue, untouched by B
+    assert [e['id'] for e in checker.aw_awaiting_w] == [1]
+    assert checker.aw_awaiting_w[0]['expected_beats'] == 1
+
+    # Second burst's data phase then its B
+    run(checker.validate_w_transaction(w(1)))
+    run(checker.validate_b_transaction(SimpleNamespace(id=1, resp=0)))
+
+    assert checker.violations == []
+    assert len(checker.aw_awaiting_w) == 0
+    assert 1 not in checker.outstanding_writes
+
+
+def test_axi4_shared_entry_beat_counts_visible_in_both_queues():
+    checker = make_axi4()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=6, len=3)))
+    run(checker.validate_w_transaction(w(0)))
+
+    # Same dict object in both containers -- no duplicated state
+    assert checker.aw_awaiting_w[0] is checker.outstanding_writes[6][0]
+    assert checker.outstanding_writes[6][0]['received_beats'] == 1
+
+
 def test_axi4_b_invalid_response_code():
     checker = make_axi4()
     run(checker.validate_b_transaction(SimpleNamespace(id=0, resp=5)))
@@ -329,6 +472,89 @@ def test_axi5_atomic_per_id_queue_retired_by_b():
 
     run(checker.validate_b_transaction(SimpleNamespace(id=4, resp=0)))
     assert 4 not in checker.atomic_transactions
+
+
+# --- AXI5 WLAST validation (same no-WID ordering rule as AXI4) ------------
+
+def test_axi5_correct_bl4_write_burst_has_no_violations():
+    checker = make_axi5()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=1, len=3)))
+
+    for last in (0, 0, 0, 1):
+        run(checker.validate_w_transaction(SimpleNamespace(last=last, poison=0)))
+
+    assert checker.violations == []
+    assert checker.stats['total_w_beats'] == 4
+    assert len(checker.aw_awaiting_w) == 0
+
+
+def test_axi5_early_wlast_detected():
+    checker = make_axi5()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=1, len=3)))
+    run(checker.validate_w_transaction(SimpleNamespace(last=0, poison=0)))
+    run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=0)))
+
+    assert violation_types(checker) == [AXI5ViolationType.WLAST_MISMATCH]
+
+
+def test_axi5_missing_wlast_detected():
+    checker = make_axi5()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=1, len=1)))
+    run(checker.validate_w_transaction(SimpleNamespace(last=0, poison=0)))
+    run(checker.validate_w_transaction(SimpleNamespace(last=0, poison=0)))
+
+    assert violation_types(checker) == [AXI5ViolationType.WLAST_MISMATCH]
+    assert 'missing' in checker.violations[0].message
+
+
+def test_axi5_w_beat_with_no_pending_aw_detected():
+    checker = make_axi5()
+    run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=0)))
+
+    assert violation_types(checker) == [AXI5ViolationType.WLAST_MISMATCH]
+    assert 'no outstanding AW' in checker.violations[0].message
+
+
+def test_axi5_back_to_back_bursts_different_ids_associate_in_aw_order():
+    checker = make_axi5()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=9, len=1)))
+    run(checker.validate_aw_transaction(SimpleNamespace(id=4, len=0)))
+
+    run(checker.validate_w_transaction(SimpleNamespace(last=0, poison=0)))
+    run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=0)))
+    assert [e['id'] for e in checker.aw_awaiting_w] == [4]
+    run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=0)))
+
+    assert checker.violations == []
+    assert len(checker.aw_awaiting_w) == 0
+
+
+def test_axi5_poison_stats_still_counted_alongside_wlast_checks():
+    checker = make_axi5()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=0, len=0)))
+    run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=1)))
+
+    assert checker.stats['poisoned_beats'] == 1
+    assert checker.violations == []
+
+
+def test_axi5_wlast_queue_and_b_trace_retirement_do_not_fight():
+    checker = make_axi5()
+    run(checker.validate_aw_transaction(SimpleNamespace(id=3, len=1, trace=1)))
+    run(checker.validate_aw_transaction(SimpleNamespace(id=3, len=0, trace=0)))
+
+    run(checker.validate_w_transaction(SimpleNamespace(last=0, poison=0)))
+    run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=0)))
+    # B retires the per-ID head; the association queue keeps the second AW
+    run(checker.validate_b_transaction(SimpleNamespace(id=3, resp=0, trace=1)))
+    assert [e['id'] for e in checker.aw_awaiting_w] == [3]
+    assert checker.aw_awaiting_w[0]['expected_beats'] == 1
+
+    run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=0)))
+    run(checker.validate_b_transaction(SimpleNamespace(id=3, resp=0, trace=0)))
+
+    assert checker.violations == []
+    assert 3 not in checker.outstanding_writes
 
 
 def test_axi5_handshake_valid_dropped_detected():

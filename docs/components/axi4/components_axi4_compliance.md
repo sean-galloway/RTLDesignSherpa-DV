@@ -36,6 +36,40 @@ multiple outstanding transactions with the same ID (they complete in order), so 
 are matched against the oldest outstanding read for their ID and each B response
 retires the oldest outstanding write for its ID.
 
+### WLAST validation and the write-data ordering rule
+
+WLAST is fully validated against the beat count declared by the corresponding AW
+command. The association between W beats and AW commands relies on a property of
+AXI4 itself: **AXI4 removed write data interleaving.** There is no `WID` signal (it
+was an AXI3 feature), so write data bursts must appear on the W channel in exactly
+the same order as their AW commands were issued -- a strict FIFO across *all* IDs,
+not per ID.
+
+The checker therefore keeps a single global queue, `aw_awaiting_w`, of AW commands
+awaiting their data phase, in arrival order. Each W beat is counted against the head
+entry, and the head is popped when its data phase ends. The entries in this queue are
+the same objects held in the per-ID `outstanding_writes` queues, so beat bookkeeping
+is shared rather than duplicated.
+
+The two queues advance on **different protocol events and never pop each other**:
+
+| Queue | Keyed by | Advanced by | Meaning |
+|-------|----------|-------------|---------|
+| `aw_awaiting_w` | global arrival order | WLAST | end of the write **data phase** |
+| `outstanding_writes` | transaction ID | B response | end of the **transaction** |
+
+Three conditions are reported as `WLAST_MISMATCH` on the `W` channel:
+
+| Condition | Description |
+|-----------|-------------|
+| WLAST early | WLAST asserted before the AW's expected beat count is reached |
+| WLAST missing | The final expected beat arrived without WLAST |
+| No pending AW | A W beat arrived with no AW command awaiting write data |
+
+On a missing WLAST the checker ends the data phase at the expected beat count and
+resynchronizes to the next AW, so a single malformed burst produces one violation
+rather than one per subsequent beat.
+
 ---
 
 ## Supporting Types
@@ -56,7 +90,7 @@ Enumeration of all violation types the checker can detect.
 | `BURST_LENGTH_VIOLATION` | Burst | Burst length exceeds 256 |
 | `BURST_SIZE_VIOLATION` | Burst | Burst size exceeds maximum (7) |
 | `BURST_BOUNDARY_VIOLATION` | Burst | Burst crosses 4KB boundary |
-| `WLAST_MISMATCH` | Burst | WLAST does not match expected beat count |
+| `WLAST_MISMATCH` | Burst | WLAST early, missing on the final beat, or a W beat with no pending AW |
 | `RLAST_MISMATCH` | Burst | RLAST does not match expected beat count |
 | `ID_ORDERING_VIOLATION` | ID | ID ordering rules violated |
 | `ID_WIDTH_VIOLATION` | ID | ID value exceeds configured width |

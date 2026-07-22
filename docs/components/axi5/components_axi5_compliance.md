@@ -30,6 +30,39 @@ complete in order), so R beats and CHUNKV checks are matched against the oldest
 outstanding read for their ID, and each B response retires the oldest outstanding
 write/atomic for its ID (including the TRACE consistency check).
 
+### WLAST validation and the write-data ordering rule
+
+WLAST is fully validated against the beat count declared by the corresponding AW
+command, using the same mechanism as the AXI4 checker. Like AXI4, **AXI5 has no `WID`
+and no write data interleaving** (interleaving was dropped after AXI3), so write data
+bursts must appear on the W channel in exactly the same order as their AW commands --
+a strict FIFO across *all* IDs, not per ID.
+
+The checker keeps a single global queue, `aw_awaiting_w`, of AW commands awaiting
+their data phase, in arrival order. Each W beat is counted against the head entry, and
+the head is popped when its data phase ends. Entries are the same objects held in the
+per-ID `outstanding_writes` queues, so beat bookkeeping is shared, not duplicated.
+
+The two queues advance on **different protocol events and never pop each other**:
+
+| Queue | Keyed by | Advanced by | Meaning |
+|-------|----------|-------------|---------|
+| `aw_awaiting_w` | global arrival order | WLAST | end of the write **data phase** |
+| `outstanding_writes` | transaction ID | B response | end of the **transaction** (also TRACE check) |
+
+Three conditions are reported as `WLAST_MISMATCH` on the `W` channel:
+
+| Condition | Description |
+|-----------|-------------|
+| WLAST early | WLAST asserted before the AW's expected beat count is reached |
+| WLAST missing | The final expected beat arrived without WLAST |
+| No pending AW | A W beat arrived with no AW command awaiting write data |
+
+On a missing WLAST the checker ends the data phase at the expected beat count and
+resynchronizes to the next AW, so a single malformed burst produces one violation
+rather than one per subsequent beat. POISON statistics are still collected on every
+W beat, independent of WLAST outcome.
+
 ## Class Signature
 
 ```python
@@ -118,7 +151,7 @@ Record a protocol violation.
 | `BURST_LENGTH_VIOLATION` | Burst length exceeds 256 |
 | `BURST_SIZE_VIOLATION` | Burst size exceeds 7 |
 | `BURST_BOUNDARY_VIOLATION` | Burst crosses 4KB boundary |
-| `WLAST_MISMATCH` | WLAST does not match expected burst count |
+| `WLAST_MISMATCH` | WLAST early, missing on the final beat, or a W beat with no pending AW |
 | `RLAST_MISMATCH` | RLAST does not match expected burst count |
 | `ID_ORDERING_VIOLATION` | Out-of-order response for same ID |
 | `RESPONSE_CODE_VIOLATION` | Invalid response code (> 3) |

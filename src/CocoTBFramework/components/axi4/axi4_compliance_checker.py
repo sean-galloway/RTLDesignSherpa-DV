@@ -39,9 +39,10 @@ Usage:
 """
 
 import os
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Deque, Dict, List
 
 import cocotb
 from cocotb.triggers import RisingEdge
@@ -126,7 +127,19 @@ class AXI4ComplianceChecker:
         # transaction-info dicts rather than a single entry.
         self.outstanding_reads: Dict[int, List[Any]] = {}  # ID -> [txn info, ...]
         self.outstanding_writes: Dict[int, List[Any]] = {}
-        self.write_data_queue: Dict[int, List[Any]] = {}  # ID -> W beats
+
+        # W-channel association queue: AXI4 removed write data interleaving
+        # (there is no WID -- that was an AXI3 feature), so write data bursts
+        # MUST appear in the same order as their AW commands, across ALL IDs.
+        # A single global FIFO of AW entries awaiting write data is therefore
+        # sufficient to associate each W beat with its command.
+        #
+        # Entries here are the SAME dict objects stored in outstanding_writes,
+        # so beat bookkeeping is shared and not duplicated. The two containers
+        # are popped independently: this queue advances on WLAST (end of the
+        # data phase) while outstanding_writes advances on the B response (end
+        # of the transaction), which are distinct protocol events.
+        self.aw_awaiting_w: Deque[Dict[str, Any]] = deque()
 
         # Previous-cycle handshake state for VALID-dropped detection
         self.prev_signals: Dict[str, Any] = {}
@@ -431,19 +444,63 @@ class AXI4ComplianceChecker:
 
         # Track outstanding write (per-ID FIFO: same-ID transactions queue up)
         transaction_id = getattr(packet, 'id', 0)
-        self.outstanding_writes.setdefault(transaction_id, []).append({
+        entry = {
             'packet': packet,
+            'id': transaction_id,
             'expected_beats': burst_len,
             'received_beats': 0
-        })
+        }
+        self.outstanding_writes.setdefault(transaction_id, []).append(entry)
+
+        # Same entry object also joins the global (all-ID) write-data order
+        self.aw_awaiting_w.append(entry)
 
     async def validate_w_transaction(self, packet: AXI4Packet):
-        """Validate W (Write Data) transaction."""
+        """Validate W (Write Data) transaction, including real WLAST checking.
+
+        AXI4 has no WID and no write data interleaving, so W beats belong to
+        the oldest AW command that has not yet finished its data phase --
+        regardless of ID. Beats are counted against that head entry and WLAST
+        is required exactly on its final expected beat.
+        """
         self.stats['total_w_beats'] += 1
 
-        # Check WLAST timing
-        getattr(packet, 'last', 0)
-        # Additional WLAST validation would require tracking write beats per ID
+        is_last = bool(getattr(packet, 'last', 0))
+
+        if not self.aw_awaiting_w:
+            self.record_violation(
+                AXI4ViolationType.WLAST_MISMATCH,
+                'W',
+                "W beat received with no outstanding AW awaiting write data"
+            )
+            return
+
+        entry = self.aw_awaiting_w[0]
+        entry['received_beats'] += 1
+        received = entry['received_beats']
+        expected = entry['expected_beats']
+        transaction_id = entry['id']
+
+        if is_last and received < expected:
+            self.record_violation(
+                AXI4ViolationType.WLAST_MISMATCH,
+                'W',
+                f"WLAST asserted early for ID {transaction_id}: "
+                f"beat {received} of {expected}"
+            )
+        elif not is_last and received >= expected:
+            # Final expected beat came without WLAST. Resynchronize by ending
+            # the data phase here; further beats belong to the next AW.
+            self.record_violation(
+                AXI4ViolationType.WLAST_MISMATCH,
+                'W',
+                f"WLAST missing for ID {transaction_id} on final beat "
+                f"{received} of {expected}"
+            )
+
+        # WLAST (or the resync above) ends this burst's data phase
+        if is_last or received >= expected:
+            self.aw_awaiting_w.popleft()
 
     async def validate_r_transaction(self, packet: AXI4Packet):
         """Validate R (Read Data) transaction."""
@@ -497,6 +554,11 @@ class AXI4ComplianceChecker:
         # A B response completes the oldest outstanding write for its ID
         # (same-ID writes complete in order). Without this, the write queue
         # would grow without bound.
+        #
+        # This retirement is deliberately independent of self.aw_awaiting_w:
+        # a B response ends the transaction, while WLAST ended the data phase
+        # and already advanced that queue. Popping here as well would drop an
+        # unrelated head entry and desynchronize W association.
         transaction_id = getattr(packet, 'id', 0)
         write_queue = self.outstanding_writes.get(transaction_id)
         if write_queue:

@@ -30,7 +30,7 @@ class ErrorHandler:
 
     def __init__(self):
         """Initialize the error handler"""
-        # Dictionary to track error regions
+        # List of (start_address, end_address, response_code) error regions
         self.error_regions = []
 
         # Dictionary to track individual address/ID pairs that should return errors

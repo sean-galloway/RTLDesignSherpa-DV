@@ -619,7 +619,7 @@ class TestSlave:
     
     def update_statistics(self, packet):
         """Callback: Update slave statistics"""
-        self.stats.record_transaction_processed()
+        self.stats.record_response_sent()
 ```
 
 ### Advanced Transaction Handling
@@ -770,7 +770,7 @@ The packet factory system includes comprehensive error handling:
 ```python
 try:
     packet = factory.create_packet(addr="invalid")  # Wrong type
-except ValueError as e:
+except TypeError as e:
     log.error(f"Packet creation failed: {e}")
 
 # Use validation

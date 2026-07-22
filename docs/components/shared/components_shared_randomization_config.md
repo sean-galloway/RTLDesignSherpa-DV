@@ -680,8 +680,11 @@ class AdaptiveRandomizer:
 
 ### 1. **Use Appropriate Randomization Modes**
 ```python
-# Deterministic for debug
-config.create_deterministic_config("debug_field", 0x1000)
+# Deterministic for debug (fixed value via DETERMINISTIC mode)
+config.configure_field("debug_field", FieldRandomizationConfig(
+    mode=RandomizationMode.DETERMINISTIC,
+    sequence=[0x1000]
+))
 
 # Constrained for normal testing  
 config.create_constrained_config("normal_field", [(0, 100)], [1.0])

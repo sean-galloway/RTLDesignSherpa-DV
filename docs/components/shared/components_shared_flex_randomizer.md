@@ -250,7 +250,7 @@ def address_generator(current_values):
         return random.randint(0x3000, 0x3FFF)  # Special region
 
 constraints = {
-    'transaction_type': (['READ', 'write', 'special'], [0.5, 0.4, 0.1]),
+    'transaction_type': ([('READ',), ('WRITE',), ('SPECIAL',)], [0.5, 0.4, 0.1]),
     'address': address_generator
 }
 ```
@@ -307,14 +307,14 @@ for cycle in range(20):
 class ProtocolRandomizer:
     def __init__(self):
         self.randomizer = FlexRandomizer({
-            # Address alignment patterns
-            'address': ([(0x1000, 0x1FFC, 4), (0x2000, 0x2FFC, 8)], [0.7, 0.3]),
+            # Address ranges (bins must be (min, max) 2-tuples)
+            'address': ([(0x1000, 0x1FFC), (0x2000, 0x2FFC)], [0.7, 0.3]),
             
             # Data patterns
             'data_pattern': ['incremental', 'random', 'fixed', 'alternating'],
             
-            # Transaction type with dependencies
-            'txn_type': (['READ', 'write', 'rmw'], [0.4, 0.4, 0.2]),
+            # Transaction type as object bins (each bin is a tuple of values)
+            'txn_type': ([('read',), ('write',), ('rmw',)], [0.4, 0.4, 0.2]),
             
             # Size based on transaction type
             'transfer_size': self._size_generator
@@ -454,7 +454,8 @@ try:
     values = randomizer.next()
 except GeneratorError as e:
     print(f"Generator function failed: {e}")
-    # Randomizer continues to work for other fields
+    # next() raises for the whole call; fix or replace the failing
+    # generator (e.g. via set_generator) before retrying
 ```
 
 ### Robust Error Handling Pattern
@@ -565,7 +566,7 @@ Choose descriptive names that indicate purpose:
 ```python
 constraints = {
     'setup_delay_cycles': ([(0, 5), (10, 20)], [0.8, 0.2]),
-    'data_valid_probability': ([(0.7, 0.9)], [1.0]),
+    'data_valid_delay_cycles': ([(0, 2)], [1.0]),
     'burst_transfer_length': [1, 2, 4, 8, 16]
 }
 ```

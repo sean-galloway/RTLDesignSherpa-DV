@@ -260,8 +260,8 @@ class FlexRandomizer:
                         f"Each bin must be a tuple/list of objects.\n"
                         f"You have: {bins}\n"
                         f"Should be: {example_fixed}\n"
-                        f"For example: 'field': ([{bins[0]!r},), ({bins[1]!r},)], {weights}) if you want separate bins, "
-                        f"or 'field': ({bins!r}], [1]) if you want all values in one bin."
+                        f"For example: 'field': ([({bins[0]!r},), ({bins[1]!r},)], {weights}) if you want separate bins, "
+                        f"or 'field': ([{tuple(bins)!r}], [1]) if you want all values in one bin."
                     )
 
             # Determine if this is object bins or integer range bins

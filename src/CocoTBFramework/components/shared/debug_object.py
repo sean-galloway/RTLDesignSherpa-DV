@@ -62,6 +62,7 @@ def print_object_details(obj, log, name="Object", max_value_length=5000):
 
     Args:
         obj: The object to inspect
+        log: Logger instance used for output
         name: A name to identify the object in the output
         max_value_length: Maximum length for printing attribute values
     """

@@ -5,7 +5,7 @@
 # https://github.com/sean-galloway/RTLDesignSherpa
 #
 # Module: FieldConfig
-# Purpose: FlexConfigGen - Helper class for creating FlexRandomizer configurations with wei
+# Purpose: FlexConfigGen - Helper class for creating FlexRandomizer configurations with weighted bins
 #
 # Documentation: bin/CocoTBFramework/README.md
 # Subsystem: framework
@@ -346,15 +346,17 @@ class FlexConfigGen:
         Build the final configuration.
 
         Args:
-            return_flexrandomizer: If True, return FlexRandomizer instance
+            return_flexrandomizer: If True, return a dict of FlexRandomizer
+                                    instances keyed by profile name.
                                     If False, return the constraint dictionary
 
         Returns:
-            FlexRandomizer instance or constraint dictionary
+            Dict of FlexRandomizer instances (one per profile), or the
+            constraint dictionary
 
         Example:
-            # Get FlexRandomizer directly (default)
-            randomizer = config.build()
+            # Get FlexRandomizer instances (default) - one per profile
+            randomizer = config.build()['fast']
 
             # Get dictionary for manual use
             constraint_dict = config.build(return_flexrandomizer=False)

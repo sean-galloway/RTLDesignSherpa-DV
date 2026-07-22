@@ -121,10 +121,10 @@ Configuration of all fields in a packet, maintaining field order and providing h
 #### Constructor
 
 ```python
-FieldConfig()
+FieldConfig(lsb_first: bool = False)
 ```
 
-Creates an empty field configuration. Fields are added using the `add_field()` method.
+Creates an empty field configuration. Fields are added using the `add_field()` method. The `lsb_first` flag selects the legacy bit-ordering mode (see `add_field()` and `get_bit_order()`/`get_logical_order()` for how bit positions are assigned in each mode).
 
 #### Methods
 
@@ -179,11 +179,11 @@ if config.has_field("optional_field"):
 ```
 
 ##### `field_names() -> List[str]`
-Get ordered list of field names.
+Get ordered list of field names in bit-position order (highest bits first). In the default mode this is the reverse of the order fields were added; use `get_logical_order()` for the add order.
 
 ```python
 names = config.field_names()
-# Returns: ['addr', 'data', 'ctrl'] in definition order
+# Bit-position order (highest bits first)
 ```
 
 ##### `fields() -> List[FieldDefinition]`

@@ -213,7 +213,7 @@ Return a formatted string representation.
 
 **Parameters:**
 - `compact`: If True, return a more compact representation
-- `show_fifo`: If True, show FIFO values instead of full field values
+- `show_fifo`: If True, show FIFO values instead of full field values (only applies with `compact=True`; the detailed form ignores this flag)
 
 **Returns:** Formatted string representation
 
@@ -224,8 +224,8 @@ print(packet.formatted())
 # Compact formatting
 print(packet.formatted(compact=True))
 
-# Show FIFO values
-print(packet.formatted(show_fifo=True))
+# Show FIFO values (compact mode)
+print(packet.formatted(compact=True, show_fifo=True))
 ```
 
 ### `__str__()`
@@ -260,8 +260,11 @@ packet2 = Packet(config, addr=0x1000, data=0xDEADBEEF)
 
 assert packet1 == packet2  # True
 
-# Undefined values (X/Z represented as -1) cause comparison to fail
-packet3 = Packet(config, addr=0x1000, data=-1)
+# Undefined values (X/Z represented as -1) cause comparison to fail.
+# Note: -1 comes from monitors writing fields directly; assigning -1 via
+# an attribute or constructor kwarg would be masked to all-ones instead.
+packet3 = Packet(config, addr=0x1000)
+packet3.fields['data'] = -1
 assert packet1 != packet3  # True - undefined data
 ```
 

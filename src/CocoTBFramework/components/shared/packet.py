@@ -5,7 +5,7 @@
 # https://github.com/sean-galloway/RTLDesignSherpa
 #
 # Module: _FieldCache
-# Purpose: Generic Packet Class for Protocol Testing with Thread-Safe Performance Optimizat
+# Purpose: Generic Packet Class for Protocol Testing with Thread-Safe Performance Optimizations
 #
 # Documentation: bin/CocoTBFramework/README.md
 # Subsystem: framework

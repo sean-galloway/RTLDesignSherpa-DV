@@ -230,17 +230,18 @@ config = FlexConfigGen(
 
 #### Methods
 
-##### `build(return_flexrandomizer: bool = True) -> Union[FlexRandomizer, Dict]`
+##### `build(return_flexrandomizer: bool = True) -> Union[Dict[str, FlexRandomizer], Dict]`
 Build the final configuration.
 
 **Parameters:**
-- `return_flexrandomizer`: If True, return FlexRandomizer instance; if False, return constraint dictionary
+- `return_flexrandomizer`: If True, return a dict of FlexRandomizer instances keyed by profile name; if False, return the raw constraint dictionary (profile name -> constraint dict)
 
-**Returns:** FlexRandomizer instance or constraint dictionary
+**Returns:** Dict of FlexRandomizer instances (one per profile), or the constraint dictionary
 
 ```python
-# Get FlexRandomizer directly (default)
-randomizer = config.build()
+# Get FlexRandomizer instances (default) - one per profile
+randomizers = config.build()
+fast_randomizer = randomizers['fast']
 
 # Get dictionary for manual use
 constraint_dict = config.build(return_flexrandomizer=False)

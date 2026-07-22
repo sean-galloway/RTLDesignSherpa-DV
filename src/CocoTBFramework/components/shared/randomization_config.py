@@ -129,8 +129,14 @@ class RandomizationConfig:
             return
 
         if config.mode == RandomizationMode.CONSTRAINED and config.constraints:
-            # Use constraints directly for FlexRandomizer
-            self._randomizer_constraints[field_name] = config.constraints
+            # Convert {"bins": ..., "weights": ...} dict format to the
+            # (bins, weights) tuple format FlexRandomizer expects
+            constraints = config.constraints
+            if isinstance(constraints, dict) and "bins" in constraints:
+                bins = constraints["bins"]
+                weights = constraints.get("weights", [1.0] * len(bins))
+                constraints = (bins, weights)
+            self._randomizer_constraints[field_name] = constraints
         elif config.mode == RandomizationMode.SEQUENCE and config.sequence:
             # Convert sequence to FlexRandomizer sequence format
             self._randomizer_constraints[field_name] = config.sequence
@@ -155,13 +161,16 @@ class RandomizationConfig:
             FlexRandomizer instance for the field
         """
         if field_name not in self._randomizers:
-            # Check if we have constraints for this field
-            constraints = {}
-            if field_name in self._randomizer_constraints:
-                constraints = {field_name: self._randomizer_constraints[field_name]}
+            # Ensure we have constraints for this field; fall back to the
+            # field's (possibly default) configuration so an unconfigured
+            # field yields a usable randomizer instead of an empty-constraint
+            # FlexRandomizer error
+            if field_name not in self._randomizer_constraints:
+                self._update_randomizer_constraints(field_name, self.get_field_config(field_name))
+            constraint = self._randomizer_constraints.get(field_name, ([(0, 1)], [1.0]))
 
             # Create new randomizer
-            self._randomizers[field_name] = FlexRandomizer(constraints)
+            self._randomizers[field_name] = FlexRandomizer({field_name: constraint})
 
         return self._randomizers[field_name]
 
@@ -331,6 +340,10 @@ class RandomizationConfig:
         graph = defaultdict(list)
 
         for field in field_names:
+            # Touch the entry so independent fields (no dependencies and no
+            # dependents) still appear as nodes in the graph; otherwise they
+            # would be silently dropped from generate_values()
+            _ = graph[field]
             config = self.get_field_config(field)
             for dep in config.dependencies:
                 if dep in field_names:

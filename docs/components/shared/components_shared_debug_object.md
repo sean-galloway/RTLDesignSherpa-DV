@@ -143,12 +143,12 @@ config_dict = {
 
 print_dict_to_log("Configuration", config_dict, log, prefix="CONFIG")
 
-# Output:
+# Output (insertion order):
 # === Configuration Details ===
 # CONFIG::addr_width: 32
 # CONFIG::data_width: 64
-# CONFIG::endianness: little
 # CONFIG::protocol: AXI4
+# CONFIG::endianness: little
 ```
 
 ## Usage Patterns

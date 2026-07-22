@@ -650,7 +650,7 @@ class ArbiterMaster:
         try:
             if hasattr(self.dut, 'request'):
                 self.dut.request.value = request_vector
-                self.log.debug(f"ArbiterMaster({self.title}): Updated request vector to 0x{request_vector:x}{self.get_time_ns_str}")
+                self.log.debug(f"ArbiterMaster({self.title}): Updated request vector to 0x{request_vector:x}{self.get_time_ns_str()}")
             else:
                 for client_id in range(self.num_clients):
                     bit_value = 1 if (request_vector & (1 << client_id)) else 0

@@ -433,61 +433,6 @@ PROTOCOL_SIGNAL_CONFIGS = {
     # AXI4 has channel-specific signal naming (ar_, aw_, r_, w_, b_)
     # These configs allow GAXI components to correctly find AXI4 signals
 
-    'axi4_ar_slave': {
-        'signal_map': {
-            'i_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],
-            'o_ready':    AXI4_BASE_PATTERNS['ar_ready_base']
-        },
-        'optional_signal_map': {
-            'multi_sig_false': AXI4_BASE_PATTERNS['r_data_base'],  # Not used for AR
-            'multi_sig_true':  AXI4_BASE_PATTERNS['ar_field_base']
-        }
-    },
-
-    'axi4_r_master': {
-        'signal_map': {
-            'o_valid':    AXI4_BASE_PATTERNS['r_valid_base'],
-            'i_ready':    AXI4_BASE_PATTERNS['r_ready_base']
-        },
-        'optional_signal_map': {
-            'multi_sig_false': AXI4_BASE_PATTERNS['r_data_base'],
-            'multi_sig_true':  AXI4_BASE_PATTERNS['r_field_base']
-        }
-    },
-
-    'axi4_aw_slave': {
-        'signal_map': {
-            'i_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],
-            'o_ready':    AXI4_BASE_PATTERNS['aw_ready_base']
-        },
-        'optional_signal_map': {
-            'multi_sig_false': [],  # AW doesn't have data
-            'multi_sig_true':  AXI4_BASE_PATTERNS['aw_field_base']
-        }
-    },
-
-    'axi4_w_slave': {
-        'signal_map': {
-            'i_valid':    AXI4_BASE_PATTERNS['w_valid_base'],
-            'o_ready':    AXI4_BASE_PATTERNS['w_ready_base']
-        },
-        'optional_signal_map': {
-            'multi_sig_false': AXI4_BASE_PATTERNS['w_data_base'],
-            'multi_sig_true':  AXI4_BASE_PATTERNS['w_field_base']
-        }
-    },
-
-    'axi4_b_master': {
-        'signal_map': {
-            'o_valid':    AXI4_BASE_PATTERNS['b_valid_base'],
-            'i_ready':    AXI4_BASE_PATTERNS['b_ready_base']
-        },
-        'optional_signal_map': {
-            'multi_sig_false': [],  # B doesn't have data (just resp)
-            'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
-        }
-    },
-
     # AXI4 Master variants (inverse roles)
     'axi4_ar_master': {
         'signal_map': {

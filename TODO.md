@@ -6,10 +6,12 @@ Each item below is **GitHub-Issue ready**: copy the title, labels, and body into
 
 Current published version: **0.5.0** (see `pyproject.toml`).
 
-> **Status update:** all nine items below shipped — items 8/9 as documentation
-> audits and items 1-7 as refactors — in release **0.2.0** (see
-> `CHANGELOG.md`). This file is retained as the issue-drafting record; new
-> work is tracked directly in GitHub issues.
+> **Status update:** all nine items in the first section shipped — items 8/9 as
+> documentation audits and items 1-7 as refactors — in release **0.2.0** (see
+> `CHANGELOG.md`). That section is retained as the issue-drafting record.
+>
+> **Open work:** see [DFI BFM Capability Parity](#dfi-bfm-capability-parity)
+> below (items D1–D11, not started).
 
 ---
 
@@ -232,6 +234,129 @@ Recommend (a) for 0.2.0; revisit (b) at 1.0.0.
 - [ ] Lock added if races are possible
 - [ ] Source comment documents the invariant
 - [ ] Add a stress test where AW and W arrive interleaved across multiple IDs
+
+---
+
+## DFI BFM Capability Parity
+
+Derived from a 2026-07 gap analysis of `components/dfi/` against the mature BFM
+families (`axi4/`, `gaxi/`, `apb/`). DFI is **ahead** of the other families on
+protocol depth — JEDEC timing models (`jedec_timings.py` + CSVs), the stateful
+`DramStateModel` with a categorized `ViolationPolicy`, the per-spec-version
+Strategy/Registry in `behaviors/`, address mapping and LPDDR2 CA encode/decode,
+and multi-strategy read servers. None of that should be regressed. What it lacks
+is the *ergonomic* layer every other family has.
+
+### Parity Tracking Table
+
+| # | Title | Effort | Depends on | Status |
+|---|---|---|---|---|
+| D1 | Wire `FlexRandomizer` into `DFIMasterMC` command/beat spacing | S | — | Not started |
+| D2 | Adopt `MasterStatistics` / `MonitorStatistics` | S | — | Not started |
+| D3 | Add `dfi_factories.py` | S | — | Not started |
+| D4 | Rebase DFI packets on shared `Packet` | M | — | Not started |
+| D5 | `DFISequence` DRAM-aware workload generator | M | D1, D4 | Not started |
+| D6 | Fold `DFIScoreboard` onto `BaseScoreboard` + transformer | M | D4 | Not started |
+| D7 | `DFIRandomizationConfig` profiles | M | D1, D3 | Not started |
+| D8 | Signal auto-discovery via `SignalResolver` | M/L | — | Not started |
+| D9 | DFI handshake protocol-assertion checker | S | — | Not started |
+| D10 | Coverage hooks + wavedrom binding | S | D3 | Not started |
+| D11 | Docs build-out (per-class pages + index) | S/M | D1–D7 | Not started |
+
+**Suggested order:** D1 → D2 → D3 (independent, immediate ROI), then D4 → D5 →
+D6 → D7 (the packet rebase unblocks sequence and scoreboard), then D8–D11 as
+capacity allows.
+
+**Highest-leverage item is D1.** DFI already owns the thing the other families
+lack — the `DramStateModel` violation checker — so randomized stimulus becomes
+immediately self-checking the moment there is randomized stimulus to check.
+
+### D1 — Wire `FlexRandomizer` into `DFIMasterMC`
+
+**Labels:** `enhancement`, `area:dfi`
+DFI has zero randomization anywhere today. Add an optional `randomizer` kwarg
+mirroring `gaxi_master.py` (which drives delays via `randomizer.next()`), and
+replace fixed `nop(cycles)` gaps between commands with randomizer-driven delays.
+Acceptance: constrained-random command spacing that `DramStateModel` polices;
+existing deterministic tests unaffected when no randomizer is passed.
+
+### D2 — Adopt shared statistics classes
+
+**Labels:** `enhancement`, `area:dfi`
+`DFISlavePHY` / `DFIMonitor` / `DFIMasterMC` use manual integer counters
+(`writes_committed`, `reads_served`, `command_count`, …). Replace with
+`MasterStatistics` / `MonitorStatistics` (`shared/master_statistics.py`,
+`monitor_statistics.py`) and `record_*` calls, keeping the DRAM-specific counters
+as extra fields. Note: `reads_served` semantics differ between the strict and
+free-running read paths — resolve that while migrating (see audit finding).
+
+### D3 — `dfi_factories.py`
+
+**Labels:** `enhancement`, `dx`, `area:dfi`
+No factory module exists. Add `create_dfi_master`, `create_dfi_slave_phy`,
+`create_dfi_monitor`, `create_dfi_scoreboard`, `create_dfi_components(dut, clock, …)`
+mirroring `gaxi_factories.py`. Pure assembly, low risk, large usability win.
+**Note the audit lesson:** the other families' factories shipped broken because
+nothing tested them — add unit tests that actually call each factory.
+
+### D4 — Rebase DFI packets on shared `Packet`
+
+**Labels:** `refactor`, `area:dfi`
+`DFIControlPacket` / `DFIWriteDataPacket` / `DFIReadDataPacket` are bare
+dataclasses, so they get no pack/unpack, no field cache, no randomization hooks,
+and cannot flow through the shared scoreboard/transformer machinery.
+`dfi_field_configs.py` already builds `FieldConfig`s that are not fed to a
+Packet-based path. Churn lands in the monitor/master construction sites.
+
+### D5 — `DFISequence`
+
+**Labels:** `enhancement`, `area:dfi`
+Model on `AXI4Sequence`. Primitives (`add_activate/read/write/precharge/refresh`)
+plus DRAM-aware generators — `add_row_hit_burst`, `add_bank_spray`,
+`add_row_miss_pair`, `add_random_workload` — using `AddressMapping` for legal
+bank/row/col spraying.
+
+### D6 — `DFIScoreboard` onto `BaseScoreboard`
+
+**Labels:** `refactor`, `area:dfi`
+Today it is standalone and event-driven with no expected/actual compare. Keep the
+event-callback surface, add an expected-vs-actual path (master-issued commands vs
+monitor-observed; write-then-read integrity via `MemoryModel`) and a
+`DFItoMemoryAdapter` analogous to `GAXItoMemoryAdapter`. Fold in the audit finding
+that `poll()` offsets go stale if slave queues are cleared — add a reset/resync hook.
+
+### D7 — `DFIRandomizationConfig`
+
+**Labels:** `enhancement`, `area:dfi`
+Profiles in the spirit of `AXI4RandomizationConfig`: traffic-heavy,
+refresh-stress, training-heavy, compliance.
+
+### D8 — `SignalResolver` adoption
+
+**Labels:** `refactor`, `area:dfi`
+All three DFI roles build fixed `_signals` lists against hardcoded `mc_dfi` /
+`phy_dfi` prefixes — no auto-discovery, no per-version optional-signal sets.
+Structural: touches master, slave and monitor together.
+
+### D9 — DFI handshake assertion checker
+
+**Labels:** `enhancement`, `area:dfi`
+Complements (does not replace) `DramStateModel`, which checks the DRAM side. Check
+req/ack legality for `ctrlupd`, `phyupd`, freq-change, disconnect and `phymstr`.
+The event queues already exist to build on.
+
+### D10 — Coverage hooks + wavedrom
+
+**Labels:** `enhancement`, `area:dfi`
+Port the `gaxi/coverage_hooks.py` pattern; add wavedrom binding for the 33 DFI
+signals per side.
+
+### D11 — Docs build-out
+
+**Labels:** `docs`, `area:dfi`
+DFI has one overview page; `gaxi/` has 11 and `axi4/` has 7. Add an index plus
+per-class pages (master, slave-PHY, monitor, timing/JEDEC, dram-state, behaviors,
+scoreboard, sequence once built). Sequence last so docs do not churn.
 
 ---
 

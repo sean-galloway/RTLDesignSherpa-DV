@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-23
+
+First PyPI release of the 0.6 line — 0.6.0 was tagged but never published, so
+`pip install cocotb-framework` had been pinned at 0.5.0 while development ran
+ahead. Everything in the 0.6.0 notes below ships here.
+
+### Added
+
+- **`DFI_CMD_TRACE=1`** logs every decoded DFI command with its cycle, bank,
+  address, and the row that bank had open at decode time. Complements
+  `DFI_WR_TRACE` (data commits) for addressing and page-policy debug. Off by
+  default.
+
 ## [0.6.0] - 2026-07-22
 
 A full quality audit of every component family and its documentation. Many

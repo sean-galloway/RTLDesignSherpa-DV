@@ -67,6 +67,10 @@ from .dfi_monitor import (
 from .dfi_packet import DRAMCommand
 
 _WR_TRACE = os.environ.get("DFI_WR_TRACE", "0") == "1"
+# DFI_CMD_TRACE=1: log every DECODED command with the bank's open row at
+# decode time — the command-level view (the wave-decode you'd otherwise do by
+# hand). Pairs with DFI_WR_TRACE (data commits).
+_CMD_TRACE = os.environ.get("DFI_CMD_TRACE", "0") == "1"
 
 
 def decode_phase0_cmd(ras_n_bus: int, cas_n_bus: int,
@@ -579,6 +583,13 @@ class DFISlavePHY(BusMonitor):
         cl  = self.dram.timings.CL
 
         self.cmd_counts[cmd] = self.cmd_counts.get(cmd, 0) + 1
+
+        if _CMD_TRACE:
+            _row = self.dram.banks[bank].row if bank < len(self.dram.banks) else None
+            self.log.info(
+                f"[CMDTRACE] cyc={cycle} {cmd.name} bank={bank} "
+                f"addr=0x{addr:X} open_row_at_decode="
+                f"{('0x%X' % _row) if _row is not None else 'closed'}")
 
         beats = self.base.beats_per_burst
 

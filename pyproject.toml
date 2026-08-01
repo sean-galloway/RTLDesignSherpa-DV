@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cocotb-framework"
-version = "0.6.1"
+version = "0.6.2"
 description = "Reusable CocoTB verification infrastructure for RTL testing — BFMs, testbenches, and scoreboards for AMBA protocols and more"
 readme = "README.md"
 license = "MIT"
@@ -72,6 +72,21 @@ Issues = "https://github.com/sean-galloway/RTLDesignSherpa-DV/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# Non-.py files are NOT installed unless declared here -- setuptools ships only
+# modules by default. Without this the jedec/ CSVs were dropped from every
+# installed build, so `builtin_timings("ddr2-650-mt47h64m16hr")` raised
+# FileNotFoundError pointing into site-packages. It worked from a source
+# checkout, which is why it went unnoticed.
+#
+# jedec/ has no __init__.py, so it is not a discovered package and cannot be a
+# key here; the data is declared on its parent with a path glob instead.
+# `builtin_timings` resolves Path(__file__).parent / "jedec", so the files must
+# land beside the module -- which is exactly what this does.
+[tool.setuptools.package-data]
+"CocoTBFramework.components.dfi" = ["jedec/*.csv", "jedec/*.md"]
+"CocoTBFramework.components.axi4" = ["*.md"]
+"CocoTBFramework.components.uart" = ["*.md"]
 
 [tool.ruff]
 target-version = "py310"

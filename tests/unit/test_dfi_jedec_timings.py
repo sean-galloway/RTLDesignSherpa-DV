@@ -185,3 +185,31 @@ def test_load_unknown_unit_raises(tmp_path):
     """)
     with pytest.raises(ValueError, match="Unknown unit"):
         load_timings(p)
+
+
+# ---------------------------------------------------------------------
+# Vendored profiles (issue #49)
+# ---------------------------------------------------------------------
+# The CSVs are package data. They were absent from every built wheel until
+# pyproject declared them, and `builtin_timings` resolves them against the
+# INSTALLED module, so the failure only appeared downstream. Enumerating the
+# directory means a newly vendored profile is covered the moment it lands
+# rather than when someone remembers to add a case.
+
+def _vendored_profiles():
+    jedec = Path(builtin_timings.__globals__["__file__"]).parent / "jedec"
+    return sorted(p.stem for p in jedec.glob("*.csv"))
+
+
+def test_jedec_directory_is_present_and_populated():
+    """Catches the install-time symptom: the data directory vanishing whole."""
+    assert _vendored_profiles(), (
+        "no vendored JEDEC CSVs found next to jedec_timings -- if this fails "
+        "in an installed build, package-data is not declared in pyproject"
+    )
+
+
+@pytest.mark.parametrize("name", _vendored_profiles())
+def test_every_vendored_profile_loads(name):
+    t = builtin_timings(name)
+    assert t.tCK_ns > 0, f"{name}: tCK must be positive"

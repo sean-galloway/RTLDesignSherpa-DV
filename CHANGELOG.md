@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-08-01
+
+Packaging fix: data files were never installed, so the JEDEC timing CSVs were
+missing from every built wheel.
+
+### Fixed
+
+- **`jedec/*.csv` now ship with the package** ([#49]). `pyproject.toml`
+  declared which packages to install but not their data files, and setuptools
+  ships modules only by default. Because `builtin_timings()` resolves
+  `Path(__file__).parent / "jedec"` against the *installed* module, any
+  pip-installed build raised `FileNotFoundError` pointing into `site-packages`
+  — which reads like a corrupt install rather than a missing declaration. It
+  worked from a source checkout, which is why it went unnoticed.
+
+  Five files were affected, so this was not DDR2-specific: `ddr3-1600.csv` was
+  unreachable too, along with three docs. `jedec/` has no `__init__.py` and so
+  cannot be a `package-data` key; the data is declared on its parent with a
+  path glob.
+
+  Downstream, this blocked `test_ddr2_char_uart_simple` in RTLDesignSherpa —
+  the sim half of the DDR2 sim/silicon equivalence proof — and everything
+  built on it.
+
+### Added
+
+- Vendored JEDEC profiles are enumerated from disk and each one load-tested,
+  so a newly added CSV is covered when it lands rather than when someone
+  remembers to write a case. A separate check asserts the directory is present
+  and non-empty, which is the symptom an installed build shows.
+
+[#49]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/49
+
 ## [0.6.1] - 2026-07-23
 
 First PyPI release of the 0.6 line — 0.6.0 was tagged but never published, so

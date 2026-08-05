@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Arbiter compliance model: three defects that failed correct RTL.** Every
+  round-robin violation the model reported against `rtl/common`'s arbiters was
+  its own; the RTL was correct each time. Anyone using
+  `ArbiterMonitor`/`ArbiterCompliance` to sign off an arbiter has been reading
+  false positives, or has suppressed the error type by name and is reading
+  nothing.
+
+  1. **Wrong request vector.** The check was always paired with the *previous*
+     cycle's requests — correct for a DUT that registers its grant, wrong for
+     one that drives it combinationally, and worth 144-176 "granted a client
+     that never asked" violations per run against a combinational arbiter.
+     Now selected by a new `registered_grant` constructor argument, default
+     `True` (the previous behavior). **Pass `registered_grant=False` for an
+     arbiter whose grant is combinational off request.**
+
+  2. **No `r_last_valid` mirror.** Two consecutive grant-less cycles drop a
+     round-robin arbiter's priority mask back to reset, so the next grant
+     restarts at the lowest requester. `RoundRobinMaskState` cleared only in
+     `reset()`, carried its pre-idle winner across the gap, and reported a
+     violation on the first grant after any `block_arb` interval.
+
+  3. **ACKs processed live against a replay-built table.** `pending_acks` is
+     only written while replaying the queue, so an ACK handled at sample time
+     saw a table that did not yet contain its own grant — reported as
+     `unexpected_ack`, 100-200 per run. ACKs are now queued (`queue_ack`) and
+     replayed in one timestamp-ordered stream with the grants. Level-vs-edge
+     was fixed alongside it: only newly-asserted ACK bits count.
+
+### Known issues
+
+- **ACK-mode (`WAIT_GNT_ACK=1`) round-robin compliance still loses a grant** —
+  roughly three runs in eight on a 4-client arbiter — and miscounts ACKs during
+  single-client saturation. `is_new_grant` is re-derived from `pending_acks`
+  instead of read from the transaction type, so a grant to a client that still
+  owes an ACK is skipped entirely. The no-ACK path is clean and safe to assert
+  on. Details and suggested fix in
+  `docs/internal/arbiter-ack-mode-compliance.md`.
+
 ## [0.6.2] - 2026-08-01
 
 Packaging fix: data files were never installed, so the JEDEC timing CSVs were

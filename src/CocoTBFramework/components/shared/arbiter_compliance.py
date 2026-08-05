@@ -268,7 +268,24 @@ class ArbiterCompliance:
     # TRANSACTION PROCESSING
     # =======================================================================
 
-    def queue_transaction(self, transaction, blocked_state=False, active_requests=0, block_arb_history=None):
+    def queue_ack(self, ack_vector, timestamp):
+        """Queue an ACK for in-order processing alongside grants.
+
+        pending_acks is only written while replaying the queue in
+        run_compliance_analysis, so an ACK handled the moment it is sampled is
+        looking at a table that does not yet contain its own grant -- every
+        such ACK was reported as 'unexpected_ack' (100-200 per ACK-mode run).
+        Queuing puts grants and ACKs back in one timestamp-ordered stream.
+        """
+        self.transaction_queue.append({
+            'kind': 'ack',
+            'ack_vector': ack_vector,
+            'timestamp': timestamp
+        })
+        return True
+
+    def queue_transaction(self, transaction, blocked_state=False, active_requests=0,
+                          block_arb_history=None, idle_before=0):
         """Queue transaction for compliance checking"""
         self._transaction_count += 1
 
@@ -295,9 +312,11 @@ class ArbiterCompliance:
             self.run_compliance_analysis()
 
         queued_transaction = {
+            'kind': 'grant',
             'transaction': transaction,
             'blocked_state': blocked_state,
             'active_requests': active_requests,
+            'idle_before': idle_before,
             'queue_time': get_sim_time('ns')
         }
 
@@ -385,9 +404,14 @@ class ArbiterCompliance:
         batch_warnings = []
 
         for queued_item in self.transaction_queue:
+            if queued_item.get('kind') == 'ack':
+                batch_warnings.extend(self._process_ack(
+                    queued_item['ack_vector'], queued_item['timestamp']))
+                continue
             transaction = queued_item['transaction']
             blocked_state = queued_item['blocked_state']
             active_requests = queued_item['active_requests']
+            self._current_idle_before = queued_item.get('idle_before', 0)
 
             # Check compliance for this transaction
             warnings = self._check_single_transaction_compliance(
@@ -514,6 +538,36 @@ class ArbiterCompliance:
         current_time = transaction.timestamp
         current_winner = transaction.gnt_id
 
+        # Mirror the RTL's r_last_valid: two consecutive grant-less cycles drop
+        # the priority mask back to reset, and the next grant restarts at the
+        # lowest requester.
+        #
+        # arbiter_round_robin picks its mask as
+        #     grant_valid   ? win_mask[grant_id]
+        #   : r_last_valid  ? win_mask[r_last_grant_id]
+        #   : CLIENTS'(1)
+        # with r_last_valid <= grant_valid, and the grant is registered, so the
+        # grant at cycle k was decided from the mask at k-1: one grant-less
+        # cycle still rotates, two or more do not. Measured directly against
+        # the RTL -- park the mask on client 1, hold requests low, then request
+        # {0,3}: one grant-less cycle grants 3, two or more grant 0.
+        # RoundRobinMaskState
+        # cleared only in reset(), so it carried its pre-idle winner across the
+        # gap and reported "expected client 25, got 2" on the first grant after
+        # a block_arb interval.
+        #
+        # idle_before is counted by the monitor's sampling loop, which sees
+        # every cycle. Do not try to re-derive it from transaction timestamps
+        # here: the replay only sees grants, and that inference produced 40-60
+        # false violations per run.
+        if getattr(self, '_current_idle_before', 0) >= 2 and self.rr_mask_state.mask_valid:
+            if self.debug_enabled:
+                self.log.debug(
+                    f"ArbiterCompliance({self.title}): "
+                    f"{self._current_idle_before} grant-less cycle(s) before "
+                    f"{current_time}ns -- dropping the priority mask")
+            self.rr_mask_state.reset()
+
         if self.debug_enabled:
             self.log.debug(f"ArbiterCompliance({self.title}): NO-ACK RR CHECK @ {current_time}ns")
             self.log.debug(f"  Winner: {current_winner}, Active requests: 0x{active_requests:x}")
@@ -543,7 +597,8 @@ class ArbiterCompliance:
                         'active_requests': f"0x{active_requests:x}",
                         'current_mask': f"0x{self.rr_mask_state.current_mask:x}",
                         'mask_valid': self.rr_mask_state.mask_valid,
-                        'last_winner': self.rr_mask_state.last_winner
+                        'last_winner': self.rr_mask_state.last_winner,
+                        'idle_before': getattr(self, '_current_idle_before', 0)
                     }
                 })
 
@@ -581,6 +636,16 @@ class ArbiterCompliance:
         is_new_grant = not existing_pending
 
         if is_new_grant:
+            # Same r_last_valid mirror as the no-ACK path: two grant-less
+            # cycles before this grant drop the RTL's priority mask back to
+            # reset. WAIT_GNT_ACK only holds grant_valid high while waiting for
+            # the ACK -- the mask logic is identical, so the rule is too, and
+            # the idle count is measured the same way (cycles with gnt_valid
+            # low). Without this the ACK-mode configs failed roughly two runs
+            # in three once the round_robin_violation exclusion came off.
+            if getattr(self, '_current_idle_before', 0) >= 2 and self.rr_mask_state.mask_valid:
+                self.rr_mask_state.reset()
+
             # Compute expected winner NOW (mask state before this grant),
             # store the full check context for deferred reporting at ACK time.
             expected_winner = None
@@ -757,6 +822,17 @@ class ArbiterCompliance:
         return warnings
 
     def process_ack_received(self, ack_vector, timestamp):
+        """Process an ACK immediately and record its warnings.
+
+        Kept for callers that drive the model directly. The monitor uses
+        queue_ack instead so ACKs are replayed in order with the grants.
+        """
+        warnings = self._process_ack(ack_vector, timestamp)
+        for warning in warnings:
+            self._record_warning(warning)
+        return warnings
+
+    def _process_ack(self, ack_vector, timestamp):
         """Process ACK signals and complete deferred round-robin checks.
 
         For each ACKing client, the matching pending grant is retired and any
@@ -815,9 +891,6 @@ class ArbiterCompliance:
                                 'last_winner_at_grant': deferred['last_winner_at_grant']
                             }
                         })
-
-        for warning in warnings:
-            self._record_warning(warning)
 
         return warnings
 

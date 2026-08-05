@@ -146,6 +146,7 @@ nav:
     - Arbiter:
       - Overview: components/misc/components_misc_overview.md
       - Arbiter Monitor: components/misc/components_misc_arbiter_monitor.md
+      - Known Issue (ACK-mode compliance): internal/arbiter-ack-mode-compliance.md
 
     - Wavedrom:
       - Quick Start: components/wavedrom/wavedrom_quick_start.md

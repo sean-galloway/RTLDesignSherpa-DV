@@ -76,7 +76,8 @@ class ArbiterMonitor(BusMonitor):
 
     def __init__(self, entity, name, clock, reset_n,
                 clients=None, is_weighted=False, ack_mode=False, log=None,
-                clock_period_ns=10, callback=None, event=None, **kwargs):
+                clock_period_ns=10, callback=None, event=None,
+                registered_grant=True, **kwargs):
         """
         Initialize Unified Arbiter Monitor supporting both weighted and non-weighted arbiters.
 
@@ -88,6 +89,14 @@ class ArbiterMonitor(BusMonitor):
             clients: Number of clients (derived from signal width if None)
             is_weighted: True for weighted arbiters, False for regular (defaults to False for compatibility)
             ack_mode: True if arbiter uses ACK protocol, False otherwise
+            registered_grant: True if the DUT registers its grant outputs (the
+                grant this cycle was decided from LAST cycle's requests), False
+                if grant is combinational off request. This picks which request
+                vector the compliance check is given. Getting it wrong makes a
+                correct arbiter look like it grants clients that never asked:
+                arbiter_round_robin_simple drives grant combinationally, and
+                pairing it with the previous vector produced 144-176 bogus
+                round_robin_violations per run.
             log: Logger instance (creates new if None)
             clock_period_ns: Clock period in nanoseconds
             callback: Callback to be called with each transaction (cocotb pattern)
@@ -103,6 +112,7 @@ class ArbiterMonitor(BusMonitor):
         self.title = name
         self.is_weighted = is_weighted  # NEW: Auto-detect weighted vs non-weighted
         self.ack_mode = ack_mode
+        self.registered_grant = registered_grant
         self.clock_period_ns = clock_period_ns
         self.reset_cycles = 2
 
@@ -189,6 +199,8 @@ class ArbiterMonitor(BusMonitor):
 
         # Control flags
         self.monitoring_enabled = True
+        self._grantless_run = 0
+        self._idle_before_grant = 0
         self.debug_enabled = True
 
         # Previous state tracking for change detection
@@ -564,6 +576,16 @@ class ArbiterMonitor(BusMonitor):
         Process grant changes with cycle-level reporting
         Extended to include weight information for weighted arbiters
         """
+        # Count consecutive grant-less cycles so the compliance replay can
+        # mirror the RTL's r_last_valid. Only the sampling loop sees every
+        # cycle; the replay sees transactions, and inferring idle cycles from
+        # their timestamps is not equivalent -- that inference is what made a
+        # 200-cycle block_arb interval look like a round-robin violation.
+        if signal_state.gnt_valid and signal_state.gnt_vector != 0:
+            self._idle_before_grant = self._grantless_run
+            self._grantless_run = 0
+        else:
+            self._grantless_run += 1
         # Handle grant ending first
         if not signal_state.gnt_valid and self._last_grant_info['gnt_valid']:
             # Grant just ended
@@ -661,10 +683,17 @@ class ArbiterMonitor(BusMonitor):
         if self.debug_enabled:
             self.log.debug(f"ArbiterMonitor({self.title}): ACK DETECTED: 0x{signal_state.ack_vector:x} @ {signal_state.current_time}ns")
 
-        # Process ACK through compliance checker
-        ack_warnings = self.compliance.process_ack_received(signal_state.ack_vector, signal_state.current_time)
-        if ack_warnings and self.debug_enabled:
-            self.log.debug(f"ACK processing generated {len(ack_warnings)} warnings")
+        # Only the NEWLY-asserted bits are new ACKs. ack_detected fires on any
+        # change of the vector, and process_ack_received iterates every set bit
+        # it is handed -- so when one client's ACK asserts while another's is
+        # still held, the held bit was re-presented and reported as an
+        # 'unexpected_ack' against a grant that had already been retired. That
+        # produced ~105 spurious warnings per run on a 4-client arbiter as soon
+        # as two clients could ACK concurrently.
+        new_acks = signal_state.ack_vector & ~signal_state.prev_ack_vector
+        if not new_acks:
+            return
+        self.compliance.queue_ack(new_acks, signal_state.current_time)
 
     def _process_block_changes(self, signal_state):
         """
@@ -793,8 +822,11 @@ class ArbiterMonitor(BusMonitor):
             self.compliance.queue_transaction(
                 transaction,
                 blocked_state=self.blocked,
-                active_requests=signal_state.prev_req_vector,
-                block_arb_history=recent_block_history
+                active_requests=(signal_state.prev_req_vector
+                                 if self.registered_grant
+                                 else signal_state.req_vector),
+                block_arb_history=recent_block_history,
+                idle_before=self._idle_before_grant
             )
 
         # Use cocotb BusMonitor's _recv() method

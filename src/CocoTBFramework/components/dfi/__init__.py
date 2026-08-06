@@ -21,6 +21,10 @@ Public API:
 """
 
 from .dfi_base import DFIBase
+from .dfi_compliance import (
+    DFIComplianceChecker,
+    DFIComplianceParams,
+)
 from .dfi_field_configs import (
     command_field_config,
     read_data_field_config,

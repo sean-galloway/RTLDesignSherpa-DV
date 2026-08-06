@@ -10,11 +10,13 @@ reports timing violations via :class:`ViolationPolicy` — by default,
 critical JEDEC sequencing rules halt sim, windowed/average rules warn,
 init-sequence specifics are ignored.
 
-Scope for MVP: the "hard" checks below are fully wired (5 bank-state
-transitions + 8 timing parameters). Soft checks (tFAW windowed count,
-tREFI overdue) are stubbed — the reporting path works but the windowing
-state hasn't landed yet. Wire-level read-data and write-data servicing
-lives in :mod:`dfi_slave_phy`, not here.
+Scope: the "hard" checks are fully wired (5 bank-state transitions +
+8 timing parameters), tFAW uses a 4-deep ACT-history window, and
+tREFI-overdue windowing enforces the JEDEC postpone limit (up to 8
+refreshes may be postponed, so the maximum REF-to-REF interval is
+9 x tREFI; exceeding it reports a soft "tREFI" violation once per
+missed window). Wire-level read-data and write-data servicing lives
+in :mod:`dfi_slave_phy`, not here.
 """
 
 from __future__ import annotations
@@ -337,6 +339,12 @@ class DramStateModel:
         self._last_ref_cycle: int = -1
         self._ref_end_cycle: int = -1
 
+        # tREFI windowing (JEDEC postpone limit): up to 8 refreshes may
+        # be postponed, so the max legal REF-to-REF gap is 9 x tREFI.
+        # Armed lazily at the first command (traffic implies the DRAM
+        # is out of init and needs refresh maintenance); -1 = unarmed.
+        self._refi_deadline_cycle: int = -1
+
     # ----- Time advance -----
 
     def tick(self) -> None:
@@ -353,11 +361,38 @@ class DramStateModel:
                     b.state = BankState.IDLE
                     b.row = None
                     b.last_ref_end_cycle = self.cycle
+        # tREFI window: once armed, a REF must land within 9 x tREFI
+        # (8-postpone limit). Report once per missed window, then
+        # re-arm so a stalled refresher logs one violation per window
+        # rather than one per cycle.
+        if (
+            self._refi_deadline_cycle >= 0
+            and self.cycle > self._refi_deadline_cycle
+        ):
+            self.policy.report(
+                "tREFI",
+                f"no REF for > 9 x tREFI "
+                f"({9 * self.timings.tREFI_cycles} cycles) — refresh "
+                f"overdue @ cycle {self.cycle} (last REF cycle "
+                f"{self._last_ref_cycle})",
+                self.log,
+            )
+            self._refi_deadline_cycle = (
+                self.cycle + 9 * self.timings.tREFI_cycles
+            )
+
+    def _arm_refi_window(self) -> None:
+        """Start the tREFI window at the first observed command."""
+        if self._refi_deadline_cycle < 0:
+            self._refi_deadline_cycle = (
+                self.cycle + 9 * self.timings.tREFI_cycles
+            )
 
     # ----- Command handlers -----
 
     def on_activate(self, bank_idx: int, row: int) -> None:
         """Process an ACT command."""
+        self._arm_refi_window()
         self._check_not_refreshing("act")
         b = self._bank(bank_idx)
         if b.state == BankState.ACTIVE:
@@ -417,6 +452,7 @@ class DramStateModel:
 
     def on_read(self, bank_idx: int) -> None:
         """Process a RD command."""
+        self._arm_refi_window()
         self._check_not_refreshing("rd")
         b = self._bank(bank_idx)
         if b.state != BankState.ACTIVE:
@@ -450,6 +486,7 @@ class DramStateModel:
 
     def on_write(self, bank_idx: int) -> None:
         """Process a WR command."""
+        self._arm_refi_window()
         self._check_not_refreshing("wr")
         b = self._bank(bank_idx)
         if b.state != BankState.ACTIVE:
@@ -473,6 +510,7 @@ class DramStateModel:
 
     def on_precharge(self, bank_idx: int, all_banks: bool = False) -> None:
         """Process a PRE command."""
+        self._arm_refi_window()
         self._check_not_refreshing("pre")
         targets = self.banks if all_banks else [self._bank(bank_idx)]
         for i, b in enumerate(targets):
@@ -527,6 +565,10 @@ class DramStateModel:
             b.row = None
         self._last_ref_cycle = self.cycle
         self._ref_end_cycle = self.cycle + self.timings.tRFC_cycles
+        # A REF landed — restart the 9 x tREFI postpone window.
+        self._refi_deadline_cycle = (
+            self.cycle + 9 * self.timings.tREFI_cycles
+        )
 
     # ----- Helpers -----
 

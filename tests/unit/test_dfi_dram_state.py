@@ -242,3 +242,55 @@ def test_constructor_accepts_custom_policy(timings, caplog):
     # Read way too soon — should warn, not raise
     m.on_read(bank_idx=0)
     assert custom.soft_violation_counts.get("tRCD", 0) >= 1
+
+
+# ---------------------------------------------------------------------
+# tREFI windowing (JEDEC 8-postpone limit → max 9 x tREFI between REFs)
+# ---------------------------------------------------------------------
+
+
+def test_refi_window_unarmed_until_first_command(model, timings):
+    """A model that never sees traffic never flags refresh-overdue."""
+    _advance(model, 10 * timings.tREFI_cycles)
+    assert model.policy.soft_violation_counts.get("tREFI", 0) == 0
+
+
+def test_refi_no_violation_when_ref_arrives_in_window(model, timings):
+    model.on_activate(0, row=0x10)
+    _advance(model, timings.tRAS_min_cycles + 1)
+    model.on_precharge(0)
+    _advance(model, timings.tRP_cycles + 1)
+    # REF comfortably inside the 9 x tREFI window
+    _advance(model, timings.tREFI_cycles)
+    model.on_refresh()
+    _advance(model, 9 * timings.tREFI_cycles - 1)
+    assert model.policy.soft_violation_counts.get("tREFI", 0) == 0
+
+
+def test_refi_overdue_reports_once_per_window(model, timings):
+    model.on_activate(0, row=0x10)
+    window = 9 * timings.tREFI_cycles
+    # Exceed the first window with no REF: exactly one soft violation.
+    _advance(model, window + 2)
+    assert model.policy.soft_violation_counts.get("tREFI", 0) == 1
+    # Still no REF: the NEXT window must elapse before a second report
+    # (no per-cycle flooding).
+    _advance(model, 10)
+    assert model.policy.soft_violation_counts.get("tREFI", 0) == 1
+    _advance(model, window)
+    assert model.policy.soft_violation_counts.get("tREFI", 0) == 2
+
+
+def test_refi_ref_resets_the_window(model, timings):
+    model.on_activate(0, row=0x10)
+    _advance(model, timings.tRAS_min_cycles + 1)
+    model.on_precharge(0)
+    window = 9 * timings.tREFI_cycles
+    _advance(model, window - 5 - timings.tRAS_min_cycles - 1)  # almost overdue
+    model.on_refresh()                        # REF lands just in time
+    _advance(model, timings.tRFC_cycles + 1)  # walk out of REFRESHING
+    # Deep into the NEW window (tRFC advance already consumed part of it)
+    _advance(model, window - timings.tRFC_cycles - 10)
+    assert model.policy.soft_violation_counts.get("tREFI", 0) == 0
+    _advance(model, 20)                       # now the new window expires
+    assert model.policy.soft_violation_counts.get("tREFI", 0) == 1

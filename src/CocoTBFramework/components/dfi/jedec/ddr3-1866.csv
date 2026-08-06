@@ -1,0 +1,22 @@
+# DDR3-1866 (1866K speed bin, 11-11-11) — JEDEC JESD79-3F reference
+# values. Same part-class assumptions as the ddr3-1600 CSV (x8, 1KB
+# page, 4Gb density).
+# Sources: JESD79-3F Table 66 (DDR3-1866 Speed Bins), AC timing table
+# (tRRD/tFAW by page size, 1866 column), refresh chapter.
+
+parameter, unit,  value, description
+tCK,       ns,    1.071, Clock period (933 MHz clock, DDR3-1866 data rate)
+tRCD,      ns,    11.77, Activate to Read/Write same bank (1866K bin)
+tRP,       ns,    11.77, Precharge command period (1866K bin)
+tRAS_min,  ns,    34.0,  Active to Precharge minimum
+tRC,       ns,    45.77, Active-to-Active same bank (1866K bin)
+tWR,       ns,    15.0,  Write recovery (PRE after last WR data beat)
+tWTR,      ns,    7.5,   Write to Read same bank (max(4nCK, 7.5ns))
+tRTP,      ns,    7.5,   Internal Read to Precharge (max(4nCK, 7.5ns))
+tRRD,      ns,    5.0,   Active to Active different bank (1KB page, max(4nCK, 5ns))
+tFAW,      ns,    27.0,  Four-Activate Window (1KB page)
+tREFI,     ns,    7800,  Average refresh interval (auto-refresh)
+tRFC,      ns,    260,   Refresh cycle time (4Gb density)
+CL,        CK,    11,    CAS latency (1866K bin)
+CWL,       CK,    9,     CAS write latency (fixed per 1866 clock rate)
+BL,        beats, 8,     Burst length (BL8, fixed)

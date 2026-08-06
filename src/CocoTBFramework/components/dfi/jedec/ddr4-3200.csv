@@ -1,0 +1,22 @@
+# DDR4-3200 (3200AA speed bin, CL=22) — JEDEC JESD79-4D reference
+# values. Same part assumptions as the ddr4-2400 CSV (x16/2KB page,
+# 8Gb density, 1tCK write preamble).
+# Sources: JESD79-4D Table 153 (DDR4-3200 Speed Bins), Table 21 (CWL),
+# AC timing tables (tRRD/tFAW by page size), refresh chapter.
+
+parameter, unit,  value, description
+tCK,       ns,    0.625, Clock period (1600 MHz clock, DDR4-3200 data rate)
+tRCD,      ns,    13.75, Activate to Read/Write same bank (3200AA bin)
+tRP,       ns,    13.75, Precharge command period (3200AA bin)
+tRAS_min,  ns,    32.0,  Active to Precharge minimum
+tRC,       ns,    45.75, Active-to-Active same bank (3200AA bin)
+tWR,       ns,    15.0,  Write recovery (PRE after last WR data beat)
+tWTR,      ns,    7.5,   Write-to-Read turnaround (tWTR_L, same bank group)
+tRTP,      ns,    7.5,   Read-to-Precharge (max(4nCK, 7.5ns))
+tRRD,      ns,    6.4,   Activate-to-Activate different bank (tRRD_L, 2KB page)
+tFAW,      ns,    30.0,  Four-activate window (tFAW_2K: max(28nCK, 30ns))
+tREFI,     ns,    7800,  Average refresh interval (7.8 us, 0-85C)
+tRFC,      ns,    350.0, Refresh cycle time (tRFC1, 8Gb density)
+CL,        CK,    22,    CAS latency (3200AA bin)
+CWL,       CK,    16,    CAS write latency (1tCK preamble, 1st set)
+BL,        beats, 8,     Burst length

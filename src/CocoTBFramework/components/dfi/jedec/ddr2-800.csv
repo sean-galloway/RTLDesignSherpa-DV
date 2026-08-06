@@ -1,0 +1,29 @@
+# DDR2-800 — same Micron MT47H64M16HR-25:H part as the ddr2-650 CSV,
+# run at its rated speed (tCK = 2.5 ns). JEDEC JESD79-2F 800E bin
+# (6-6-6) — matches the Micron -25:H grade CL=6 at 800 MT/s.
+# tRRD/tFAW keep the ddr2-650 CSV's Micron-datasheet part values.
+# Sources: JESD79-2F Table 43 (timing parameters by speed grade,
+# DDR2-667/800 columns) + speed-bin CL/tRCD/tRP; Micron MT47H64M16
+# datasheet for the part-specific tRRD/tFAW.
+
+parameter, unit,  value, description
+tCK,       ns,    2.5,   Clock period (800 MT/s, rated speed of the -25 part)
+tRCD,      ns,    15.0,  Activate to Read/Write same bank (800E bin, 6-6-6)
+tRP,       ns,    15.0,  Precharge command period (800E bin)
+tRAS_min,  ns,    45.0,  Active to Precharge minimum
+tRC,       ns,    60.0,  Active-to-Active same bank (tRAS + tRP)
+tWR,       ns,    15.0,  Write recovery (JESD79-2F Table 43)
+tWTR,      ns,    7.5,   Write to Read same bank
+tRTP,      ns,    7.5,   Internal Read to Precharge
+tRRD,      ns,    7.5,   Active to Active different bank (part value)
+tFAW,      ns,    45.0,  Four-Activate Window (x16 part value)
+tREFI,     ns,    7800,  Average refresh interval (8192 rows / 64 ms)
+tRFC,      ns,    127.5, Refresh cycle time (1Gb density)
+CL,        CK,    6,     CAS latency (800E bin; Micron -25:H at 800 MT/s)
+CWL,       CK,    5,     CAS write latency (= CL - 1, DDR2 convention)
+BL,        beats, 4,     Burst length (BL4 default; BL8 OTF option exists)
+# Address geometry — same part as ddr2-650
+banks,     CK,    8,     Banks per rank
+rows,      CK,    8192,  Rows per bank
+cols,      CK,    1024,  Columns per row (x16 → 16 bytes per col)
+data_width_bits, CK, 16, DDR x16 organization

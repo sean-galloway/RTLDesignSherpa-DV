@@ -1,0 +1,22 @@
+# DDR3-1333 (1333H speed bin, 9-9-9) — JEDEC JESD79-3F reference
+# values. Same part-class assumptions as the ddr3-1600 CSV (x8, 1KB
+# page, 4Gb density).
+# Sources: JESD79-3F Table 64 (DDR3-1333 Speed Bins), AC timing table
+# (tRRD/tFAW by page size, 1333 column), refresh chapter.
+
+parameter, unit,  value, description
+tCK,       ns,    1.5,   Clock period (667 MHz clock, DDR3-1333 data rate)
+tRCD,      ns,    13.5,  Activate to Read/Write same bank (1333H bin)
+tRP,       ns,    13.5,  Precharge command period (1333H bin)
+tRAS_min,  ns,    36.0,  Active to Precharge minimum
+tRC,       ns,    49.5,  Active-to-Active same bank (1333H bin)
+tWR,       ns,    15.0,  Write recovery (PRE after last WR data beat)
+tWTR,      ns,    7.5,   Write to Read same bank (max(4nCK, 7.5ns))
+tRTP,      ns,    7.5,   Internal Read to Precharge (max(4nCK, 7.5ns))
+tRRD,      ns,    6.0,   Active to Active different bank (1KB page, max(4nCK, 6ns))
+tFAW,      ns,    30.0,  Four-Activate Window (1KB page)
+tREFI,     ns,    7800,  Average refresh interval (auto-refresh)
+tRFC,      ns,    260,   Refresh cycle time (4Gb density)
+CL,        CK,    9,     CAS latency (1333H bin)
+CWL,       CK,    7,     CAS write latency (fixed per 1333 clock rate)
+BL,        beats, 8,     Burst length (BL8, fixed)

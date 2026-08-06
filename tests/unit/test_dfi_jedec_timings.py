@@ -213,3 +213,20 @@ def test_jedec_directory_is_present_and_populated():
 def test_every_vendored_profile_loads(name):
     t = builtin_timings(name)
     assert t.tCK_ns > 0, f"{name}: tCK must be positive"
+
+
+def test_vendored_bins_are_self_consistent():
+    """JEDEC speed bins are defined as CL-nRCD-nRP with
+    tRCD = nRCD x tCK, so ceil(tRCD_ns / tCK_ns) must equal CL for
+    every vendored bin CSV. Catches transcription slips (wrong bin
+    column, wrong tCK) the moment a new grade lands.
+    """
+    for name in _vendored_profiles():
+        t = builtin_timings(name)
+        assert t.tRCD_cycles == t.CL, (
+            f"{name}: tRCD rounds to {t.tRCD_cycles} cycles but CL={t.CL} "
+            f"-- speed-bin values are inconsistent"
+        )
+        assert t.tRC_cycles >= t.tRAS_min_cycles + t.tRP_cycles - 1, (
+            f"{name}: tRC < tRAS + tRP is physically impossible"
+        )

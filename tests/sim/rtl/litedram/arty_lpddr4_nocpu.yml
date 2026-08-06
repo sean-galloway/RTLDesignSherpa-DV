@@ -1,0 +1,33 @@
+#
+# LiteDRAM config for LPDDR4 co-sim — see gen_lpddr4_sim.py for why
+# "memtype" says DDR4: gen.py's sim-CRG rate dict has no LPDDR4 key,
+# and that key feeds nothing else real. The sdram_module
+# (MT53E256M16D1, memtype LPDDR4) drives the controller timings, the
+# init sequence, and the (patched) PHY settings.
+#
+# License: BSD-2-Clause
+{
+    "speedgrade": -1,
+    "cpu":        "None",
+    "memtype":    "DDR3",
+    "uart":       "stub",
+
+    "cmd_latency":     0,
+    "sdram_module":    "MT53E256M16D1",
+    "sdram_module_nb": 2,
+    "sdram_rank_nb":   1,
+    "sdram_phy":       "A7DDRPHY",
+
+    "input_clk_freq":   100e6,
+    "sys_clk_freq":     100e6,
+    "iodelay_clk_freq": 200e6,
+
+    "cmd_buffer_depth": 16,
+
+    "user_ports": {
+        "wishbone_0" : {
+            "type":  "wishbone",
+            "block_until_ready": True,
+        },
+    },
+}

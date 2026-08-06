@@ -1,0 +1,31 @@
+# DDR4-2400 (2400T speed bin, CL=17) — JEDEC JESD79-4D reference values.
+# Sourced from JESD79-4D Table 150 (DDR4-2400 Speed Bins), Table 21
+# (CWL), the AC timing tables (tRRD/tFAW/tWTR by page size), and the
+# refresh chapter (tREFI/tRFC1).
+#
+# Part assumptions (match the LiteDRAM kcu105-style EDY4016A x16 the
+# ddr4 co-sim core was generated for):
+#   - x16 organization → 2KB page: tRRD_L(2K)=max(4nCK,6.4ns),
+#     tFAW_2K=max(28nCK,30ns)
+#   - 8Gb density → tRFC1(min)=350ns
+#   - 1tCK write preamble, 1st set → CWL=12
+# Single-tRRD schema note: the checker has one tRRD; we use tRRD_L
+# (same bank group — the conservative bound, since the state model
+# doesn't track bank groups).
+
+parameter, unit,  value, description
+tCK,       ns,    0.833, Clock period (1200 MHz DFI clock, DDR4-2400 data rate)
+tRCD,      ns,    14.16, Activate to Read/Write same bank (2400T bin)
+tRP,       ns,    14.16, Precharge command period (2400T bin)
+tRAS_min,  ns,    32.0,  Active to Precharge minimum
+tRC,       ns,    46.16, Active-to-Active same bank (2400T bin)
+tWR,       ns,    15.0,  Write recovery (PRE after last WR data beat)
+tWTR,      ns,    7.5,   Write-to-Read turnaround (tWTR_L, same bank group)
+tRTP,      ns,    7.5,   Read-to-Precharge (max(4nCK, 7.5ns))
+tRRD,      ns,    6.4,   Activate-to-Activate different bank (tRRD_L, 2KB page)
+tFAW,      ns,    30.0,  Four-activate window (tFAW_2K: max(28nCK, 30ns))
+tREFI,     ns,    7800,  Average refresh interval (7.8 us, 0-85C)
+tRFC,      ns,    350.0, Refresh cycle time (tRFC1, 8Gb density)
+CL,        CK,    17,    CAS latency (2400T bin)
+CWL,       CK,    12,    CAS write latency (1tCK preamble, 1st set)
+BL,        beats, 8,     Burst length

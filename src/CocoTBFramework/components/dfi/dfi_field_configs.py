@@ -16,13 +16,27 @@ from typing import Dict
 from ..shared.field_config import FieldConfig, FieldDefinition
 from .dfi_signals import (
     WIDTH_ADDR,
+    WIDTH_ALERT,
     WIDTH_BANK,
+    WIDTH_BANK_GROUP,
+    WIDTH_CHIP_ID,
     WIDTH_CS,
+    WIDTH_CS_X_DATA_EN,
     WIDTH_CTRL,
     WIDTH_DATA,
     WIDTH_DATA_DIV8,
     WIDTH_DATA_EN,
+    WIDTH_EIGHT_BITS,
+    WIDTH_FIVE_BITS,
+    WIDTH_ONE_BIT,
+    WIDTH_PER_SLICE,
+    WIDTH_RANK,
     WIDTH_RD_VALID,
+    WIDTH_SIX_BITS,
+    WIDTH_SIXTEEN_BITS,
+    WIDTH_THREE_BITS,
+    WIDTH_TWO_BITS,
+    WIDTH_WCK,
     DFIVersion,
     MemoryType,
     SubInterface,
@@ -39,6 +53,9 @@ def _resolve_widths(
     data_width: int = 64,
     data_enable_width: int = 1,
     rd_valid_width: int = 1,
+    rank_width: int = 1,
+    slice_count: int = 1,
+    wck_width: int = 1,
 ) -> Dict[str, int]:
     """Map width-keyword sentinels (from ``dfi_signals``) to concrete ints.
 
@@ -54,6 +71,20 @@ def _resolve_widths(
         WIDTH_DATA_EN: data_enable_width,
         WIDTH_RD_VALID: rd_valid_width,
         WIDTH_DATA_DIV8: max(1, data_width // 8),
+        WIDTH_ALERT: ctrl_width,
+        WIDTH_BANK_GROUP: 2,
+        WIDTH_CHIP_ID: 3,
+        WIDTH_CS_X_DATA_EN: cs_width * data_enable_width,
+        WIDTH_RANK: rank_width,
+        WIDTH_PER_SLICE: slice_count,
+        WIDTH_WCK: wck_width,
+        WIDTH_ONE_BIT: 1,
+        WIDTH_TWO_BITS: 2,
+        WIDTH_THREE_BITS: 3,
+        WIDTH_FIVE_BITS: 5,
+        WIDTH_SIX_BITS: 6,
+        WIDTH_EIGHT_BITS: 8,
+        WIDTH_SIXTEEN_BITS: 16,
     }
 
 
@@ -93,9 +124,9 @@ def command_field_config(
 ) -> FieldConfig:
     """FieldConfig for the DFI Command (a.k.a. Control) Interface.
 
-    v2.1 called this the "Control Interface" with bus ``dfi_address``;
-    later revisions renamed to "Command Interface" with ``dfi_cmdaddr``.
-    The role is unchanged.
+    Pre-v5.x books call this the "Control Interface"; v5.x renamed the
+    chapter to "Command Interface" and v6.0 renamed the bus itself
+    (``dfi_address`` → ``dfi_cmdaddr``). The role is unchanged.
     """
     widths = _resolve_widths(
         addr_width=addr_width,

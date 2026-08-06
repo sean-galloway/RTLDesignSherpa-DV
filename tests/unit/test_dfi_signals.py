@@ -27,23 +27,16 @@ from CocoTBFramework.components.dfi.dfi_signals import (
 # ---------------------------------------------------------------------
 
 
-def test_mvp_versions_covers_v2_1_and_v3_1():
-    """MVP widened from {v2.1} to {v2.1, v3.1} to support the error-
-    interface proof-of-life (v3.0 introduction)."""
-    assert MVP_VERSIONS == frozenset({DFIVersion.V2_1, DFIVersion.V3_1})
+def test_all_versions_buildable():
+    """The catalog is spec-complete: every DFI revision (2.1-6.0) is
+    buildable — the old MVP phase gating is gone."""
+    assert MVP_VERSIONS == frozenset(DFIVersion)
+    assert MVP_MEMORY_TYPES == frozenset(MemoryType)
 
 
-def test_mvp_memory_types_excludes_lpddr3_plus_and_ddr5():
-    """Phase 2 will add these — they should NOT be in the MVP set.
-    DDR4 was added alongside v3.1 widening (DDR4 = v3.0 introduction)."""
-    assert MemoryType.DDR4 in MVP_MEMORY_TYPES         # added with v3.1
-    assert MemoryType.DDR5 not in MVP_MEMORY_TYPES
-    assert MemoryType.LPDDR3 not in MVP_MEMORY_TYPES
-    assert MemoryType.LPDDR4 not in MVP_MEMORY_TYPES
-    assert MemoryType.LPDDR5 not in MVP_MEMORY_TYPES
-
-
-def test_mvp_sub_interfaces_is_command_write_read_only():
+def test_default_sub_interfaces_is_command_write_read():
+    """The default wired profile stays the command/write/read trio;
+    MVP_SUB_INTERFACES survives as a back-compat alias."""
     assert MVP_SUB_INTERFACES == frozenset({
         SubInterface.COMMAND,
         SubInterface.WRITE_DATA,
@@ -210,25 +203,52 @@ def test_validate_accepts_v3_1_ddr4_in_mvp():
     )  # no raise
 
 
-def test_validate_rejects_post_mvp_version():
-    with pytest.raises(ValueError, match="Phase 2"):
-        validate_configuration(
-            DFIVersion.V5_2, MemoryType.DDR3, MVP_SUB_INTERFACES,
-        )
+def test_validate_accepts_v5_2_ddr3():
+    """Legacy memory types remain valid through v5.x (only v6.0
+    dropped them)."""
+    validate_configuration(
+        DFIVersion.V5_2, MemoryType.DDR3, MVP_SUB_INTERFACES,
+    )  # no raise
 
 
-def test_validate_rejects_post_mvp_memory_type():
-    with pytest.raises(ValueError, match="Phase 2"):
+def test_validate_rejects_memory_not_in_version():
+    with pytest.raises(ValueError, match="does not support"):
         validate_configuration(
             DFIVersion.V2_1, MemoryType.DDR5, MVP_SUB_INTERFACES,
         )
+    with pytest.raises(ValueError, match="does not support"):
+        validate_configuration(
+            DFIVersion.V6_0, MemoryType.DDR3, MVP_SUB_INTERFACES,
+        )
 
 
-def test_validate_rejects_phase2_sub_interface():
-    with pytest.raises(ValueError, match="Phase 2"):
+def test_validate_accepts_training_within_its_version_window():
+    """TRAINING exists v2.1-v4.0 — valid there, invalid from v5.x
+    (the spec removed the interface)."""
+    validate_configuration(
+        DFIVersion.V2_1, MemoryType.DDR3,
+        MVP_SUB_INTERFACES | {SubInterface.TRAINING},
+    )  # no raise
+    with pytest.raises(ValueError, match="do not exist in DFI 5.2"):
+        validate_configuration(
+            DFIVersion.V5_2, MemoryType.DDR4,
+            MVP_SUB_INTERFACES | {SubInterface.TRAINING},
+        )
+
+
+def test_validate_rejects_sub_interface_before_introduction():
+    with pytest.raises(ValueError, match="do not exist in DFI 2.1"):
         validate_configuration(
             DFIVersion.V2_1, MemoryType.DDR3,
-            MVP_SUB_INTERFACES | {SubInterface.TRAINING},
+            MVP_SUB_INTERFACES | {SubInterface.WCK_CONTROL},
+        )
+
+
+def test_validate_rejects_disconnect_in_v6():
+    with pytest.raises(ValueError, match="do not exist in DFI 6.0"):
+        validate_configuration(
+            DFIVersion.V6_0, MemoryType.DDR5,
+            MVP_SUB_INTERFACES | {SubInterface.DISCONNECT},
         )
 
 
@@ -330,28 +350,68 @@ def test_applies_rejects_when_above_max_version():
 # ---------------------------------------------------------------------
 
 
-def test_sub_interface_enum_covers_v5_interfaces():
-    """v5.x §3 enumerates the sub-interfaces below (plus TRAINING).
-    The enum should have all of them."""
+def test_sub_interface_enum_covers_signal_owning_interfaces():
+    """The enum holds the interfaces that own signals across v2.1-v6.0.
+    Feature sections without signals of their own (DBI, ECC, Link DQ
+    CRC, multi-channel) are not sub-interfaces — their signals live in
+    the write/read data tables, exactly as in the spec."""
     expected = {
         SubInterface.COMMAND, SubInterface.WRITE_DATA, SubInterface.READ_DATA,
-        SubInterface.WCK_CONTROL, SubInterface.STATUS, SubInterface.LOW_POWER,
-        SubInterface.UPDATE, SubInterface.PHY_MANAGED,
-        SubInterface.MC_TO_PHY_MSG, SubInterface.PHY_ERROR,
-        SubInterface.DBI, SubInterface.ECC, SubInterface.LINK_CRC,
-        SubInterface.MULTI_CHANNEL,
-        SubInterface.TRAINING,
+        SubInterface.UPDATE, SubInterface.STATUS,
+        SubInterface.TRAINING, SubInterface.DB_TRAINING,
+        SubInterface.LOW_POWER, SubInterface.ERROR,
+        SubInterface.PHY_MANAGED, SubInterface.DISCONNECT,
+        SubInterface.MC_TO_PHY_MSG, SubInterface.WCK_CONTROL,
     }
     assert set(SubInterface) == expected
 
 
-def test_memory_type_enum_covers_v5_scope():
-    """Scope: DDR1-5 + LPDDR1-5. v6+ types (LPDDR6, HBM4) are out of scope."""
+def test_memory_type_enum_covers_v6_scope():
+    """Scope now spans v2.1-v6.0: DDR1-5, LPDDR1-5, plus the v6.0
+    additions LPDDR6 and HBM4."""
     assert MemoryType.DDR5 in set(MemoryType)
     assert MemoryType.LPDDR5 in set(MemoryType)
-    # Forward-looking types should NOT be in the enum at this scope.
-    assert not hasattr(MemoryType, "LPDDR6")
-    assert not hasattr(MemoryType, "HBM4")
+    assert MemoryType.LPDDR6 in set(MemoryType)
+    assert MemoryType.HBM4 in set(MemoryType)
+
+
+def test_v6_0_drops_legacy_memory_types():
+    v6 = SUPPORTED_MEMORY_BY_VERSION[DFIVersion.V6_0]
+    assert v6 == frozenset({
+        MemoryType.DDR5, MemoryType.LPDDR5,
+        MemoryType.LPDDR6, MemoryType.HBM4,
+    })
+
+
+def test_v6_0_renames_address_and_alert():
+    """v6.0: dfi_address → dfi_cmdaddr, dfi_alert_n → dfi_alert."""
+    all_ifaces = frozenset(SubInterface)
+    v5 = {s.name for s in signals_for(
+        DFIVersion.V5_2, MemoryType.DDR5, all_ifaces)}
+    v6 = {s.name for s in signals_for(
+        DFIVersion.V6_0, MemoryType.DDR5, all_ifaces)}
+    assert "address" in v5 and "alert_n" in v5
+    assert "address" not in v6 and "alert_n" not in v6
+    assert "cmdaddr" in v6 and "alert" in v6
+
+
+def test_training_signals_absent_from_v5_x():
+    """The v5.x books deleted the DFI training interface."""
+    all_ifaces = frozenset(SubInterface)
+    v5 = {s.name for s in signals_for(
+        DFIVersion.V5_2, MemoryType.DDR4, all_ifaces)}
+    assert not any(n.startswith(("rdlvl", "wrlvl", "calvl", "wdqlvl"))
+                   for n in v5)
+
+
+def test_phymstr_renamed_phymngd_at_v5_2():
+    all_ifaces = frozenset(SubInterface)
+    v4 = {s.name for s in signals_for(
+        DFIVersion.V4_0, MemoryType.DDR4, all_ifaces)}
+    v5 = {s.name for s in signals_for(
+        DFIVersion.V5_2, MemoryType.DDR4, all_ifaces)}
+    assert "phymstr_req" in v4 and "phymngd_req" not in v4
+    assert "phymngd_req" in v5 and "phymstr_req" not in v5
 
 
 def test_control_enum_value_renamed_to_command():

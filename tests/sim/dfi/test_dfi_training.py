@@ -3,14 +3,14 @@
 
 """Tier 2 proof-of-life: Training interface phase decoding.
 
-Pressure-tests the single-method shape decided after the LiteDRAM
-survey: training_step(bus, state) -> TrainingEvent | None with the
-phase encoded as data on TrainingEvent.phase rather than as separate
-per-phase methods.
+Pressure-tests the single-method shape: training_step(bus, state) ->
+TrainingEvent | None with the phase carried as data on
+TrainingEvent.phase rather than as separate per-phase methods.
 
-Slave drives ``phy_dfi_training_active`` + ``phy_dfi_training_phase``
-through several phase codes; behavior decodes each into the right
-TrainingPhase enum value.
+Spec-verified wires (v2.1-v4.0): the PHY requests training via the
+per-phase dfi_*_req wires (rdlvl / rdlvl_gate / wrlvl); the behavior
+maps each wire to its TrainingPhase enum value. (The fabricated
+"training_active/training_phase" pair never existed in any spec.)
 """
 
 from __future__ import annotations
@@ -46,11 +46,16 @@ async def _bring_up(dut):
     dut.phy_dfi_rddata_valid.value = 0
     dut.phy_dfi_error.value = 0
     dut.phy_dfi_error_info.value = 0
-    dut.phy_dfi_crc_alert.value = 0
+    dut.phy_dfi_alert_n.value = 1
     dut.phy_dfi_ctrlupd_ack.value = 0
     dut.phy_dfi_phyupd_req.value = 0
-    dut.phy_dfi_training_active.value = 0
-    dut.phy_dfi_training_phase.value = 0
+    dut.phy_dfi_rdlvl_req.value = 0
+    dut.phy_dfi_rdlvl_gate_req.value = 0
+    dut.phy_dfi_wrlvl_req.value = 0
+    dut.phy_dfi_rdlvl_resp.value = 0
+    dut.phy_dfi_wrlvl_resp.value = 0
+    dut.phy_dfi_phyupd_type.value = 0
+    dut.phy_dfi_lp_ack.value = 0
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
     dut.dfi_rstn.value = 1
@@ -79,43 +84,39 @@ def _make_stack(dut):
 
 @cocotb.test(timeout_time=2, timeout_unit="ms")
 async def dfi_training_phases_test(dut):
-    """Walk all 5 phase codes (read/write/DQ/CA/DB lvl); each decoded
-    into the right TrainingPhase enum value."""
+    """Walk the PHY-driven request wires (rdlvl / gate / wrlvl); each
+    decoded into the right TrainingPhase enum value."""
     await _bring_up(dut)
     base, _, slave = _make_stack(dut)
     _ = DFIMasterMC(dut, dut.dfi_clk)
     await Timer(1, units="ns")
 
     phases_to_test = [
-        (0, TrainingPhase.READ_LEVELING),
-        (1, TrainingPhase.WRITE_LEVELING),
-        (2, TrainingPhase.DQ_TRAINING),
-        (3, TrainingPhase.CA_TRAINING),
-        (4, TrainingPhase.DB_TRAINING),
+        (slave.set_rdlvl_req, TrainingPhase.READ_LEVELING),
+        (slave.set_rdlvl_gate_req, TrainingPhase.GATE_TRAINING),
+        (slave.set_wrlvl_req, TrainingPhase.WRITE_LEVELING),
     ]
 
     pre_count = 0
-    for phase_code, expected_phase in phases_to_test:
-        slave.set_training(active=1, phase=phase_code)
+    for drive, expected_phase in phases_to_test:
+        drive(1)
         await RisingEdge(dut.dfi_clk)
         await RisingEdge(dut.dfi_clk)
-        slave.set_training(active=0)
+        drive(0)
         await RisingEdge(dut.dfi_clk)
         await RisingEdge(dut.dfi_clk)
 
         new_events = list(slave.training_events)[pre_count:]
         assert len(new_events) >= 1, (
-            f"phase code {phase_code}: no event captured"
+            f"{expected_phase}: no event captured"
         )
-        # All new events during the active window should carry the same phase
         assert new_events[0].phase == expected_phase, (
-            f"phase code {phase_code}: expected {expected_phase}, "
-            f"got {new_events[0].phase}"
+            f"expected {expected_phase}, got {new_events[0].phase}"
         )
         pre_count = len(slave.training_events)
 
     dut._log.info(f"slave: {slave}")
-    dut._log.info("All 5 training phases decoded correctly via single method")
+    dut._log.info("PHY-requested training phases decoded via single method")
 
 
 # ---------------------------------------------------------------------

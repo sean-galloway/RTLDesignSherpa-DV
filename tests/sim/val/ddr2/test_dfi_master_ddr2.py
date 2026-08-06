@@ -43,13 +43,15 @@ async def _bring_up(dut):
     dut.dfi_rstn.value = 0
     for sig in (
         "phy_dfi_rddata", "phy_dfi_rddata_valid",
-        "phy_dfi_error", "phy_dfi_error_info", "phy_dfi_crc_alert",
-        "phy_dfi_ctrlupd_ack", "phy_dfi_phyupd_req",
-        "phy_dfi_training_active", "phy_dfi_training_phase",
-        "phy_dfi_parity_check", "phy_dfi_freq_change_ack",
-        "phy_dfi_disconnect_req", "phy_dfi_phymstr_req",
+        "phy_dfi_error", "phy_dfi_error_info",
+        "phy_dfi_ctrlupd_ack", "phy_dfi_phyupd_req", "phy_dfi_phyupd_type",
+        "phy_dfi_rdlvl_req", "phy_dfi_rdlvl_gate_req", "phy_dfi_wrlvl_req",
+        "phy_dfi_rdlvl_resp", "phy_dfi_wrlvl_resp",
+        "phy_dfi_parity_error", "phy_dfi_init_complete",
+        "phy_dfi_lp_ack", "phy_dfi_phymstr_req",
     ):
         getattr(dut, sig).value = 0
+    dut.phy_dfi_alert_n.value = 1  # active low — idles high
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
     dut.dfi_rstn.value = 1

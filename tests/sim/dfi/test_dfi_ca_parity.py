@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 2024-2026 sean galloway
 
-"""Tier 2 proof-of-life: CA parity (DDR4-specific v3.0 introduction).
+"""Tier 2 proof-of-life: CA parity, spec-verified per version.
 
-Master drives mc_dfi_parity_in (the parity bit it computed); slave
-drives phy_dfi_parity_check when the DRAM detected a mismatch. The
-behavior emits a CAParityEvent reflecting the received parity bit.
+v2.1.1 (DDR3 registered DIMMs): the PHY reports command-parity errors
+on the dedicated dfi_parity_error wire → CAParityEvent.
+
+v3.0+ (DDR4): the dedicated wire is gone; parity errors share
+dfi_alert_n with write-CRC errors and surface as CRCEvent — the two
+are indistinguishable at the DFI boundary.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from CocoTBFramework.components.dfi import (
     MemoryType,
     builtin_timings,
 )
-from CocoTBFramework.components.dfi.behaviors.v3_1 import DFIv3_1Behavior
+from CocoTBFramework.components.dfi.behaviors import DFIv2_1Behavior, DFIv3_1Behavior
 from CocoTBFramework.components.dfi.dfi_slave_phy import DFISlavePHY
 from CocoTBFramework.components.shared.memory_model import MemoryModel
 
@@ -40,31 +43,35 @@ async def _bring_up(dut):
     dut.phy_dfi_rddata_valid.value = 0
     dut.phy_dfi_error.value = 0
     dut.phy_dfi_error_info.value = 0
-    dut.phy_dfi_crc_alert.value = 0
+    dut.phy_dfi_alert_n.value = 1
     dut.phy_dfi_ctrlupd_ack.value = 0
     dut.phy_dfi_phyupd_req.value = 0
-    dut.phy_dfi_training_active.value = 0
-    dut.phy_dfi_training_phase.value = 0
-    dut.phy_dfi_parity_check.value = 0
+    dut.phy_dfi_rdlvl_req.value = 0
+    dut.phy_dfi_rdlvl_gate_req.value = 0
+    dut.phy_dfi_wrlvl_req.value = 0
+    dut.phy_dfi_rdlvl_resp.value = 0
+    dut.phy_dfi_wrlvl_resp.value = 0
+    dut.phy_dfi_phyupd_type.value = 0
+    dut.phy_dfi_lp_ack.value = 0
+    dut.phy_dfi_parity_error.value = 0
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
     dut.dfi_rstn.value = 1
     await RisingEdge(dut.dfi_clk)
 
 
-def _make_stack(dut):
+def _make_stack(dut, version, memory_type):
     timings = builtin_timings("ddr3-1600")
     mapping = AddressMapping(
         num_ranks=1, num_banks=BANKS, num_rows=ROWS, num_cols=COLS,
     )
     base = DFIBase(
-        dfi_version=DFIVersion.V3_1,
-        memory_type=MemoryType.DDR4,
+        dfi_version=version,
+        memory_type=memory_type,
         timings=timings,
         mapping=mapping,
         beats_per_burst=1,
     )
-    assert isinstance(base.behavior, DFIv3_1Behavior)
     memory = MemoryModel(
         num_lines=BANKS * ROWS * COLS, bytes_per_line=BYTES_PER_BEAT,
     )
@@ -73,10 +80,11 @@ def _make_stack(dut):
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
-async def dfi_ca_parity_test(dut):
-    """Master drives parity_in=1; slave asserts parity_check; event lands."""
+async def dfi_ca_parity_v2_1_parity_error_test(dut):
+    """v2.1 DDR3: dfi_parity_error assertion emits a CAParityEvent."""
     await _bring_up(dut)
-    _, _, slave = _make_stack(dut)
+    base, _, slave = _make_stack(dut, DFIVersion.V2_1, MemoryType.DDR3)
+    assert isinstance(base.behavior, DFIv2_1Behavior)
     master = DFIMasterMC(dut, dut.dfi_clk)
     await Timer(1, units="ns")
 
@@ -85,12 +93,12 @@ async def dfi_ca_parity_test(dut):
         await RisingEdge(dut.dfi_clk)
     assert len(slave.ca_parity_events) == 0
 
-    # MC computed a parity bit; PHY flags a mismatch
+    # MC computed a parity bit; PHY flags a mismatch on the v2.1 wire
     master.set_parity_in(1)
-    slave.set_parity_check(active=1)
+    slave.set_parity_error(active=1)
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
-    slave.set_parity_check(active=0)
+    slave.set_parity_error(active=0)
     master.set_parity_in(0)
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
@@ -103,7 +111,39 @@ async def dfi_ca_parity_test(dut):
     assert evt.parity_bit_received == 1, (
         f"expected parity_bit_received=1, got {evt.parity_bit_received}"
     )
-    dut._log.info("CA parity end-to-end proof passed")
+    dut._log.info("v2.1 dfi_parity_error end-to-end proof passed")
+
+
+@cocotb.test(timeout_time=1, timeout_unit="ms")
+async def dfi_ca_parity_v3_1_rides_alert_n_test(dut):
+    """v3.1 DDR4: no dedicated parity wire — an alert_n pulse lands in
+    crc_events (parity and CRC are indistinguishable at the DFI) and
+    ca_parity_events stays empty."""
+    await _bring_up(dut)
+    base, _, slave = _make_stack(dut, DFIVersion.V3_1, MemoryType.DDR4)
+    assert isinstance(base.behavior, DFIv3_1Behavior)
+    master = DFIMasterMC(dut, dut.dfi_clk)
+    await Timer(1, units="ns")
+
+    for _ in range(5):
+        await RisingEdge(dut.dfi_clk)
+    assert len(slave.crc_events) == 0
+
+    master.set_parity_in(1)
+    slave.set_alert_n(active=1)   # pulls the wire LOW
+    await RisingEdge(dut.dfi_clk)
+    await RisingEdge(dut.dfi_clk)
+    slave.set_alert_n(active=0)
+    master.set_parity_in(0)
+    await RisingEdge(dut.dfi_clk)
+    await RisingEdge(dut.dfi_clk)
+
+    dut._log.info(f"slave: {slave}")
+    assert len(slave.crc_events) >= 1, "alert_n pulse should land in crc_events"
+    assert len(slave.ca_parity_events) == 0, (
+        "v3.x must not double-report parity on a dedicated queue"
+    )
+    dut._log.info("v3.1 alert_n parity/CRC merge proof passed")
 
 
 # ---------------------------------------------------------------------

@@ -3,54 +3,45 @@
 
 """DFI v4.0 behavior — the densest semantic-shift pivot.
 
-v4.0 changes (per the v5.2 release notes' v4.0 entry):
+Spec-verified against the v4.0 book (revision history + chapter 3).
+v4.0 changes vs v3.1:
 
-  - **PHY Master Interface** introduced — PHY can take ownership of
-    the DFI bus for autonomous operations. (Renamed to "PHY Managed
-    Interface" in v5.2 but the contract is the same per the catalog.)
-  - **Disconnect Protocol** introduced — coordinated handshake for
-    PHY to disengage from the bus.
-  - **Frequency change** split into Acknowledged and Not-Acknowledged
-    protocols. Encoded via the ``protocol`` field on FreqChangeEvent.
-  - **Training** became optional. Per-slice read leveling, DB training,
-    and write DQ training added. Write leveling strobe semantics
-    changed. Reflected via the per-slice ``slice_idx`` field already
-    on TrainingEvent.
-  - **Update interface** gained self-refresh-exit semantics — update
-    can now interleave with self-refresh. Reflected via
-    UpdateState.SELF_REFRESH_EXIT.
-  - **CRC**: phycrc_mode parameter added — PHY can drive CRC for some
-    configurations (phycrc_mode=1) alongside the v3.0 MC-driven path
-    (phycrc_mode=0).
-
-Inherits from DFIv3_1Behavior so areas not touched by v4.0 (Error
-interface, CA parity, MC-initiated update request) keep their v3.x
-behavior unchanged.
+  - **PHY Master Interface** (§3.10): dfi_phymstr_req / ack /
+    cs_state / state_sel / type — the PHY takes control of the
+    DFI/DRAM buses with the DRAM left in a defined state.
+  - **Disconnect Protocol** (§3.12): the MC may break an in-flight
+    ctrlupd / phyupd / training / phymstr handshake;
+    dfi_disconnect_error flags QOS (0) vs error (1) disconnect.
+    Low-power and frequency-change handshakes are NOT disconnectable.
+  - **Frequency indicator** (dfi_frequency, 5 bits): layered on the
+    unchanged init_start/init_complete protocol; must be valid and
+    stable while init_start is high.
+  - **Training**: became optional per-operation (PHY Independent
+    Mode); per-slice read leveling; write DQ training (dfi_wdqlvl_*);
+    DB training for DDR4 LRDIMM (dfi_db_train_*); LPDDR4 CA VREF
+    training; the ``*_cs_n`` wires renamed to ``*_cs``.
+  - **Update interface**: a ctrlupd handshake is now required
+    immediately before self-refresh exit (same wires).
+  - dfi_data_byte_disable removed (replaced by the dfidata_bit_enable
+    programmable parameter); dfi_cs_n renamed dfi_cs; DDR4 geardown
+    (dfi_geardown_en) added.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
+from .base import _bus_value, _maybe
 from .events import (
     DisconnectEvent,
     DisconnectPhase,
     FreqChangeEvent,
     FreqChangeProtocol,
     TakeoverEvent,
+    TrainingEvent,
+    TrainingPhase,
 )
 from .v3_1 import DFIv3_1Behavior
-
-_PROTOCOL_DECODE = {
-    0: FreqChangeProtocol.BASIC,
-    1: FreqChangeProtocol.ACKNOWLEDGED,
-    2: FreqChangeProtocol.NOT_ACKNOWLEDGED,
-}
-
-
-def _bus_value(sig) -> int:
-    v = sig.value
-    return v.integer if v.is_resolvable else 0
 
 
 class DFIv4_0Behavior(DFIv3_1Behavior):
@@ -58,93 +49,104 @@ class DFIv4_0Behavior(DFIv3_1Behavior):
 
     version_label: str = "v4.0"
 
-    # CRC: v4.0 spec adds `phycrc_mode` branching atop v3.0 behavior.
-    # Stub-only override removed — v3.1's crc() does real wire sampling
-    # and is inherited. When phycrc_mode wiring lands, an override here
-    # will read `state.phycrc_mode` and select the MC-driven (=0) or
-    # PHY-driven (=1) sampling path.
+    # Wire-name prefix for the PHY-takeover interface; v5.2 subclass
+    # swaps this for "phymngd" (the 5.2 rename).
+    _takeover_prefix: str = "phymstr"
+    _takeover_reason: str = "phy_master"
 
     # ----- PHY Master Interface: introduced v4.0 -----
 
     def phy_takeover(self, bus: Any, state: Any) -> Optional[TakeoverEvent]:
-        """v4.0 PHY-master mode — PHY takes bus ownership.
-
-        Samples ``bus.phymstr_req``. Returns
-        ``TakeoverEvent(reason="phy_managed")`` on assertion. The spec
-        defines a reason field on the wire which we'd map to specific
-        reason strings (recalibration / autonomous_refresh / training);
-        the MVP uses a generic tag.
+        """Sample dfi_phymstr_req; on assertion, capture the request
+        qualifiers (type = duration class tphymstr_type0-3, state_sel
+        = IDLE vs self-refresh, cs_state = per-rank DRAM state).
         """
         del state
-        if _bus_value(bus.phymstr_req):
-            return TakeoverEvent(reason="phy_managed")
-        return None
+        req = _maybe(bus, f"{self._takeover_prefix}_req")
+        if req is None or not _bus_value(req):
+            return None
+
+        def _q(suffix: str) -> int:
+            sig = _maybe(bus, f"{self._takeover_prefix}_{suffix}")
+            return _bus_value(sig) if sig is not None else 0
+
+        return TakeoverEvent(
+            reason=self._takeover_reason,
+            takeover_type=_q("type"),
+            state_sel=_q("state_sel"),
+            cs_state=_q("cs_state"),
+        )
 
     def phy_release(self, bus: Any, state: Any) -> None:
-        """v4.0 PHY-master release — observed via phymstr_req deassertion.
-
-        No-op observer; the deassertion edge is captured by absence of
-        a takeover event on subsequent cycles. Method exists for API
-        symmetry.
-        """
+        """Release is observed via req deassertion on later samples;
+        no dedicated wire. Method exists for API symmetry."""
         del bus, state
         return None
 
     # ----- Disconnect Protocol: introduced v4.0 -----
 
     def disconnect_request(self, bus: Any, state: Any) -> Optional[DisconnectEvent]:
-        """v4.0 Disconnect Protocol — coordinated PHY disengagement.
+        """A disconnect is the MC *breaking* an in-flight handshake —
+        there is no request/ack wire pair. The one dedicated signal,
+        dfi_disconnect_error, qualifies the break: 0 = QOS (PHY stays
+        fully operational), 1 = error disconnect.
 
-        Samples ``bus.disconnect_req`` (active high). Returns
-        ``DisconnectEvent(phase=DisconnectPhase.REQUEST)`` on assertion.
-        Ack and release phases are tracked via the wire-drive side
-        (``set_disconnect_req(0)``).
+        This sampler reports dfi_disconnect_error assertion; detecting
+        the broken handshake itself (req dropped while ack high) is
+        the BFM state machine's job, which can pair its observation
+        with this event's error flag.
         """
         del state
-        if _bus_value(bus.disconnect_req):
-            return DisconnectEvent(phase=DisconnectPhase.REQUEST)
+        err = _maybe(bus, "disconnect_error")
+        if err is not None and _bus_value(err):
+            return DisconnectEvent(phase=DisconnectPhase.REQUEST, error=True)
         return None
 
     def disconnect_release(self, bus: Any, state: Any) -> None:
-        """v4.0 Disconnect release — paired with disconnect_request.
-
-        No-op observer; release is implicit in disconnect_req deassertion.
-        Method exists for API symmetry.
-        """
+        """No dedicated release wire; the disconnect completes when the
+        broken handshake's wires return to idle within
+        t*_disconnect(_error). Method exists for API symmetry."""
         del bus, state
         return None
 
-    # ----- Frequency change: v4.0 added Ack/Not-Ack split -----
+    # ----- Frequency change: v4.0 adds the dfi_frequency indicator -----
 
     def freq_change(self, bus: Any, state: Any) -> Optional[FreqChangeEvent]:
-        """v4.0 frequency change has Acknowledged and Not-Acknowledged
-        sub-protocols (§4.11.1, §4.11.2 in v5.2 spec).
-
-        Samples ``bus.freq_change_req`` and decodes
-        ``bus.freq_change_protocol`` (2-bit field) into the right
-        FreqChangeProtocol enum. BASIC remains reachable for
-        backward-compat scenarios (protocol=0). Unknown protocol
-        codes fall back to BASIC.
+        """Same init_start/init_complete protocol as v2.1; the v4.0
+        event additionally captures dfi_frequency (5-bit indicator,
+        valid while init_start is high) and the current freq_ratio.
         """
         del state
-        if not _bus_value(bus.freq_change_req):
+        if not (_bus_value(bus.init_start) and _bus_value(bus.init_complete)):
             return None
-        protocol = _PROTOCOL_DECODE.get(
-            _bus_value(bus.freq_change_protocol), FreqChangeProtocol.BASIC,
+        freq_sig = _maybe(bus, "frequency")
+        ratio_sig = _maybe(bus, "freq_ratio")
+        return FreqChangeEvent(
+            protocol=FreqChangeProtocol.BASIC,
+            frequency_code=_bus_value(freq_sig) if freq_sig is not None else None,
+            freq_ratio=_bus_value(ratio_sig) if ratio_sig is not None else None,
         )
-        return FreqChangeEvent(protocol=protocol)
 
-    # Training: v4.0 spec adds optional flag + per-slice leveling +
-    # DB training atop v3.0 behavior. Stub-only override removed —
-    # v3.1's training_step() decodes the phase code correctly and is
-    # inherited. When per-slice indexing wires land, an override here
-    # will read slice_idx from a new bus signal.
+    # ----- Training: v4.0 adds write-DQ and DB training -----
 
-    # Update: v4.0 spec adds self-refresh exit atop v3.0 behavior.
-    # Stub-only override removed — v3.1's update_request() handles
-    # the bidirectional handshake correctly and is inherited. When
-    # self-refresh-exit wiring lands, an override here will emit
-    # UpdateEvent(state=UpdateState.SELF_REFRESH_EXIT, …) when the
-    # spec-defined signal pattern is observed.
+    def training_step(self, bus: Any, state: Any) -> Optional[TrainingEvent]:
+        """v3.x phases plus v4.0's write DQ training (dfi_wdqlvl_en /
+        req) and DDR4 LRDIMM DB training (dfi_db_train_en)."""
+        evt = super().training_step(bus, state)
+        if evt is not None:
+            return evt
+        for phase, en_name, req_name in (
+            (TrainingPhase.DQ_TRAINING, "wdqlvl_en", "wdqlvl_req"),
+            (TrainingPhase.DB_TRAINING, "db_train_en", None),
+        ):
+            en = _maybe(bus, en_name)
+            if en is not None and _bus_value(en):
+                return TrainingEvent(phase=phase, slice_idx=0)
+            if req_name is not None:
+                req = _maybe(bus, req_name)
+                if req is not None and _bus_value(req):
+                    return TrainingEvent(phase=phase, slice_idx=0)
+        return None
 
-    # Error interface and CA parity unchanged from v3.x — inherited.
+    # CRC (alert_n), Error interface, CA parity, Low power, Update:
+    # inherited from v3.x unchanged.

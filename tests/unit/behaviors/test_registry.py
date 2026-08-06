@@ -1,7 +1,9 @@
 """Unit tests for the version → behavior registry and DFIBase wire-up.
 
 Verifies:
-  - VERSION_BEHAVIOR has the expected mappings (v5.x collapses onto v4.0)
+  - VERSION_BEHAVIOR maps every version to its own class (the old
+    v5.2→v4.0 collapse was wrong: v5.x removed the training interface
+    and renamed the phymstr wires to phymngd)
   - behavior_for() returns instances of the right class
   - Unknown versions raise KeyError with a helpful message
   - DFIBase auto-instantiates the right behavior
@@ -26,6 +28,8 @@ from CocoTBFramework.components.dfi.behaviors import (
     DFIv2_1Behavior,
     DFIv3_1Behavior,
     DFIv4_0Behavior,
+    DFIv5_2Behavior,
+    DFIv6_0Behavior,
     behavior_for,
 )
 
@@ -48,15 +52,23 @@ def mapping():
 def test_registry_has_all_active_versions():
     """Every DFI version we support should map to a behavior class."""
     expected_versions = {
-        DFIVersion.V2_1, DFIVersion.V3_1, DFIVersion.V4_0, DFIVersion.V5_2,
+        DFIVersion.V2_1, DFIVersion.V3_1, DFIVersion.V4_0,
+        DFIVersion.V5_2, DFIVersion.V6_0,
     }
     assert set(VERSION_BEHAVIOR.keys()) == expected_versions
 
 
-def test_v5_2_collapses_to_v4_0_behavior():
-    """Per the catalog: v5.2 is a rename of PHY Master → PHY Managed
-    with no behavior change, so v5.2 reuses DFIv4_0Behavior."""
-    assert VERSION_BEHAVIOR[DFIVersion.V5_2] is DFIv4_0Behavior
+def test_v5_2_has_its_own_class():
+    """v5.x is NOT v4.0 + a rename: the spec removed the training
+    interface and renamed the phymstr wires to phymngd — both change
+    sampling behavior, so V5_2 needs its own class."""
+    assert VERSION_BEHAVIOR[DFIVersion.V5_2] is DFIv5_2Behavior
+    assert issubclass(DFIv5_2Behavior, DFIv4_0Behavior)
+
+
+def test_v6_0_maps_to_v6_0_class():
+    assert VERSION_BEHAVIOR[DFIVersion.V6_0] is DFIv6_0Behavior
+    assert issubclass(DFIv6_0Behavior, DFIv5_2Behavior)
 
 
 def test_v2_1_maps_to_base():

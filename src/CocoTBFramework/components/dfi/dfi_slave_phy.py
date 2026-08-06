@@ -44,21 +44,23 @@ from .behaviors.events import (
     DisconnectEvent,
     ErrorEvent,
     FreqChangeEvent,
+    LowPowerEvent,
     TakeoverEvent,
     TrainingEvent,
     UpdateEvent,
 )
 from .dfi_base import DFIBase
 from .dfi_monitor import (
+    _ALERT_SIGNALS,
     _CA_PARITY_SIGNALS,
     _CMD_DECODE,
     _COMMAND_SIGNALS,
-    _CRC_SIGNALS,
     _DISCONNECT_SIGNALS,
     _ERROR_SIGNALS,
-    _FREQ_CHANGE_SIGNALS,
+    _LOW_POWER_SIGNALS,
     _PHY_MASTER_SIGNALS,
     _READ_DATA_SIGNALS,
+    _STATUS_SIGNALS,
     _TRAINING_SIGNALS,
     _UPDATE_SIGNALS,
     _WRITE_DATA_SIGNALS,
@@ -255,11 +257,12 @@ class DFISlavePHY(BusMonitor):
         + list(_WRITE_DATA_SIGNALS)
         + list(_READ_DATA_SIGNALS)
         + list(_ERROR_SIGNALS)
-        + list(_CRC_SIGNALS)
+        + list(_ALERT_SIGNALS)
         + list(_UPDATE_SIGNALS)
         + list(_TRAINING_SIGNALS)
         + list(_CA_PARITY_SIGNALS)
-        + list(_FREQ_CHANGE_SIGNALS)
+        + list(_STATUS_SIGNALS)
+        + list(_LOW_POWER_SIGNALS)
         + list(_DISCONNECT_SIGNALS)
         + list(_PHY_MASTER_SIGNALS)
     )
@@ -445,8 +448,8 @@ class DFISlavePHY(BusMonitor):
         # behavior class when bus.error indicates a PHY-driven error.
         self.error_events: Deque[ErrorEvent] = deque()
 
-        # CRC-area event queue. Populated by behavior.crc() when
-        # bus.crc_alert asserts (v3.0+ DDR4 path).
+        # CRC/alert event queue. Populated by behavior.crc() when
+        # bus.alert_n goes low (v3.0+; carries CRC and CA-parity).
         self.crc_events: Deque[CRCEvent] = deque()
 
         # Update-interface event queue. Populated by
@@ -455,16 +458,22 @@ class DFISlavePHY(BusMonitor):
         self.update_events: Deque[UpdateEvent] = deque()
 
         # Training event queue. Populated by behavior.training_step()
-        # when bus.training_active is asserted.
+        # when a leveling enable/request wire asserts (v2.1-v4.0;
+        # raises RemovedInThisVersionError from v5.x).
         self.training_events: Deque[TrainingEvent] = deque()
 
         # CA parity event queue. Populated by behavior.ca_parity_check()
-        # when bus.parity_check is asserted (DDR4 only).
+        # when bus.parity_error asserts (v2.1 DDR3-DIMM wire; from
+        # v3.0 parity errors ride dfi_alert_n into crc_events).
         self.ca_parity_events: Deque[CAParityEvent] = deque()
 
         # Frequency-change event queue. Populated by behavior.freq_change()
-        # when bus.freq_change_req is asserted.
+        # when init_start asserts during normal operation.
         self.freq_change_events: Deque[FreqChangeEvent] = deque()
+
+        # Low-power event queue. Populated by behavior.low_power()
+        # when an lp request wire asserts.
+        self.low_power_events: Deque[LowPowerEvent] = deque()
 
         # Disconnect-protocol event queue (v4.0+).
         self.disconnect_events: Deque[DisconnectEvent] = deque()
@@ -482,19 +491,26 @@ class DFISlavePHY(BusMonitor):
         self.bus.rddata_valid.value = 0
         self.bus.error.value = 0
         self.bus.error_info.value = 0
-        self.bus.crc_alert.value = 0
+        self.bus.alert_n.value = 1     # ACTIVE LOW — idles high
+        self.bus.parity_error.value = 0  # v2.1 DDR3-DIMM parity wire
         # PHY-driven update-interface signals
         self.bus.ctrlupd_ack.value = 0
         self.bus.phyupd_req.value = 0
-        # PHY-driven training-interface signals
-        self.bus.training_active.value = 0
-        self.bus.training_phase.value = 0
-        # PHY-driven CA parity check
-        self.bus.parity_check.value = 0
-        # PHY-driven freq-change ack
-        self.bus.freq_change_ack.value = 0
-        # PHY-driven disconnect / phymstr requests
-        self.bus.disconnect_req.value = 0
+        self.bus.phyupd_type.value = 0
+        # PHY-driven training responses/requests (v2.1-v4.0 wires)
+        self.bus.rdlvl_req.value = 0
+        self.bus.rdlvl_gate_req.value = 0
+        self.bus.rdlvl_resp.value = 0
+        self.bus.wrlvl_req.value = 0
+        self.bus.wrlvl_resp.value = 0
+        # PHY-driven status: init_complete asserts once the slave is
+        # ready for DFI transactions (this construction-time BFM is
+        # ready immediately); de-asserting it later acknowledges a
+        # frequency-change request.
+        self.bus.init_complete.value = 1
+        # PHY-driven low-power ack
+        self.bus.lp_ack.value = 0
+        # PHY-driven takeover request (dfi_phymngd_req from v5.2)
         self.bus.phymstr_req.value = 0
 
     # ----- Address helpers -----
@@ -1200,6 +1216,7 @@ class DFISlavePHY(BusMonitor):
             self._dispatch_behavior_freq_change()
             self._dispatch_behavior_disconnect()
             self._dispatch_behavior_takeover()
+            self._dispatch_behavior_low_power()
 
     def _dispatch_behavior_error(self) -> None:
         """Call the per-version behavior.error_event() and queue any event."""
@@ -1273,6 +1290,15 @@ class DFISlavePHY(BusMonitor):
         if evt is not None:
             self.takeover_events.append(evt)
 
+    def _dispatch_behavior_low_power(self) -> None:
+        """Call the per-version behavior.low_power() and queue any event."""
+        try:
+            evt = self.base.behavior.low_power(self.bus, None)
+        except NotImplementedError:
+            return
+        if evt is not None:
+            self.low_power_events.append(evt)
+
     # ----- Error-interface drive (PHY → MC) -----
 
     def set_error(self, active: int, info: int = 0) -> None:
@@ -1285,45 +1311,74 @@ class DFISlavePHY(BusMonitor):
         self.bus.error.value = active
         self.bus.error_info.value = info
 
-    def set_crc_alert(self, active: int) -> None:
-        """Drive the CRC alert signal (PHY→MC, DDR4).
+    def set_alert_n(self, active: int) -> None:
+        """Drive dfi_alert_n (PHY→MC, v3.0+, ACTIVE LOW).
 
-        Pulse the test sequence: ``slave.set_crc_alert(1)`` to assert;
-        ``slave.set_crc_alert(0)`` to deassert.
+        ``active=1`` pulls the wire LOW (error reported); ``active=0``
+        returns it to its idle-high state. DDR4+ report both write-CRC
+        and CA-parity errors on this wire.
         """
-        self.bus.crc_alert.value = active
+        self.bus.alert_n.value = 0 if active else 1
 
-    def set_phyupd_req(self, active: int) -> None:
-        """Drive the PHY-initiated update request (PHY→MC, v3.0+)."""
+    def set_parity_error(self, active: int) -> None:
+        """Drive dfi_parity_error (PHY→MC, v2.1.1 DDR3 registered-DIMM
+        parity interface; renamed dfi_alert_n in v3.0)."""
+        self.bus.parity_error.value = active
+
+    def set_phyupd_req(self, active: int, update_type: int = 0) -> None:
+        """Drive the PHY-initiated update request (PHY→MC, v2.1
+        baseline). ``update_type`` drives dfi_phyupd_type (selects the
+        tphyupd_typeX duration class, 0-3)."""
+        self.bus.phyupd_type.value = update_type
         self.bus.phyupd_req.value = active
 
     def set_ctrlupd_ack(self, active: int) -> None:
         """Drive the PHY's ack of an MC-initiated update."""
         self.bus.ctrlupd_ack.value = active
 
-    def set_training(self, active: int, phase: int = 0) -> None:
-        """Drive the training interface (PHY→MC).
+    def set_rdlvl_req(self, active: int) -> None:
+        """Drive the PHY's read-leveling training request (v2.1-v4.0)."""
+        self.bus.rdlvl_req.value = active
 
-        ``phase`` is the encoded TrainingPhase code:
-        0=read_lvl, 1=write_lvl, 2=dq, 3=ca, 4=db.
+    def set_rdlvl_gate_req(self, active: int) -> None:
+        """Drive the PHY's gate-training request (v2.1-v4.0)."""
+        self.bus.rdlvl_gate_req.value = active
+
+    def set_wrlvl_req(self, active: int) -> None:
+        """Drive the PHY's write-leveling training request (v2.1-v4.0)."""
+        self.bus.wrlvl_req.value = active
+
+    def set_rdlvl_resp(self, value: int) -> None:
+        """Drive the read-leveling response bits (v2.1-v4.0)."""
+        self.bus.rdlvl_resp.value = value
+
+    def set_wrlvl_resp(self, value: int) -> None:
+        """Drive the write-leveling sample response (v2.1-v4.0)."""
+        self.bus.wrlvl_resp.value = value
+
+    def set_init_complete(self, active: int) -> None:
+        """Drive dfi_init_complete (PHY→MC).
+
+        High = PHY ready for DFI transactions. De-asserting while the
+        MC holds dfi_init_start high ACCEPTS a frequency-change
+        request; re-assert after re-initializing at the new frequency.
         """
-        self.bus.training_active.value = active
-        self.bus.training_phase.value = phase
+        self.bus.init_complete.value = active
 
-    def set_parity_check(self, active: int) -> None:
-        """Drive the PHY's CA parity error indicator (DDR4)."""
-        self.bus.parity_check.value = active
+    def accept_freq_change(self) -> None:
+        """Acknowledge a frequency-change request the spec way: de-
+        assert dfi_init_complete (must happen within tinit_start
+        cycles of the MC's init_start assertion)."""
+        self.bus.init_complete.value = 0
 
-    def set_freq_change_ack(self, active: int) -> None:
-        """Drive the PHY's frequency-change acknowledgement."""
-        self.bus.freq_change_ack.value = active
-
-    def set_disconnect_req(self, active: int) -> None:
-        """Drive the PHY disconnect request (v4.0+)."""
-        self.bus.disconnect_req.value = active
+    def set_lp_ack(self, active: int) -> None:
+        """Drive the PHY's low-power acknowledge (dfi_lp_ack; split
+        into ctrl/data acks from v5.1)."""
+        self.bus.lp_ack.value = active
 
     def set_phymstr_req(self, active: int) -> None:
-        """Drive the PHY Master/Managed takeover request (v4.0+)."""
+        """Drive the PHY Master takeover request (dfi_phymstr_req,
+        v4.0; the wire is named dfi_phymngd_req from v5.2)."""
         self.bus.phymstr_req.value = active
 
     # ----- Convenience -----

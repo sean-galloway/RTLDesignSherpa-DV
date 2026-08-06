@@ -57,33 +57,48 @@ _COMMAND_SIGNALS = ("address", "bank", "cas_n", "ras_n", "we_n", "cs_n",
 _WRITE_DATA_SIGNALS = ("wrdata", "wrdata_en", "wrdata_mask")
 _READ_DATA_SIGNALS = ("rddata", "rddata_en", "rddata_valid")
 
-# Error sub-interface (v3.0+). Present on the shim for all tests but
-# only sampled when the BFM is configured for a version that defines it.
+# Error sub-interface (v3.0+): dfi_error + dfi_error_info. Present on
+# the shim for all tests but only sampled when the BFM is configured
+# for a version that defines it.
 _ERROR_SIGNALS = ("error", "error_info")
 
-# CRC alert (v3.0+, DDR4). Present on the shim for all tests; samples
-# only meaningful when memory_type=DDR4 and version >= V3_1.
-_CRC_SIGNALS = ("crc_alert",)
+# Alert wire (v3.0+): dfi_alert_n, ACTIVE LOW. Carries both DDR4
+# write-CRC and CA-parity errors (they are indistinguishable at the
+# DFI). Replaces the pre-spec-verification fabricated "crc_alert".
+_ALERT_SIGNALS = ("alert_n",)
 
-# Update interface (v2.1+ for ctrlupd, v3.0+ for phyupd).
-_UPDATE_SIGNALS = ("ctrlupd_req", "ctrlupd_ack", "phyupd_req", "phyupd_ack")
+# Update interface — bidirectional since v2.1 (ctrlupd AND phyupd;
+# phyupd_type selects one of up to 4 PHY-update duration modes).
+_UPDATE_SIGNALS = ("ctrlupd_req", "ctrlupd_ack",
+                   "phyupd_req", "phyupd_ack", "phyupd_type")
 
-# Training interface (v3.0+). Single PHY-driven activity flag plus a
-# phase code; per the LiteDRAM survey, training is by-circuit not by
-# sequential phase, so the phase distinction lives in event data.
-_TRAINING_SIGNALS = ("training_active", "training_phase")
+# Training interface (v2.1-v4.0; removed in v5.x). Wired subset:
+# read-leveling / gate-training / write-leveling en+req+resp
+# handshakes, which exist under these names from v2.1 through v4.0.
+# CA/wdqlvl/DB training and the v2.1 delay-register wires are catalog-
+# only until a test needs them.
+_TRAINING_SIGNALS = ("rdlvl_en", "rdlvl_req", "rdlvl_resp",
+                     "rdlvl_gate_en", "rdlvl_gate_req",
+                     "wrlvl_en", "wrlvl_req", "wrlvl_resp")
 
-# CA parity (v3.0+, DDR4 only). MC-driven parity bit, PHY-driven error
-# check. Always-present on the shim regardless of memory type.
-_CA_PARITY_SIGNALS = ("parity_in", "parity_check")
+# CA parity: MC drives dfi_parity_in (v2.1.1+); the PHY reports on
+# dfi_parity_error in v2.1 (DDR3 DIMMs) and on dfi_alert_n from v3.0.
+_CA_PARITY_SIGNALS = ("parity_in", "parity_error")
 
-# Frequency-change handshake (v2.1+; v4.0 added protocol variants).
-_FREQ_CHANGE_SIGNALS = ("freq_change_req", "freq_change_ack", "freq_change_protocol")
+# Status interface: init handshake (doubles as the frequency-change
+# protocol — there is no dedicated freq-change request wire in any
+# DFI version), ratio, and the v4.0+ frequency indicator.
+_STATUS_SIGNALS = ("init_start", "init_complete", "freq_ratio", "frequency")
 
-# Disconnect Protocol (v4.0+).
-_DISCONNECT_SIGNALS = ("disconnect_req", "disconnect_ack")
+# Low power control (v3.1-style split requests + shared ack/wakeup).
+_LOW_POWER_SIGNALS = ("lp_ctrl_req", "lp_data_req", "lp_wakeup", "lp_ack")
 
-# PHY Master / PHY Managed Interface (v4.0+).
+# Disconnect Protocol (v4.0-v5.x): one MC-driven wire qualifying a
+# handshake break as QOS (0) or error (1). Not a req/ack pair.
+_DISCONNECT_SIGNALS = ("disconnect_error",)
+
+# PHY Master Interface (v4.0; wires renamed dfi_phymngd_* in v5.2 —
+# the shim models a v4.0/v5.1 PHY).
 _PHY_MASTER_SIGNALS = ("phymstr_req", "phymstr_ack")
 
 
@@ -110,11 +125,12 @@ class DFIMonitor(BusMonitor):
         + list(_WRITE_DATA_SIGNALS)
         + list(_READ_DATA_SIGNALS)
         + list(_ERROR_SIGNALS)
-        + list(_CRC_SIGNALS)
+        + list(_ALERT_SIGNALS)
         + list(_UPDATE_SIGNALS)
         + list(_TRAINING_SIGNALS)
         + list(_CA_PARITY_SIGNALS)
-        + list(_FREQ_CHANGE_SIGNALS)
+        + list(_STATUS_SIGNALS)
+        + list(_LOW_POWER_SIGNALS)
         + list(_DISCONNECT_SIGNALS)
         + list(_PHY_MASTER_SIGNALS)
     )

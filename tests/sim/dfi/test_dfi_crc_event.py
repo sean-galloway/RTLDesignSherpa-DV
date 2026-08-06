@@ -43,7 +43,7 @@ async def _bring_up(dut):
     dut.phy_dfi_rddata_valid.value = 0
     dut.phy_dfi_error.value = 0
     dut.phy_dfi_error_info.value = 0
-    dut.phy_dfi_crc_alert.value = 0
+    dut.phy_dfi_alert_n.value = 1
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
     dut.dfi_rstn.value = 1
@@ -72,7 +72,7 @@ def _make_stack(dut):
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def dfi_crc_alert_roundtrip_test(dut):
-    """Slave pulses phy_dfi_crc_alert; behavior produces a CRCEvent."""
+    """Slave pulls phy_dfi_alert_n LOW; behavior produces a CRCEvent."""
     await _bring_up(dut)
 
     base, _, slave = _make_stack(dut)
@@ -83,13 +83,13 @@ async def dfi_crc_alert_roundtrip_test(dut):
     # Quiet baseline
     for _ in range(5):
         await RisingEdge(dut.dfi_clk)
-    assert len(slave.crc_events) == 0, "got events with crc_alert=0"
+    assert len(slave.crc_events) == 0, "got events with alert_n idle-high"
 
-    # Pulse a CRC alert
-    slave.set_crc_alert(active=1)
+    # Pulse the alert (active low on the wire)
+    slave.set_alert_n(active=1)
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
-    slave.set_crc_alert(active=0)
+    slave.set_alert_n(active=0)
     for _ in range(3):
         await RisingEdge(dut.dfi_clk)
 
@@ -106,9 +106,9 @@ async def dfi_crc_alert_roundtrip_test(dut):
 
     # Second pulse to verify the queue grows
     pre_count = len(slave.crc_events)
-    slave.set_crc_alert(active=1)
+    slave.set_alert_n(active=1)
     await RisingEdge(dut.dfi_clk)
-    slave.set_crc_alert(active=0)
+    slave.set_alert_n(active=0)
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
 

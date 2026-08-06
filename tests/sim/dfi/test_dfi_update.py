@@ -44,7 +44,7 @@ async def _bring_up(dut):
     dut.phy_dfi_rddata_valid.value = 0
     dut.phy_dfi_error.value = 0
     dut.phy_dfi_error_info.value = 0
-    dut.phy_dfi_crc_alert.value = 0
+    dut.phy_dfi_alert_n.value = 1
     dut.phy_dfi_ctrlupd_ack.value = 0
     dut.phy_dfi_phyupd_req.value = 0
     await RisingEdge(dut.dfi_clk)

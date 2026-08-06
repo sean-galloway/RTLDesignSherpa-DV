@@ -1,66 +1,48 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 2024-2026 sean galloway
 
-"""DFI v3.x behavior — collapses v3.0 and v3.1 conceptual shifts.
+"""DFI v3.x behavior — collapses v3.0 and v3.1 shifts.
 
-The catalog (``docs/internal/dfi-semantic-shifts.md``) distinguishes
-v3.0 from v3.1, but ``DFIVersion`` enumerates only V3_1 as the
-representative for the v3.x major. This class carries both:
+Spec-verified against the v3.1 book (revision history + chapter 3).
 
-v3.0 introductions (per v5.2 release notes):
-  - CRC (write data, MC-driven path)
-  - Update interface rewrite (full request/grant handshake)
-  - Training interface (MC-driven)
-  - Error interface
-  - CA parity (DDR4-specific)
-  - Frequency indicator (extends v2.1's basic freq-change)
+v3.0 introduced (vs v2.1.1):
+  - DDR4 support: dfi_act_n / dfi_bg / dfi_cid command extensions,
+    write CRC, DBI (dfi_rddata_dbi_n), CA parity timing
+  - **dfi_alert_n** (active LOW) replacing v2.1's dfi_parity_error —
+    now carrying BOTH write-CRC and CA-parity errors
+  - the **Error interface** (dfi_error / dfi_error_info)
+  - the training redesign: v2.1's delay-register protocol
+    (mode/load/delay/edge wires) dropped in favor of en/req/resp
+    handshakes; per-CS training targets (dfi_phy_*_cs_n); data-path
+    chip selects (dfi_rddata_cs_n / dfi_wrdata_cs_n)
+  - per-data-slice independent dfi_rddata_valid timing
 
-v3.1 additions (per v5.2 release notes):
-  - PHY-Requested Training Interface
-  - Low Power Control Interface (split from Status)
+v3.1 added (vs v3.0):
+  - LPDDR3 support incl. **CA training** (dfi_calvl_*)
+  - Low Power split: dfi_lp_req → dfi_lp_ctrl_req + dfi_lp_data_req
+  - **PHY-requested training** (dfi_phylvl_req_cs_n /
+    dfi_phylvl_ack_cs_n)
 
-Methods that override v2.1's raising stubs now return None or a
-stubbed Event — full wire-level decoding lands when the BFM plumbs
-the behavior into its sampling loop. PHY Master / Disconnect /
-Acknowledged frequency change are still post-v3.1, so the
-inherited v2.1 raises remain.
+The update interface is NOT a v3.0 rewrite — both directions exist in
+v2.1 (the base class implements them); v3.0 only refined idle-bus
+definitions around the handshakes.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from .base import DFIv2_1Behavior
+from .base import DFIv2_1Behavior, _bus_value, _maybe
 from .events import (
     CAParityEvent,
     CRCEvent,
     CRCKind,
     ErrorEvent,
     ErrorKind,
+    LowPowerEvent,
     TrainingEvent,
     TrainingPhase,
-    UpdateEvent,
-    UpdateState,
 )
-
-# Phase-code → TrainingPhase enum. Encoded on the wire so the spec-
-# defined phase distinction lives in event data, not in separate
-# behavior methods (validated by the LiteDRAM survey — training is
-# parallel hardware circuits under software sequencing, not a
-# sequential state machine).
-_PHASE_DECODE = {
-    0: TrainingPhase.READ_LEVELING,
-    1: TrainingPhase.WRITE_LEVELING,
-    2: TrainingPhase.DQ_TRAINING,
-    3: TrainingPhase.CA_TRAINING,
-    4: TrainingPhase.DB_TRAINING,
-}
-
-
-def _bus_value(sig) -> int:
-    """Return the integer value of a cocotb signal, 0 if unresolvable."""
-    v = sig.value
-    return v.integer if v.is_resolvable else 0
 
 
 class DFIv3_1Behavior(DFIv2_1Behavior):
@@ -68,95 +50,34 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
 
     version_label: str = "v3.1"
 
-    # ----- CRC area: introduced v3.0 -----
+    # ----- CRC / alert: dfi_alert_n introduced v3.0 -----
 
     def crc(self, bus: Any, state: Any) -> Optional[CRCEvent]:
-        """v3.0 CRC: MC-driven write-data CRC, PHY reports errors via
-        the dedicated ``dfi_crc_alert`` signal (active high, mirrors
-        DDR4's ALERT_n after PHY-side inversion).
+        """Sample dfi_alert_n (ACTIVE LOW — mirrors DDR4's ALERT_n).
 
-        Samples ``bus.crc_alert`` each cycle. When asserted, emit a
-        ``CRCEvent(kind=CRCKind.DRAM_CRC)`` — the v3.0 MVP doesn't
-        distinguish per-slice; ``slice_idx`` stays at 0.
+        DDR4 reports write-CRC and CA-parity errors on the same pin;
+        they are indistinguishable at the DFI boundary, so events
+        default to kind=DRAM_CRC. Callers with DRAM-mode-register
+        knowledge can reinterpret.
 
-        v4.0 overrides to add ``phycrc_mode=1`` (PHY-driven CRC) and
-        per-slice indexing — see ``DFIv4_0Behavior.crc``.
+        The wire idles high; an unresolvable (X/Z) sample is treated
+        as idle, not as an error.
         """
         del state
-        if _bus_value(bus.crc_alert):
+        alert = _maybe(bus, "alert_n")
+        if alert is None:
+            return None
+        v = alert.value
+        if v.is_resolvable and v.integer == 0:
             return CRCEvent(kind=CRCKind.DRAM_CRC, slice_idx=0)
         return None
-
-    # ----- Update interface: rewritten v3.0 (request/grant handshake) -----
-
-    def update_request(self, bus: Any, state: Any) -> Optional[UpdateEvent]:
-        """v3.0 update interface supports both MC- and PHY-initiated
-        requests (bidirectional handshake).
-
-        Samples ``bus.ctrlupd_req`` (MC→PHY) and ``bus.phyupd_req``
-        (PHY→MC). When either is asserted, emit an UpdateEvent with the
-        ``initiator`` field set accordingly. If both are asserted in the
-        same cycle, MC-initiated wins (the spec gives priority to
-        active MC requests).
-        """
-        del state
-        if _bus_value(bus.ctrlupd_req):
-            return UpdateEvent(state=UpdateState.REQUESTED, initiator="mc")
-        if _bus_value(bus.phyupd_req):
-            return UpdateEvent(state=UpdateState.REQUESTED, initiator="phy")
-        return None
-
-    def update_grant(self, bus: Any, state: Any) -> None:
-        """v3.0 added the grant path that v2.1 lacked.
-
-        Currently a no-op observer — the actual grant signals are
-        driven by the BFM's set_ctrlupd_ack/set_phyupd_ack primitives,
-        not by this behavior method. Method exists for API symmetry.
-        """
-        del bus, state
-        return None
-
-    # ----- Training: introduced v3.0; PHY-requested mode added v3.1 -----
-
-    def training_step(self, bus: Any, state: Any) -> Optional[TrainingEvent]:
-        """v3.0 training interface. Single method covers all phases
-        (read/write/DQ/CA/DB leveling) — the phase distinction is
-        carried in the event, not a separate method per phase.
-
-        Architecturally validated by the LiteDRAM survey
-        (docs/internal/dfi-semantic-shifts.md, section 6 open
-        question): training circuits run in parallel hardware under
-        software sequencing; phase is data, not control flow. One
-        method, pattern-match the phase code in the event.
-
-        Samples ``bus.training_active`` and ``bus.training_phase``.
-        Returns a TrainingEvent with the decoded phase when active;
-        unknown phase codes fall back to READ_LEVELING (the v3.0
-        baseline phase) rather than raising — forward-compat with
-        v4+ phase encodings.
-
-        slice_idx is 0 for the v3.0 MVP; v4.0 per-slice indexing
-        would override this method to carry the slice number.
-        """
-        del state
-        if not _bus_value(bus.training_active):
-            return None
-        phase = _PHASE_DECODE.get(
-            _bus_value(bus.training_phase), TrainingPhase.READ_LEVELING,
-        )
-        return TrainingEvent(phase=phase, slice_idx=0)
 
     # ----- Error interface: introduced v3.0 -----
 
     def error_event(self, bus: Any, state: Any) -> Optional[ErrorEvent]:
-        """v3.0 error interface — PHY-driven first-class channel
-        for parity / CRC / training failure reporting.
-
-        Samples ``bus.error`` and ``bus.error_info`` each cycle. When
-        ``error`` is asserted (non-zero), emit an ``ErrorEvent``
-        carrying ``error_info`` as the code. The MVP doesn't decode the
-        info field into specific ErrorKind values; that lands when the
-        spec-defined info encoding is wired up.
+        """Sample dfi_error / dfi_error_info (v3.0 Error interface,
+        §3.8). When dfi_error is asserted, dfi_error_info carries the
+        implementation-defined error code.
         """
         del state
         if _bus_value(bus.error):
@@ -166,31 +87,72 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
             )
         return None
 
-    # ----- CA parity: introduced v3.0 (DDR4 only) -----
+    # ----- CA parity: folded into dfi_alert_n from v3.0 -----
 
     def ca_parity_check(self, bus: Any, state: Any) -> Optional[CAParityEvent]:
-        """v3.0 CA-bus parity, DDR4-only at the BFM gating layer.
-
-        Samples ``bus.parity_check`` (PHY-driven). When asserted,
-        emit a CAParityEvent — the MVP doesn't compute the
-        expected/received parity bits (that would require the slave
-        to maintain a CRC over the recent command stream). The
-        ``parity_bit_received`` field carries ``bus.parity_in`` for
-        traceability; expected stays 0.
+        """v3.0 removed the dedicated dfi_parity_error wire; CA-parity
+        errors now arrive on dfi_alert_n together with CRC errors and
+        surface as CRCEvent via :meth:`crc`. Always returns None so
+        the two samplers never double-report one alert assertion.
         """
-        del state
-        if _bus_value(bus.parity_check):
-            return CAParityEvent(
-                parity_bit_expected=0,
-                parity_bit_received=_bus_value(bus.parity_in),
-            )
+        del bus, state
         return None
 
-    # ----- Frequency change: extended v3.0 with frequency-indicator -----
-    #
-    # v3.x still uses the BASIC protocol — the Acknowledged/Not-Acknowledged
-    # split came in v4.0. So we inherit the v2.1 implementation which
-    # already emits FreqChangeEvent(protocol=BASIC) on request.
+    # ----- Training: v3.0 redesign + v3.1 additions -----
 
-    # PHY Master, Disconnect, Acknowledged freq-change: still raise
-    # (inherited from v2.1). They land in DFIv4_0Behavior.
+    def training_step(self, bus: Any, state: Any) -> Optional[TrainingEvent]:
+        """v3.x training: the base read/gate/write-leveling handshakes
+        (redesigned wires, same names for en/req) plus v3.1's CA
+        training (dfi_calvl_en / dfi_calvl_req) and PHY-requested
+        training (dfi_phylvl_req_cs_n, active low).
+        """
+        evt = super().training_step(bus, state)
+        if evt is not None:
+            return evt
+        calvl_en = _maybe(bus, "calvl_en")
+        calvl_req = _maybe(bus, "calvl_req")
+        if (calvl_en is not None and _bus_value(calvl_en)) or (
+                calvl_req is not None and _bus_value(calvl_req)):
+            return TrainingEvent(phase=TrainingPhase.CA_TRAINING, slice_idx=0)
+        phylvl_req = _maybe(bus, "phylvl_req_cs_n")
+        if phylvl_req is not None:
+            v = phylvl_req.value
+            # Active low, per-CS: any 0 bit is an active request; idle
+            # is all-ones. Signal width isn't always introspectable
+            # (mock buses), so compare against the all-ones value of
+            # the sampled integer's own width — a request is any
+            # resolvable value with at least one cleared bit.
+            try:
+                width = len(phylvl_req)
+            except TypeError:
+                width = 1
+            if v.is_resolvable and v.integer != (1 << width) - 1:
+                return TrainingEvent(
+                    phase=TrainingPhase.PHY_REQUESTED, slice_idx=0,
+                )
+        return None
+
+    # ----- Low power: v3.1 ctrl/data request split -----
+
+    def low_power(self, bus: Any, state: Any) -> Optional[LowPowerEvent]:
+        """Sample dfi_lp_ctrl_req / dfi_lp_data_req (v3.1 split of
+        v2.1's dfi_lp_req). Control-interface request wins the report
+        if both assert in one cycle; the shared dfi_lp_wakeup encoding
+        (still unified until v5.1) rides along.
+        """
+        del state
+        wakeup_sig = _maybe(bus, "lp_wakeup")
+        wakeup = _bus_value(wakeup_sig) if wakeup_sig is not None else 0
+        ctrl = _maybe(bus, "lp_ctrl_req")
+        if ctrl is not None and _bus_value(ctrl):
+            return LowPowerEvent(channel="ctrl", wakeup=wakeup)
+        data = _maybe(bus, "lp_data_req")
+        if data is not None and _bus_value(data):
+            return LowPowerEvent(channel="data", wakeup=wakeup)
+        return None
+
+    # Update interface: inherited from v2.1 unchanged (bidirectional
+    # handshake is v2.1 baseline; v3.0 only tightened idle-bus rules).
+    # Frequency change: inherited (init_start/init_complete protocol
+    # is unchanged in v3.x; no indicator wire yet).
+    # PHY Master / Disconnect: still post-v3.x — inherited raises.

@@ -28,7 +28,6 @@ from CocoTBFramework.components.dfi.behaviors import (
     UpdateState,
 )
 
-
 _EVENT_TYPES = [
     CRCEvent, UpdateEvent, TakeoverEvent, DisconnectEvent,
     FreqChangeEvent, TrainingEvent, ErrorEvent, CAParityEvent,

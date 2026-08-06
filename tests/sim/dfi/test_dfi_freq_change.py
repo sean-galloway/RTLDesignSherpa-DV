@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 2024-2026 sean galloway
 
-"""Tier 2 proof-of-life: Frequency change — multi-version protocol decoding.
+"""Tier 2 proof-of-life: Frequency change via dfi_init_start.
 
-Exercises both v3.1 (BASIC protocol only) and v4.0 (Ack/NotAck split)
-behaviors in the same test binary, demonstrating that the registry
-correctly dispatches to the right behavior class per dfi_version.
+Spec-verified protocol (every DFI version): the MC requests a
+frequency change by asserting dfi_init_start during normal operation
+(dfi_init_complete high); the PHY accepts by de-asserting
+dfi_init_complete within tinit_start cycles. There is no dedicated
+freq-change request wire. v4.0+ adds the dfi_frequency indicator,
+which the v4.0 behavior captures into the event.
 """
 
 from __future__ import annotations
@@ -44,13 +47,18 @@ async def _bring_up(dut):
     dut.phy_dfi_rddata_valid.value = 0
     dut.phy_dfi_error.value = 0
     dut.phy_dfi_error_info.value = 0
-    dut.phy_dfi_crc_alert.value = 0
+    dut.phy_dfi_alert_n.value = 1
     dut.phy_dfi_ctrlupd_ack.value = 0
     dut.phy_dfi_phyupd_req.value = 0
-    dut.phy_dfi_training_active.value = 0
-    dut.phy_dfi_training_phase.value = 0
-    dut.phy_dfi_parity_check.value = 0
-    dut.phy_dfi_freq_change_ack.value = 0
+    dut.phy_dfi_rdlvl_req.value = 0
+    dut.phy_dfi_rdlvl_gate_req.value = 0
+    dut.phy_dfi_wrlvl_req.value = 0
+    dut.phy_dfi_rdlvl_resp.value = 0
+    dut.phy_dfi_wrlvl_resp.value = 0
+    dut.phy_dfi_phyupd_type.value = 0
+    dut.phy_dfi_lp_ack.value = 0
+    dut.phy_dfi_parity_error.value = 0
+    dut.phy_dfi_init_complete.value = 0
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
     dut.dfi_rstn.value = 1
@@ -78,58 +86,63 @@ def _make_stack(dut, version):
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def dfi_freq_change_v3_1_basic_test(dut):
-    """v3.1 uses BASIC protocol regardless of the freq_change_protocol field."""
+    """v3.1: init_start assertion during normal operation emits a
+    BASIC-protocol event carrying the freq_ratio."""
     await _bring_up(dut)
     base, _, slave = _make_stack(dut, DFIVersion.V3_1)
     assert isinstance(base.behavior, DFIv3_1Behavior)
     master = DFIMasterMC(dut, dut.dfi_clk)
     await Timer(1, units="ns")
 
-    # Drive a request with protocol=1; v3.1 ignores the protocol code
-    master.set_freq_change(req=1, protocol=1)
+    # Slave asserts init_complete at construction; request = init_start
+    master.request_freq_change(freq_ratio=1)
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
-    master.set_freq_change(req=0)
+    master.set_init_start(0)
     for _ in range(3):
         await RisingEdge(dut.dfi_clk)
 
     assert len(slave.freq_change_events) >= 1
-    assert slave.freq_change_events[0].protocol == FreqChangeProtocol.BASIC
+    evt = slave.freq_change_events[0]
+    assert evt.protocol == FreqChangeProtocol.BASIC
+    assert evt.freq_ratio == 1
 
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
-async def dfi_freq_change_v4_0_protocol_split_test(dut):
-    """v4.0 decodes the protocol field into ACK / NAK variants."""
+async def dfi_freq_change_v4_0_indicator_and_accept_test(dut):
+    """v4.0: the event captures the dfi_frequency indicator, and the
+    PHY accepts by de-asserting dfi_init_complete (visible MC-side)."""
     await _bring_up(dut)
     base, _, slave = _make_stack(dut, DFIVersion.V4_0)
     assert isinstance(base.behavior, DFIv4_0Behavior)
     master = DFIMasterMC(dut, dut.dfi_clk)
     await Timer(1, units="ns")
 
-    scenarios = [
-        (0, FreqChangeProtocol.BASIC),
-        (1, FreqChangeProtocol.ACKNOWLEDGED),
-        (2, FreqChangeProtocol.NOT_ACKNOWLEDGED),
-    ]
-    pre_count = 0
-    for code, expected_proto in scenarios:
-        master.set_freq_change(req=1, protocol=code)
-        await RisingEdge(dut.dfi_clk)
-        await RisingEdge(dut.dfi_clk)
-        master.set_freq_change(req=0, protocol=0)
-        await RisingEdge(dut.dfi_clk)
-        await RisingEdge(dut.dfi_clk)
+    master.request_freq_change(frequency_code=7, freq_ratio=2)
+    await RisingEdge(dut.dfi_clk)
+    await RisingEdge(dut.dfi_clk)
 
-        new_events = list(slave.freq_change_events)[pre_count:]
-        assert len(new_events) >= 1, f"protocol code {code}: no event"
-        assert new_events[0].protocol == expected_proto, (
-            f"protocol code {code}: expected {expected_proto}, "
-            f"got {new_events[0].protocol}"
-        )
-        pre_count = len(slave.freq_change_events)
+    assert len(slave.freq_change_events) >= 1, "no freq-change event"
+    evt = slave.freq_change_events[0]
+    assert evt.protocol == FreqChangeProtocol.BASIC
+    assert evt.frequency_code == 7
+    assert evt.freq_ratio == 2
+
+    # PHY accepts: de-assert init_complete; MC sees it fall
+    slave.accept_freq_change()
+    await RisingEdge(dut.dfi_clk)
+    await Timer(1, units="ns")
+    assert dut.mc_dfi_init_complete.value == 0
+
+    # Frequency change done: MC drops the request, PHY re-inits
+    master.set_init_start(0)
+    slave.set_init_complete(1)
+    await RisingEdge(dut.dfi_clk)
+    await Timer(1, units="ns")
+    assert dut.mc_dfi_init_complete.value == 1
 
     dut._log.info(f"slave: {slave}")
-    dut._log.info("v4.0 protocol-aware freq_change passed")
+    dut._log.info("v4.0 init_start/init_complete freq_change passed")
 
 
 # ---------------------------------------------------------------------

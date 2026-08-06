@@ -6,660 +6,160 @@
 The DDR PHY Interface specification defines a different signal set
 depending on:
 
-1. The DFI **version** (2.1, 3.1, 4.0, 5.2, 6.0). Each new revision is
-   strictly **additive** — later versions add signals, they don't remove
-   them. A small handful of signals have semantic shifts across versions
-   (handled in the BFM, not here).
+1. The DFI **version** (2.1, 3.x, 4.0, 5.x, 6.0). Signal lifecycles
+   are encoded per signal as ``min_version`` / ``max_version`` in the
+   catalog — later revisions both add signals AND remove/rename them
+   (the v3.0 training redesign, the v4.0 ``*_cs_n`` → ``*_cs`` sweep,
+   the v5.x training removal, the v6.0 command-bus repack).
 
-2. The **memory type** the system targets. ``dfi_reset_n`` exists only for
-   DDR3+; ``dfi_odt`` only for DDR2/DDR3; ``dfi_rddata_dnv`` only for
-   LPDDR2; etc.
+2. The **memory type** the system targets. ``dfi_reset_n`` exists only
+   for DDR3+; ``dfi_odt`` for DDR2/3/4 + LPDDR3; ``dfi_rddata_dnv``
+   only for LPDDR2; etc.
 
-3. The **sub-interface profile** the user opts into. The framework
-   supports six sub-interfaces (control, write_data, read_data, update,
-   status, training) and the MVP wires up the first three.
+3. The **sub-interface profile** the user opts into. Which
+   sub-interfaces exist at all is itself version-dependent — see
+   :data:`SUB_INTERFACES_BY_VERSION`.
 
-This module encodes that envelope as data so the BFM constructor can
-build a per-instance signal list without scattered ``if version >=``
-checks in the driver code.
+This module is the public API; the per-signal data lives in
+``dfi_signal_catalog`` and the shared types in ``dfi_signal_types``
+(both re-exported here).
 
-Source: DFI v2.1 spec (Denali Software, Jan 2009, cleartext), Tables
-2-11 (pages 9-22). The v3-v6 entries below are populated as the
-corresponding spec PDFs become decryptable; today they fall back to
-the v2.1 envelope, which is a strict subset.
+Source: the actual specification PDFs — DFI v2.1.1 (Denali, 2010),
+v3.1, v4.0, v5.2, v6.0 (Cadence) — transcribed table-by-table from
+chapter 3 "Interface Signal Groups" of each. See the catalog module
+docstring for the per-version table references.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
+from .dfi_signal_catalog import ALL_SIGNALS  # noqa: F401
+from .dfi_signal_types import (  # noqa: F401  (public re-exports)
+    WIDTH_ADDR,
+    WIDTH_ALERT,
+    WIDTH_BANK,
+    WIDTH_BANK_GROUP,
+    WIDTH_CHIP_ID,
+    WIDTH_CS,
+    WIDTH_CS_X_DATA_EN,
+    WIDTH_CTRL,
+    WIDTH_DATA,
+    WIDTH_DATA_DIV8,
+    WIDTH_DATA_EN,
+    WIDTH_EIGHT_BITS,
+    WIDTH_FIVE_BITS,
+    WIDTH_ONE_BIT,
+    WIDTH_PER_SLICE,
+    WIDTH_RANK,
+    WIDTH_RD_VALID,
+    WIDTH_SIX_BITS,
+    WIDTH_SIXTEEN_BITS,
+    WIDTH_THREE_BITS,
+    WIDTH_TWO_BITS,
+    WIDTH_WCK,
+    DFIVersion,
+    MemoryType,
+    SignalDirection,
+    SignalSpec,
+    SubInterface,
+    version_rank,
+)
+
 # ----------------------------------------------------------------------
-# Enums
+# Per-version support matrices
 # ----------------------------------------------------------------------
 
-
-class DFIVersion(str, Enum):
-    """Supported DFI specification revisions."""
-
-    V2_1 = "2.1"
-    V3_1 = "3.1"
-    V4_0 = "4.0"
-    V5_2 = "5.2"
-
-
-class MemoryType(str, Enum):
-    """DRAM memory technologies the DFI can target.
-
-    Scope: DDR1-5 + LPDDR1-5. v6.0 dropped DDR/2/3/4 + LPDDR/1/2/3/4
-    and added LPDDR6 / HBM4 — that's out of scope for this BFM
-    generation. See ``docs/internal/dfi-semantic-shifts.md`` for the
-    rationale and the memory note on v6 scope changes for the research.
-    """
-
-    DDR1 = "ddr1"
-    DDR2 = "ddr2"
-    DDR3 = "ddr3"
-    DDR4 = "ddr4"
-    DDR5 = "ddr5"
-    LPDDR1 = "lpddr1"
-    LPDDR2 = "lpddr2"
-    LPDDR3 = "lpddr3"
-    LPDDR4 = "lpddr4"
-    LPDDR5 = "lpddr5"
-
-
-class SubInterface(str, Enum):
-    """The DFI sub-interfaces (scope: v2.1-v5.x).
-
-    v2.1 had six (the first five below plus TRAINING). v5.x grew this
-    to roughly a dozen as new functions split out across revisions.
-    MVP wires up COMMAND + WRITE_DATA + READ_DATA; Phase 2/3 add the
-    rest within this version range.
-
-    Naming note: v2.1 called the command interface "Control Interface";
-    later revisions renamed it to "Command Interface" alongside the
-    ``dfi_address`` → ``dfi_cmdaddr`` signal rename. We use the later
-    name.
-    """
-
-    # v2.1 baseline (plus the v2.1-only TRAINING below)
-    COMMAND = "command"          # was "control" in v2.1
-    WRITE_DATA = "write_data"
-    READ_DATA = "read_data"
-    STATUS = "status"
-    UPDATE = "update"
-
-    # v3.0+
-    DBI = "dbi"                  # Data Bus Inversion
-    ECC = "ecc"
-    LINK_CRC = "link_crc"        # Link DQ CRC
-
-    # v3.1+
-    LOW_POWER = "low_power"      # split from Status
-
-    # v4.0+
-    PHY_MANAGED = "phy_managed"  # added as "PHY Master Interface", renamed v5.2
-
-    # v5.x+
-    WCK_CONTROL = "wck_control"  # DDR5/LPDDR5 WCK
-    MC_TO_PHY_MSG = "mc_to_phy_msg"
-    PHY_ERROR = "phy_error"
-
-    # Multi-channel (LPDDR-class)
-    MULTI_CHANNEL = "multi_channel"
-
-    # v2.1+ training sub-interface
-    TRAINING = "training"
-
-
-class SignalDirection(str, Enum):
-    """Direction of a DFI signal from the MC's point of view."""
-
-    MC_TO_PHY = "mc_to_phy"
-    PHY_TO_MC = "phy_to_mc"
-
-
-# Per-version memory-type support matrix. Source: revision history of
-# each spec. v3.x onward this is purely additive within the v2.1-v5.x
-# scope window — v6.0 (out of scope) is where the spec drops legacy
-# DDR support, which is why this BFM generation stops at v5.x.
+# Memory-type support by revision. Sources: each spec's overview +
+# revision history. v3.0 added DDR4; v3.1 added LPDDR3; v4.0 added
+# LPDDR4; v5.x added DDR5 + LPDDR5 (legacy kept); v6.0 dropped DDR1-4
+# and LPDDR1-4 and added LPDDR6 + HBM4.
 SUPPORTED_MEMORY_BY_VERSION: Dict[DFIVersion, FrozenSet[MemoryType]] = {
     DFIVersion.V2_1: frozenset({
         MemoryType.DDR1, MemoryType.DDR2, MemoryType.DDR3,
         MemoryType.LPDDR1, MemoryType.LPDDR2,
     }),
     DFIVersion.V3_1: frozenset({
-        # v3.0 added DDR4; v3.1 added LPDDR3
         MemoryType.DDR1, MemoryType.DDR2, MemoryType.DDR3, MemoryType.DDR4,
         MemoryType.LPDDR1, MemoryType.LPDDR2, MemoryType.LPDDR3,
     }),
     DFIVersion.V4_0: frozenset({
-        # v4.0 added LPDDR4
         MemoryType.DDR1, MemoryType.DDR2, MemoryType.DDR3, MemoryType.DDR4,
-        MemoryType.LPDDR1, MemoryType.LPDDR2, MemoryType.LPDDR3, MemoryType.LPDDR4,
+        MemoryType.LPDDR1, MemoryType.LPDDR2, MemoryType.LPDDR3,
+        MemoryType.LPDDR4,
     }),
     DFIVersion.V5_2: frozenset({
-        # v5.x added DDR5, LPDDR5; legacy still supported
-        MemoryType.DDR1, MemoryType.DDR2, MemoryType.DDR3, MemoryType.DDR4, MemoryType.DDR5,
+        MemoryType.DDR1, MemoryType.DDR2, MemoryType.DDR3, MemoryType.DDR4,
+        MemoryType.DDR5,
         MemoryType.LPDDR1, MemoryType.LPDDR2, MemoryType.LPDDR3,
         MemoryType.LPDDR4, MemoryType.LPDDR5,
+    }),
+    DFIVersion.V6_0: frozenset({
+        MemoryType.DDR5, MemoryType.LPDDR5, MemoryType.LPDDR6,
+        MemoryType.HBM4,
     }),
 }
 
 
-# What the MVP envelope covers. These shrink the spec's actual support
-# matrix down to what the BFM has signal-table coverage for today.
-# Phase 2 widens MVP_VERSIONS / MVP_MEMORY_TYPES; Phase 3 widens
-# MVP_SUB_INTERFACES.
-MVP_VERSIONS: FrozenSet[DFIVersion] = frozenset({
-    DFIVersion.V2_1,
-    DFIVersion.V3_1,   # added for error-interface proof-of-life
-})
-MVP_MEMORY_TYPES: FrozenSet[MemoryType] = frozenset({
-    MemoryType.DDR1,
-    MemoryType.DDR2,
-    MemoryType.DDR3,
-    MemoryType.DDR4,   # added with v3.1
-    MemoryType.LPDDR1,
-    MemoryType.LPDDR2,
-})
-MVP_SUB_INTERFACES: FrozenSet[SubInterface] = frozenset({
+# Sub-interface availability by revision (chapter-3 structure of each
+# spec). TRAINING/DB_TRAINING end at v4.0 (v5.x: training is
+# PHY-internal); DISCONNECT ends at v5.x (v6.0 removed it).
+SUB_INTERFACES_BY_VERSION: Dict[DFIVersion, FrozenSet[SubInterface]] = {
+    DFIVersion.V2_1: frozenset({
+        SubInterface.COMMAND, SubInterface.WRITE_DATA,
+        SubInterface.READ_DATA, SubInterface.UPDATE, SubInterface.STATUS,
+        SubInterface.TRAINING, SubInterface.LOW_POWER,
+    }),
+    DFIVersion.V3_1: frozenset({
+        SubInterface.COMMAND, SubInterface.WRITE_DATA,
+        SubInterface.READ_DATA, SubInterface.UPDATE, SubInterface.STATUS,
+        SubInterface.TRAINING, SubInterface.LOW_POWER, SubInterface.ERROR,
+    }),
+    DFIVersion.V4_0: frozenset({
+        SubInterface.COMMAND, SubInterface.WRITE_DATA,
+        SubInterface.READ_DATA, SubInterface.UPDATE, SubInterface.STATUS,
+        SubInterface.TRAINING, SubInterface.DB_TRAINING,
+        SubInterface.LOW_POWER, SubInterface.ERROR,
+        SubInterface.PHY_MANAGED, SubInterface.DISCONNECT,
+    }),
+    DFIVersion.V5_2: frozenset({
+        SubInterface.COMMAND, SubInterface.WRITE_DATA,
+        SubInterface.READ_DATA, SubInterface.UPDATE, SubInterface.STATUS,
+        SubInterface.LOW_POWER, SubInterface.ERROR,
+        SubInterface.PHY_MANAGED, SubInterface.DISCONNECT,
+        SubInterface.MC_TO_PHY_MSG, SubInterface.WCK_CONTROL,
+    }),
+    DFIVersion.V6_0: frozenset({
+        SubInterface.COMMAND, SubInterface.WRITE_DATA,
+        SubInterface.READ_DATA, SubInterface.UPDATE, SubInterface.STATUS,
+        SubInterface.LOW_POWER, SubInterface.ERROR,
+        SubInterface.PHY_MANAGED, SubInterface.MC_TO_PHY_MSG,
+        SubInterface.WCK_CONTROL,
+    }),
+}
+
+
+# Default sub-interface profile: the three the BFM wires end-to-end
+# (command + write data + read data). Handshake-level areas (update,
+# status, low power, error, PHY managed, ...) are driven through the
+# BFM's set_* primitives and behavior classes — opt into their signal
+# envelopes by passing an explicit ``sub_interfaces`` set.
+DEFAULT_SUB_INTERFACES: FrozenSet[SubInterface] = frozenset({
     SubInterface.COMMAND,
     SubInterface.WRITE_DATA,
     SubInterface.READ_DATA,
-    # Error interface is v3.0+ — gated by version at the per-signal
-    # `min_version` check, not by MVP exclusion.
 })
 
-
-# ----------------------------------------------------------------------
-# Signal specification
-# ----------------------------------------------------------------------
-
-
-# Width keywords resolved at BFM construction time from the user's
-# width parameters. The strings here are sentinels; the resolver maps
-# them to concrete ints.
-WIDTH_ADDR = "addr_width"
-WIDTH_BANK = "bank_width"
-WIDTH_CS = "cs_width"
-WIDTH_CTRL = "ctrl_width"
-WIDTH_DATA = "data_width"
-WIDTH_DATA_EN = "data_enable_width"
-WIDTH_RD_VALID = "rd_valid_width"
-WIDTH_DATA_DIV8 = "data_width_div_8"  # for masks / dnv
-WIDTH_ONE_BIT = "one_bit"
-WIDTH_TWO_BITS = "two_bits"
-
-
-@dataclass(frozen=True)
-class SignalSpec:
-    """One DFI signal's portability profile.
-
-    ``name`` is without the ``dfi_`` prefix — the BFM joins them.
-    ``width_key`` names a width category that gets resolved against
-    the constructor's per-instance width arguments at BFM init time.
-    ``min_version`` is the earliest DFI revision that introduced the
-    signal. ``max_version`` (optional) is the last revision in which
-    it appeared — set when a signal gets removed or renamed; leave as
-    ``None`` if it's still in the current spec. ``memory_types`` is the
-    set of memory technologies where this signal is meaningful (an empty
-    frozenset means "all").
-
-    Renames across versions (e.g. ``dfi_address`` → ``dfi_cmdaddr``)
-    are encoded as two SignalSpec entries: the old name with
-    ``max_version`` set, and the new name with ``min_version`` set to
-    the version that introduced the rename.
-    """
-
-    name: str
-    direction: SignalDirection
-    width_key: str
-    sub_interface: SubInterface
-    min_version: DFIVersion
-    memory_types: FrozenSet[MemoryType]
-    description: str
-    max_version: Optional[DFIVersion] = None
-
-    def applies(self, version: DFIVersion, memory_type: MemoryType) -> bool:
-        """Should this signal be present for the given (version, memory)?"""
-        if _version_rank(version) < _version_rank(self.min_version):
-            return False
-        if self.max_version is not None and _version_rank(version) > _version_rank(self.max_version):
-            return False
-        if self.memory_types and memory_type not in self.memory_types:
-            return False
-        return True
-
-
-def _version_rank(v: DFIVersion) -> int:
-    """Ordering for ``min_version`` comparisons."""
-    return {
-        DFIVersion.V2_1: 21,
-        DFIVersion.V3_1: 31,
-        DFIVersion.V4_0: 40,
-        DFIVersion.V5_2: 52,
-    }[v]
+# Backward-compatible aliases (pre-spec-verification API). The "MVP"
+# phase gating is gone — every version/memory in the matrices above
+# is buildable — but downstream code imports these names.
+MVP_SUB_INTERFACES = DEFAULT_SUB_INTERFACES
+MVP_VERSIONS: FrozenSet[DFIVersion] = frozenset(DFIVersion)
+MVP_MEMORY_TYPES: FrozenSet[MemoryType] = frozenset(MemoryType)
 
 
 # ----------------------------------------------------------------------
-# v2.1 signal catalog (from Tables 2, 4, 6 — pages 9-14 of the spec)
-# ----------------------------------------------------------------------
-
-# Convenience aliases for memory-type frozensets used below.
-_ALL: FrozenSet[MemoryType] = frozenset()  # empty = applies to all memory types
-_DDR1_LPDDR1_DDR2_DDR3: FrozenSet[MemoryType] = frozenset({
-    MemoryType.DDR1, MemoryType.LPDDR1, MemoryType.DDR2, MemoryType.DDR3,
-})
-_DDR2_DDR3: FrozenSet[MemoryType] = frozenset({MemoryType.DDR2, MemoryType.DDR3})
-_DDR3_ONLY: FrozenSet[MemoryType] = frozenset({MemoryType.DDR3})
-_LPDDR2_ONLY: FrozenSet[MemoryType] = frozenset({MemoryType.LPDDR2})
-
-
-# Command (a.k.a. "Control") Interface — DFI v2.1 Table 2 (pages 9-10).
-# v2.1 called this the "Control Interface" with bus ``dfi_address``;
-# later revisions renamed to "Command Interface" with ``dfi_cmdaddr``.
-# Same logical role.
-_COMMAND_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="address",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_ADDR,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="DFI address bus (LPDDR2: 20-bit CA bus via Table 1)",
-    ),
-    SignalSpec(
-        name="bank",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_BANK,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_DDR1_LPDDR1_DDR2_DDR3,
-        description="DFI bank bus; LPDDR2 holds idle",
-    ),
-    SignalSpec(
-        name="cas_n",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_DDR1_LPDDR1_DDR2_DDR3,
-        description="DFI column address strobe; LPDDR2 holds idle",
-    ),
-    SignalSpec(
-        name="cke",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CS,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="DFI clock enable (reset polarity is memory-defined)",
-    ),
-    SignalSpec(
-        name="cs_n",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CS,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="DFI chip select",
-    ),
-    SignalSpec(
-        name="odt",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CS,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_DDR2_DDR3,
-        description="DFI on-die termination control (DDR2/DDR3 only)",
-    ),
-    SignalSpec(
-        name="ras_n",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_DDR1_LPDDR1_DDR2_DDR3,
-        description="DFI row address strobe; LPDDR2 holds idle",
-    ),
-    SignalSpec(
-        name="reset_n",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CS,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_DDR3_ONLY,
-        description="DFI reset (DDR3 only)",
-    ),
-    SignalSpec(
-        name="we_n",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V2_1,
-        memory_types=_DDR1_LPDDR1_DDR2_DDR3,
-        description="DFI write enable; LPDDR2 holds idle",
-    ),
-)
-
-
-# Write Data Interface — DFI v2.1 Table 4 (page 11-12)
-_WRITE_DATA_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="wrdata",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_DATA,
-        sub_interface=SubInterface.WRITE_DATA,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="Write data; begins 1 cycle after wrdata_en assertion",
-    ),
-    SignalSpec(
-        name="wrdata_en",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_DATA_EN,
-        sub_interface=SubInterface.WRITE_DATA,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="Write data enable; asserted t_phy_wrlat cycles after write cmd",
-    ),
-    SignalSpec(
-        name="wrdata_mask",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_DATA_DIV8,
-        sub_interface=SubInterface.WRITE_DATA,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="Byte mask for wrdata; 1 bit per 8 wrdata bits",
-    ),
-)
-
-
-# Read Data Interface — DFI v2.1 Table 6 (page 14)
-_READ_DATA_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="rddata",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_DATA,
-        sub_interface=SubInterface.READ_DATA,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="Read data; valid when rddata_valid asserts",
-    ),
-    SignalSpec(
-        name="rddata_en",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_DATA_EN,
-        sub_interface=SubInterface.READ_DATA,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="Read data enable; asserted t_rddata_en after read cmd",
-    ),
-    SignalSpec(
-        name="rddata_valid",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_RD_VALID,
-        sub_interface=SubInterface.READ_DATA,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="Read data valid; asserted with rddata, max t_phy_rdlat after rddata_en",
-    ),
-    SignalSpec(
-        name="rddata_dnv",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_DATA_DIV8,
-        sub_interface=SubInterface.READ_DATA,
-        min_version=DFIVersion.V2_1,
-        memory_types=_LPDDR2_ONLY,
-        description="Data-not-valid (LPDDR2 only); byte-granular",
-    ),
-)
-
-
-# Error Interface — introduced v3.0 as a first-class sub-interface for
-# PHY-driven error reporting (CRC mismatch, parity error, training
-# failure). Minimal MVP signal set: one error-active flag + an info
-# vector carrying the kind/code. v5+ expands with per-slice signals.
-_ERROR_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="error",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.PHY_ERROR,
-        min_version=DFIVersion.V3_1,
-        memory_types=_ALL,
-        description="PHY error indicator (active high); paired with error_info",
-    ),
-    SignalSpec(
-        name="error_info",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.PHY_ERROR,
-        min_version=DFIVersion.V3_1,
-        memory_types=_ALL,
-        description="PHY error code (valid while error is asserted)",
-    ),
-)
-
-
-# CRC handshake — introduced v3.0 alongside DDR4 support. JEDEC's
-# DDR4 has an active-low ALERT_n pin for CRC errors; the PHY typically
-# converts that to an active-high `dfi_crc_alert` signal on the DFI.
-# Per-slice in v4.0+; the MVP uses a single-bit flag.
-_CRC_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="crc_alert",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.LINK_CRC,
-        min_version=DFIVersion.V3_1,
-        memory_types=frozenset({MemoryType.DDR4}),
-        description="DRAM CRC error indicator (active high); reflects ALERT_n",
-    ),
-)
-
-
-# Disconnect Protocol (v4.0+). Coordinated PHY disengagement from the
-# DFI bus. PHY drives a request; MC acks; PHY releases. Phase encoded
-# in a 2-bit field on the request line per the §4.16 spec.
-_DISCONNECT_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="disconnect_req",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.STATUS,
-        min_version=DFIVersion.V4_0,
-        memory_types=_ALL,
-        description="PHY disconnect-protocol request (active high)",
-    ),
-    SignalSpec(
-        name="disconnect_ack",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.STATUS,
-        min_version=DFIVersion.V4_0,
-        memory_types=_ALL,
-        description="MC acknowledges disconnect request",
-    ),
-)
-
-
-# PHY Master / PHY Managed Interface (v4.0+; renamed v5.2). PHY takes
-# bus ownership for autonomous operations. takeover_req carries a
-# reason code in its info-vector field.
-_PHY_MASTER_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="phymstr_req",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.PHY_MANAGED,
-        min_version=DFIVersion.V4_0,
-        memory_types=_ALL,
-        description="PHY takeover request (v4.0: 'PHY Master'; v5.2: 'PHY Managed')",
-    ),
-    SignalSpec(
-        name="phymstr_ack",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.PHY_MANAGED,
-        min_version=DFIVersion.V4_0,
-        memory_types=_ALL,
-        description="MC grants PHY bus ownership",
-    ),
-)
-
-
-# Frequency-change handshake. Existed in v2.1 (basic single-flavor
-# request/ack). v3.0 added a frequency-indicator. v4.0 split the
-# protocol into Acknowledged (req+ack handshake) and Not-Acknowledged
-# (fire-and-forget) variants. The protocol_type signal (2 bits)
-# carries the variant: 0=basic, 1=ack, 2=nak.
-_FREQ_CHANGE_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="freq_change_req",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.STATUS,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="MC frequency-change request (active high)",
-    ),
-    SignalSpec(
-        name="freq_change_ack",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.STATUS,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="PHY frequency-change ack",
-    ),
-    SignalSpec(
-        name="freq_change_protocol",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.STATUS,
-        min_version=DFIVersion.V4_0,
-        memory_types=_ALL,
-        description="v4.0+ protocol variant: 0=basic, 1=ack, 2=nak",
-    ),
-)
-
-
-# CA parity — introduced v3.0 for DDR4. MC drives a parity bit
-# alongside the command bus (dfi_parity_in); the PHY relays an error
-# indicator if the DRAM detects a mismatch (dfi_parity_check).
-_CA_PARITY_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="parity_in",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.COMMAND,
-        min_version=DFIVersion.V3_1,
-        memory_types=frozenset({MemoryType.DDR4}),
-        description="MC-computed CA parity bit; checked at DRAM",
-    ),
-    SignalSpec(
-        name="parity_check",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.PHY_ERROR,
-        min_version=DFIVersion.V3_1,
-        memory_types=frozenset({MemoryType.DDR4}),
-        description="PHY-driven CA parity error indicator (active high)",
-    ),
-)
-
-
-# Training interface — introduced v3.0. PHY-driven `training_active`
-# flag plus a `training_phase` encoding (3 bits: 0=read_lvl, 1=write_lvl,
-# 2=dq, 3=ca, 4=db). v4.0 added per-slice indexing — we leave slice_idx
-# at 0 for the v3.0 MVP.
-#
-# Method-shape note: LiteDRAM doesn't model these signals (they use
-# CSR-only training); the spec-faithful wire interface lives here.
-# Per the catalog's open question on training: single `training_step`
-# method works because the phase enum is data, not control flow.
-_TRAINING_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="training_active",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.TRAINING,
-        min_version=DFIVersion.V3_1,
-        memory_types=_ALL,
-        description="PHY-driven training-in-progress flag (active high)",
-    ),
-    SignalSpec(
-        name="training_phase",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.TRAINING,
-        min_version=DFIVersion.V3_1,
-        memory_types=_ALL,
-        description="Encoded phase: 0=read_lvl, 1=write_lvl, 2=dq, 3=ca, 4=db",
-    ),
-)
-
-
-# Update Interface — existed v2.1 in MC-initiated form (ctrlupd_req/
-# ctrlupd_ack). v3.0 added the PHY-initiated path (phyupd_req/
-# phyupd_ack) for bidirectional request/grant. v4.0 added self-refresh
-# exit semantics atop these signals.
-_UPDATE_SIGNALS: Tuple[SignalSpec, ...] = (
-    SignalSpec(
-        name="ctrlupd_req",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.UPDATE,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="MC requests PHY to perform an update window",
-    ),
-    SignalSpec(
-        name="ctrlupd_ack",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.UPDATE,
-        min_version=DFIVersion.V2_1,
-        memory_types=_ALL,
-        description="PHY acknowledges MC's update request",
-    ),
-    SignalSpec(
-        name="phyupd_req",
-        direction=SignalDirection.PHY_TO_MC,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.UPDATE,
-        min_version=DFIVersion.V3_1,
-        memory_types=_ALL,
-        description="PHY requests an update window from MC (v3.0+)",
-    ),
-    SignalSpec(
-        name="phyupd_ack",
-        direction=SignalDirection.MC_TO_PHY,
-        width_key=WIDTH_CTRL,
-        sub_interface=SubInterface.UPDATE,
-        min_version=DFIVersion.V3_1,
-        memory_types=_ALL,
-        description="MC grants the PHY's update request",
-    ),
-)
-
-
-# All signals across the catalog.
-_ALL_SIGNALS: Tuple[SignalSpec, ...] = (
-    _COMMAND_SIGNALS + _WRITE_DATA_SIGNALS + _READ_DATA_SIGNALS
-    + _ERROR_SIGNALS + _CRC_SIGNALS + _UPDATE_SIGNALS + _TRAINING_SIGNALS
-    + _CA_PARITY_SIGNALS + _FREQ_CHANGE_SIGNALS + _DISCONNECT_SIGNALS
-    + _PHY_MASTER_SIGNALS
-)
-
-
-# ----------------------------------------------------------------------
-# Public API: envelope resolution
+# Envelope resolution
 # ----------------------------------------------------------------------
 
 
@@ -670,14 +170,16 @@ def signals_for(
 ) -> Tuple[SignalSpec, ...]:
     """Return the signal specs that apply for the given configuration.
 
-    ``sub_interfaces`` defaults to the MVP set (control + write_data +
-    read_data). Pass an explicit set to opt into more (or fewer) channels.
+    ``sub_interfaces`` defaults to :data:`DEFAULT_SUB_INTERFACES`
+    (command + write_data + read_data). Pass an explicit set to opt
+    into more (or fewer) channels.
     """
     if sub_interfaces is None:
-        sub_interfaces = MVP_SUB_INTERFACES
+        sub_interfaces = DEFAULT_SUB_INTERFACES
     return tuple(
-        s for s in _ALL_SIGNALS
-        if s.sub_interface in sub_interfaces and s.applies(version, memory_type)
+        s for s in ALL_SIGNALS
+        if s.sub_interface in sub_interfaces
+        and s.applies(version, memory_type)
     )
 
 
@@ -687,11 +189,11 @@ def required_signal_names(
     sub_interfaces: Optional[FrozenSet[SubInterface]] = None,
     prefix: str = "dfi",
 ) -> List[str]:
-    """Return the **always-present** signal names for ``cocotb_bus.BusDriver``
-    / ``BusMonitor`` ``_signals`` lists. Names include the ``<prefix>_``
-    prefix so they match the DUT port names.
+    """Return the **always-present** signal names for
+    ``cocotb_bus.BusDriver`` / ``BusMonitor`` ``_signals`` lists.
+    Names include the ``<prefix>_`` prefix to match DUT port names.
 
-    Universal signals (memory_types is empty / all types) go here.
+    Universal signals (empty ``memory_types``) go here.
     """
     return [
         f"{prefix}_{s.name}"
@@ -708,7 +210,7 @@ def optional_signal_names(
 ) -> List[str]:
     """Return the **conditionally-present** signal names.
 
-    Signals gated on memory_type (odt, reset_n, dnv, etc.) go here so
+    Signals gated on memory_type (odt, reset_n, dnv, ...) go here so
     ``cocotb_bus`` doesn't error when the DUT lacks them.
     """
     return [
@@ -723,45 +225,34 @@ def validate_configuration(
     memory_type: MemoryType,
     sub_interfaces: FrozenSet[SubInterface],
 ) -> None:
-    """Raise ``ValueError`` for unsupported configurations.
+    """Raise ``ValueError`` for configurations the spec doesn't define.
 
-    Validates in this order:
-
-    1. ``version`` is in the MVP set (Phase 2 widens this).
-    2. ``memory_type`` is in the MVP set (Phase 2 widens this).
-    3. ``(version, memory_type)`` is a valid pair per the spec —
-       :data:`SUPPORTED_MEMORY_BY_VERSION` is the canonical source.
-    4. All requested sub-interfaces are in the MVP set.
+    1. ``(version, memory_type)`` must be a valid pair per
+       :data:`SUPPORTED_MEMORY_BY_VERSION` (e.g. DDR5 needs v5.x+;
+       DDR3 died with v5.x).
+    2. Every requested sub-interface must exist at that version per
+       :data:`SUB_INTERFACES_BY_VERSION` (e.g. TRAINING is v2.1-v4.0
+       only; WCK_CONTROL needs v5.x+).
     """
-    if version not in MVP_VERSIONS:
-        raise ValueError(
-            f"DFI BFM MVP only supports {sorted(v.value for v in MVP_VERSIONS)}; "
-            f"got {version.value}. Phase 2 will add v4.0/v5.2 envelopes."
-        )
-    if memory_type not in MVP_MEMORY_TYPES:
-        raise ValueError(
-            f"DFI BFM MVP only supports memory types "
-            f"{sorted(m.value for m in MVP_MEMORY_TYPES)}; got {memory_type.value}. "
-            f"Phase 2 will add DDR5/LPDDR3/LPDDR4/LPDDR5."
-        )
     supported = SUPPORTED_MEMORY_BY_VERSION[version]
     if memory_type not in supported:
         raise ValueError(
-            f"DFI {version.value} does not support memory type {memory_type.value}. "
-            f"Per spec, v{version.value} supports "
+            f"DFI {version.value} does not support memory type "
+            f"{memory_type.value}. Per spec, v{version.value} supports "
             f"{sorted(m.value for m in supported)}."
         )
-    unsupported = sub_interfaces - MVP_SUB_INTERFACES
-    if unsupported:
+    available = SUB_INTERFACES_BY_VERSION[version]
+    unavailable = sub_interfaces - available
+    if unavailable:
         raise ValueError(
-            f"DFI BFM MVP only supports sub-interfaces "
-            f"{sorted(s.value for s in MVP_SUB_INTERFACES)}; "
-            f"got {sorted(s.value for s in unsupported)} which are Phase 2/3."
+            f"Sub-interface(s) {sorted(s.value for s in unavailable)} do "
+            f"not exist in DFI {version.value}. Available at this "
+            f"version: {sorted(s.value for s in available)}."
         )
 
 
 def is_supported_pair(version: DFIVersion, memory_type: MemoryType) -> bool:
-    """Return True if the spec defines support for ``memory_type`` at
+    """True if the spec defines support for ``memory_type`` at
     ``version``. See :data:`SUPPORTED_MEMORY_BY_VERSION`.
     """
     return memory_type in SUPPORTED_MEMORY_BY_VERSION.get(version, frozenset())

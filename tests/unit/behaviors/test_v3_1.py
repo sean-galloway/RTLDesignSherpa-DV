@@ -1,9 +1,13 @@
-"""Unit tests for DFIv3_1Behavior.
+"""Unit tests for DFIv3_1Behavior (covers the v3.0 + v3.1 shifts).
 
-Verifies that v3.x-introduced areas (CRC, Update grant, Training,
-Error, CA-parity, Frequency-indicator) override the v2.1 raises and
-return None as stubs. Areas still post-v3.1 (PHY Master, Disconnect)
-must still raise — inherited from the v2.1 base.
+Spec-verified expectations (v3.1 book):
+  - dfi_alert_n (ACTIVE LOW) replaces v2.1's dfi_parity_error and
+    carries both CRC and CA-parity errors → crc() samples it;
+    ca_parity_check() returns None (no double-reporting)
+  - error interface (dfi_error / dfi_error_info) is real
+  - training adds CA training (dfi_calvl_*) and PHY-requested
+    training (dfi_phylvl_req_cs_n, active low)
+  - low power requests split into ctrl/data wires
 """
 
 from __future__ import annotations
@@ -12,15 +16,21 @@ import pytest
 
 from CocoTBFramework.components.dfi.behaviors import (
     CRCKind,
-    DFIv2_1Behavior,
     DFIv3_1Behavior,
     ErrorKind,
-    NotSupportedInThisVersionError,
     TrainingPhase,
-    UpdateState,
 )
 
 from .conftest import MockBus
+
+_STATE = object()
+_IDLE_HIGH = {"phylvl_req_cs_n": 1, "alert_n": 1}
+
+
+def _quiet_bus(**overrides):
+    kwargs = dict(_IDLE_HIGH)
+    kwargs.update(overrides)
+    return MockBus(**kwargs)
 
 
 @pytest.fixture
@@ -28,233 +38,132 @@ def b():
     return DFIv3_1Behavior()
 
 
-_BUS = MockBus()   # all signals default to 0
-_STATE = object()
-
-
 # ---------------------------------------------------------------------
-# v3.x-introduced areas: override v2.1's raise with stub returning None
+# CRC / alert_n
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "method_name",
-    ["crc", "update_grant", "training_step", "error_event",
-     "ca_parity_check", "freq_change", "update_request"],
-)
-def test_v3_x_areas_no_longer_raise(b, method_name):
-    """Each v3.x-introduced area should return None (stub) instead
-    of raising NotSupportedInThisVersionError."""
-    method = getattr(b, method_name)
-    result = method(_BUS, _STATE)
-    assert result is None
+def test_crc_none_while_alert_idles_high(b):
+    assert b.crc(_quiet_bus(), _STATE) is None
+
+
+def test_crc_event_when_alert_n_low(b):
+    """dfi_alert_n is ACTIVE LOW — 0 means an error was reported."""
+    evt = b.crc(_quiet_bus(alert_n=0), _STATE)
+    assert evt is not None
+    assert evt.kind == CRCKind.DRAM_CRC
+
+
+def test_crc_unresolvable_alert_treated_as_idle(b):
+    bus = _quiet_bus()
+    bus.alert_n.value.is_resolvable = False
+    bus.alert_n.value.integer = 0
+    assert b.crc(bus, _STATE) is None
 
 
 # ---------------------------------------------------------------------
-# Post-v3.1 areas: still raise (inherited from v2.1)
+# CA parity folded into alert_n from v3.0
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "method_name, expected_intro",
-    [
-        ("phy_takeover",        "v4.0"),
-        ("phy_release",         "v4.0"),
-        ("disconnect_request",  "v4.0"),
-        ("disconnect_release",  "v4.0"),
-    ],
-)
-def test_post_v3_1_areas_still_raise(b, method_name, expected_intro):
-    method = getattr(b, method_name)
-    with pytest.raises(NotSupportedInThisVersionError) as exc_info:
-        method(_BUS, _STATE)
-    assert exc_info.value.introduced_in == expected_intro
-    # version field reports v3.1, not v2.1 (subclass overrides version_label)
-    assert exc_info.value.version == "v3.1"
+def test_ca_parity_always_none_in_v3_x(b):
+    """Parity errors ride dfi_alert_n (as CRCEvent); the dedicated
+    v2.1 wire is gone and ca_parity_check never double-reports."""
+    assert b.ca_parity_check(_quiet_bus(parity_error=1), _STATE) is None
+    assert b.ca_parity_check(_quiet_bus(alert_n=0), _STATE) is None
 
 
 # ---------------------------------------------------------------------
-# Class metadata + inheritance
+# Error interface
 # ---------------------------------------------------------------------
 
 
-def test_inherits_from_v2_1(b):
-    assert isinstance(b, DFIv2_1Behavior)
+def test_error_event_none_when_idle(b):
+    assert b.error_event(_quiet_bus(), _STATE) is None
 
 
-def test_version_label_is_v3_1(b):
-    assert b.version_label == "v3.1"
-
-
-def test_no_state_on_instance(b):
-    """Still stateless."""
-    assert b.__dict__ == {}
-
-
-# ---------------------------------------------------------------------
-# Spot-check: error message embeds the right version
-# ---------------------------------------------------------------------
-
-
-def test_phy_takeover_error_message_includes_v3_1(b):
-    """When DFIv3_1Behavior.phy_takeover raises, the message names v3.1
-    as the *current* version (not v2.1) so users see what they actually
-    have configured."""
-    with pytest.raises(NotSupportedInThisVersionError) as exc_info:
-        b.phy_takeover(_BUS, _STATE)
-    assert "v3.1" in str(exc_info.value)
-    assert "v4.0" in str(exc_info.value)  # introduced-in
-
-
-# ---------------------------------------------------------------------
-# error_event() — first real implementation (not a stub)
-# ---------------------------------------------------------------------
-
-
-def test_error_event_returns_none_when_error_signal_low(b):
-    bus = MockBus(error=0, error_info=0)
-    assert b.error_event(bus, None) is None
-
-
-def test_error_event_returns_event_when_error_signal_asserted(b):
-    bus = MockBus(error=1, error_info=0x42)
-    evt = b.error_event(bus, None)
+def test_error_event_carries_info_code(b):
+    evt = b.error_event(_quiet_bus(error=1, error_info=0x42), _STATE)
     assert evt is not None
     assert evt.kind == ErrorKind.OTHER
     assert evt.code == 0x42
 
 
-def test_error_event_carries_info_bits_as_code(b):
-    """error_info field maps directly to ErrorEvent.code in the MVP
-    decoding (no spec-info-encoding lookup yet)."""
-    bus = MockBus(error=1, error_info=0xff)
-    evt = b.error_event(bus, None)
-    assert evt.code == 0xff
-
-
-def test_error_event_ignores_state_arg(b):
-    """state is positional in the API but unused for error_event."""
-    bus = MockBus(error=1, error_info=0x1)
-    assert b.error_event(bus, "any state").code == 0x1
-    assert b.error_event(bus, None).code == 0x1
-    assert b.error_event(bus, 42).code == 0x1
-
-
 # ---------------------------------------------------------------------
-# crc() — implementation (not a stub)
+# Training — v2.1 handshakes + v3.x additions
 # ---------------------------------------------------------------------
 
 
-def test_crc_returns_none_when_alert_low(b):
-    bus = MockBus(crc_alert=0)
-    assert b.crc(bus, None) is None
+def test_training_none_when_idle(b):
+    assert b.training_step(_quiet_bus(), _STATE) is None
 
 
-def test_crc_returns_event_when_alert_high(b):
-    bus = MockBus(crc_alert=1)
-    evt = b.crc(bus, None)
-    assert evt is not None
-    assert evt.kind == CRCKind.DRAM_CRC
-
-
-def test_crc_mvp_slice_idx_is_zero(b):
-    """v3.0 MVP doesn't distinguish per-slice; v4.0 overrides for that."""
-    bus = MockBus(crc_alert=1)
-    evt = b.crc(bus, None)
-    assert evt.slice_idx == 0
-
-
-# ---------------------------------------------------------------------
-# update_request() — bidirectional handshake (v3.0 introduction)
-# ---------------------------------------------------------------------
-
-
-def test_update_returns_none_when_quiet(b):
-    bus = MockBus(ctrlupd_req=0, phyupd_req=0)
-    assert b.update_request(bus, None) is None
-
-
-def test_update_detects_mc_initiated(b):
-    bus = MockBus(ctrlupd_req=1, phyupd_req=0)
-    evt = b.update_request(bus, None)
-    assert evt is not None
-    assert evt.state == UpdateState.REQUESTED
-    assert evt.initiator == "mc"
-
-
-def test_update_detects_phy_initiated(b):
-    bus = MockBus(ctrlupd_req=0, phyupd_req=1)
-    evt = b.update_request(bus, None)
-    assert evt is not None
-    assert evt.state == UpdateState.REQUESTED
-    assert evt.initiator == "phy"
-
-
-def test_update_mc_takes_priority_when_both_asserted(b):
-    """Per the spec, an active MC-initiated request wins over a
-    simultaneous PHY-initiated one."""
-    bus = MockBus(ctrlupd_req=1, phyupd_req=1)
-    evt = b.update_request(bus, None)
-    assert evt.initiator == "mc"
-
-
-# ---------------------------------------------------------------------
-# training_step() — pressure-tested single-method shape
-# ---------------------------------------------------------------------
-
-
-def test_training_returns_none_when_inactive(b):
-    bus = MockBus(training_active=0, training_phase=0)
-    assert b.training_step(bus, None) is None
-
-
-@pytest.mark.parametrize(
-    "phase_code, expected_phase",
-    [
-        (0, TrainingPhase.READ_LEVELING),
-        (1, TrainingPhase.WRITE_LEVELING),
-        (2, TrainingPhase.DQ_TRAINING),
-        (3, TrainingPhase.CA_TRAINING),
-        (4, TrainingPhase.DB_TRAINING),
-    ],
-)
-def test_training_decodes_each_phase(b, phase_code, expected_phase):
-    """Validates the single-method shape: one method, phase distinction
-    is data — exactly what the LiteDRAM survey recommended."""
-    bus = MockBus(training_active=1, training_phase=phase_code)
-    evt = b.training_step(bus, None)
-    assert evt is not None
-    assert evt.phase == expected_phase
-    assert evt.slice_idx == 0   # v3 MVP
-
-
-def test_training_unknown_phase_code_falls_back_to_read_lvl(b):
-    """Forward-compat: phase codes we don't recognize don't crash
-    — they fall back to READ_LEVELING (the v3.0 baseline phase)."""
-    bus = MockBus(training_active=1, training_phase=7)  # not in decode table
-    evt = b.training_step(bus, None)
-    assert evt is not None
+def test_training_inherits_v2_1_phases(b):
+    evt = b.training_step(_quiet_bus(rdlvl_en=1), _STATE)
     assert evt.phase == TrainingPhase.READ_LEVELING
 
 
-# ---------------------------------------------------------------------
-# ca_parity_check() — DDR4 parity error
-# ---------------------------------------------------------------------
+def test_training_ca_training_via_calvl(b):
+    evt = b.training_step(_quiet_bus(calvl_en=1), _STATE)
+    assert evt.phase == TrainingPhase.CA_TRAINING
+    evt = b.training_step(_quiet_bus(calvl_req=1), _STATE)
+    assert evt.phase == TrainingPhase.CA_TRAINING
 
 
-def test_ca_parity_returns_none_when_check_low(b):
-    bus = MockBus(parity_check=0, parity_in=1)
-    assert b.ca_parity_check(bus, None) is None
-
-
-def test_ca_parity_returns_event_when_check_high(b):
-    bus = MockBus(parity_check=1, parity_in=1)
-    evt = b.ca_parity_check(bus, None)
+def test_training_phy_requested_active_low(b):
+    """dfi_phylvl_req_cs_n is per-CS active low: a cleared bit is a
+    request; all-ones is idle."""
+    evt = b.training_step(_quiet_bus(phylvl_req_cs_n=0), _STATE)
     assert evt is not None
-    assert evt.parity_bit_received == 1
+    assert evt.phase == TrainingPhase.PHY_REQUESTED
 
 
-def test_ca_parity_received_field_mirrors_parity_in(b):
-    bus = MockBus(parity_check=1, parity_in=0)
-    evt = b.ca_parity_check(bus, None)
-    assert evt.parity_bit_received == 0
+# ---------------------------------------------------------------------
+# Low power — ctrl/data split (v3.1)
+# ---------------------------------------------------------------------
+
+
+def test_low_power_ctrl_request(b):
+    evt = b.low_power(_quiet_bus(lp_ctrl_req=1, lp_wakeup=3), _STATE)
+    assert evt is not None
+    assert evt.channel == "ctrl"
+    assert evt.wakeup == 3
+
+
+def test_low_power_data_request(b):
+    evt = b.low_power(_quiet_bus(lp_data_req=1), _STATE)
+    assert evt.channel == "data"
+
+
+def test_low_power_ctrl_wins_simultaneous(b):
+    evt = b.low_power(_quiet_bus(lp_ctrl_req=1, lp_data_req=1), _STATE)
+    assert evt.channel == "ctrl"
+
+
+# ---------------------------------------------------------------------
+# Inherited raises / inherited implementations
+# ---------------------------------------------------------------------
+
+
+def test_phy_master_still_raises(b):
+    with pytest.raises(NotImplementedError):
+        b.phy_takeover(_quiet_bus(), _STATE)
+
+
+def test_disconnect_still_raises(b):
+    with pytest.raises(NotImplementedError):
+        b.disconnect_request(_quiet_bus(), _STATE)
+
+
+def test_update_inherited_from_v2_1(b):
+    evt = b.update_request(_quiet_bus(phyupd_req=1, phyupd_type=1), _STATE)
+    assert evt.initiator == "phy"
+    assert evt.update_type == 1
+
+
+def test_version_label(b):
+    assert b.version_label == "v3.1"
+
+
+def test_stateless(b):
+    assert b.__dict__ == {}

@@ -45,14 +45,18 @@ async def _bring_up(dut):
     dut.phy_dfi_rddata_valid.value = 0
     dut.phy_dfi_error.value = 0
     dut.phy_dfi_error_info.value = 0
-    dut.phy_dfi_crc_alert.value = 0
+    dut.phy_dfi_alert_n.value = 1
     dut.phy_dfi_ctrlupd_ack.value = 0
     dut.phy_dfi_phyupd_req.value = 0
-    dut.phy_dfi_training_active.value = 0
-    dut.phy_dfi_training_phase.value = 0
-    dut.phy_dfi_parity_check.value = 0
-    dut.phy_dfi_freq_change_ack.value = 0
-    dut.phy_dfi_disconnect_req.value = 0
+    dut.phy_dfi_rdlvl_req.value = 0
+    dut.phy_dfi_rdlvl_gate_req.value = 0
+    dut.phy_dfi_wrlvl_req.value = 0
+    dut.phy_dfi_rdlvl_resp.value = 0
+    dut.phy_dfi_wrlvl_resp.value = 0
+    dut.phy_dfi_phyupd_type.value = 0
+    dut.phy_dfi_lp_ack.value = 0
+    dut.phy_dfi_parity_error.value = 0
+    dut.phy_dfi_init_complete.value = 0
     dut.phy_dfi_phymstr_req.value = 0
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
@@ -82,10 +86,10 @@ def _make_stack(dut):
 
 @cocotb.test(timeout_time=1, timeout_unit="ms")
 async def dfi_disconnect_phymstr_test(dut):
-    """Disconnect request and PHY-Master takeover both detected by v4.0."""
+    """disconnect_error flag and PHY-Master takeover both detected by v4.0."""
     await _bring_up(dut)
     _, _, slave = _make_stack(dut)
-    _ = DFIMasterMC(dut, dut.dfi_clk)
+    master = DFIMasterMC(dut, dut.dfi_clk)
     await Timer(1, units="ns")
 
     # Quiet baseline
@@ -94,15 +98,18 @@ async def dfi_disconnect_phymstr_test(dut):
     assert len(slave.disconnect_events) == 0
     assert len(slave.takeover_events) == 0
 
-    # ----- Scenario 1: Disconnect request -----
-    slave.set_disconnect_req(active=1)
+    # ----- Scenario 1: MC breaks a handshake with an error disconnect.
+    # The MC drives dfi_disconnect_error (the protocol's one dedicated
+    # wire); the behavior reports it with error=True.
+    master.set_disconnect_error(1)
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
-    slave.set_disconnect_req(active=0)
+    master.set_disconnect_error(0)
     await RisingEdge(dut.dfi_clk)
 
     assert len(slave.disconnect_events) >= 1
     assert slave.disconnect_events[0].phase == DisconnectPhase.REQUEST
+    assert slave.disconnect_events[0].error is True
 
     # ----- Scenario 2: PHY-Master takeover -----
     slave.set_phymstr_req(active=1)
@@ -112,7 +119,7 @@ async def dfi_disconnect_phymstr_test(dut):
     await RisingEdge(dut.dfi_clk)
 
     assert len(slave.takeover_events) >= 1
-    assert slave.takeover_events[0].reason == "phy_managed"
+    assert slave.takeover_events[0].reason == "phy_master"
 
     dut._log.info(f"slave: {slave}")
     dut._log.info("v4.0 disconnect + PHY-Master proofs passed")

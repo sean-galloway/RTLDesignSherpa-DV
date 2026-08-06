@@ -34,13 +34,15 @@
 
 ### Known issues
 
-- **ACK-mode (`WAIT_GNT_ACK=1`) round-robin compliance still loses a grant** —
-  roughly three runs in eight on a 4-client arbiter — and miscounts ACKs during
-  single-client saturation. `is_new_grant` is re-derived from `pending_acks`
+- **ACK-mode (`WAIT_GNT_ACK=1`) round-robin compliance still loses a grant**
+  ([#50]) — roughly three runs in eight on a 4-client arbiter — and miscounts
+  ACKs during single-client saturation. `is_new_grant` is re-derived from `pending_acks`
   instead of read from the transaction type, so a grant to a client that still
   owes an ACK is skipped entirely. The no-ACK path is clean and safe to assert
   on. Details and suggested fix in
   `docs/internal/arbiter-ack-mode-compliance.md`.
+
+[#50]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/50
 
 ## [0.6.2] - 2026-08-01
 

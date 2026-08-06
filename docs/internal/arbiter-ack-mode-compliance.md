@@ -4,6 +4,7 @@
 > defects in the same model. The **no-ACK path is clean** and is asserted on by
 > the consuming testbenches; this is `WAIT_GNT_ACK=1` only.
 >
+> **Issue:** [#50](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/50)
 > **Component:** `src/CocoTBFramework/components/shared/arbiter_compliance.py`
 > **Tracked downstream as:** COMMON-019 (RTLDesignSherpa, `vault/Tasks/common/`)
 

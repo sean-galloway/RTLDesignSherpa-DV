@@ -283,6 +283,7 @@ class DFISlavePHY(BusMonitor):
         dfi_phase_bytes: Optional[int] = None,
         timing: "Optional[DFITimingProfile]" = None,
         read_device_word_offset: int = 0,
+        violation_policy=None,
         **kwargs,
     ):
         if side != "phy":
@@ -312,10 +313,14 @@ class DFISlavePHY(BusMonitor):
 
         # Independent state model — caller's base might be shared with a
         # master and we want the slave's view to be fully self-contained.
+        # ``violation_policy`` lets violation-injection tests demote hard
+        # rules to soft so the checker's catches can be counted instead
+        # of aborting the simulation.
         from .dram_state import DramStateModel  # local import to avoid cycle
         self.dram = DramStateModel(
             timings=base.timings,
             num_banks=base.mapping.num_banks,
+            policy=violation_policy,
         )
 
         BusMonitor.__init__(self, entity, f"{side}_dfi", clock, **kwargs)
@@ -474,6 +479,14 @@ class DFISlavePHY(BusMonitor):
         # Low-power event queue. Populated by behavior.low_power()
         # when an lp request wire asserts.
         self.low_power_events: Deque[LowPowerEvent] = deque()
+
+        # CKE-edge decode state for self-refresh / power-down: a
+        # falling CKE with the REF encoding is SRE, with NOP/deselect
+        # is PDE; a rising CKE exits whichever state we're in. The
+        # v4.0+ rule that a ctrlupd handshake must precede SRX is
+        # tracked via _sr_ctrlupd_seen while in self-refresh.
+        self._prev_cke = 1
+        self._sr_ctrlupd_seen = False
 
         # Disconnect-protocol event queue (v4.0+).
         self.disconnect_events: Deque[DisconnectEvent] = deque()
@@ -1127,7 +1140,53 @@ class DFISlavePHY(BusMonitor):
             dfi_rate = self._infer_dfi_rate()
             cs_all = _v(self.bus.cs_n)
             cs_sel_mask = (1 << dfi_rate) - 1   # 1 cs_n bit per phase (1 rank)
-            if (cs_all & cs_sel_mask) != cs_sel_mask:
+
+            # ----- CKE-edge decode: self-refresh / power-down -----
+            cke_now = _v(self.bus.cke) & 1
+            if self._prev_cke == 1 and cke_now == 0:
+                selected = (cs_all & cs_sel_mask) != cs_sel_mask
+                cmd_at_edge = self._decode_command() if selected \
+                    else DRAMCommand.NOP
+                if selected and cmd_at_edge == DRAMCommand.REF:
+                    self.cmd_counts[DRAMCommand.SRE] = \
+                        self.cmd_counts.get(DRAMCommand.SRE, 0) + 1
+                    self.dram.on_self_refresh_entry()
+                    self._sr_ctrlupd_seen = False
+                else:
+                    self.cmd_counts[DRAMCommand.PDE] = \
+                        self.cmd_counts.get(DRAMCommand.PDE, 0) + 1
+                    self.dram.on_powerdown_entry()
+            elif self._prev_cke == 0 and cke_now == 1:
+                if self.dram.in_self_refresh:
+                    self.cmd_counts[DRAMCommand.SRX] = \
+                        self.cmd_counts.get(DRAMCommand.SRX, 0) + 1
+                    # v4.0+: a ctrlupd handshake is REQUIRED
+                    # immediately before self-refresh exit.
+                    from .dfi_signal_types import DFIVersion, version_rank
+                    if (version_rank(self.base.dfi_version)
+                            >= version_rank(DFIVersion.V4_0)
+                            and not self._sr_ctrlupd_seen):
+                        self.dram.policy.report(
+                            "srx_without_ctrlupd",
+                            "self-refresh exit without the required "
+                            "ctrlupd handshake (DFI v4.0+ rule)",
+                            self.log,
+                        )
+                    self.dram.on_self_refresh_exit()
+                else:
+                    self.cmd_counts[DRAMCommand.PDX] = \
+                        self.cmd_counts.get(DRAMCommand.PDX, 0) + 1
+                    self.dram.on_powerdown_exit()
+            self._prev_cke = cke_now
+
+            # Track the v4.0 pre-SRX ctrlupd handshake while in SR.
+            if (self.dram.in_self_refresh
+                    and _v(self.bus.ctrlupd_req) and _v(self.bus.ctrlupd_ack)):
+                self._sr_ctrlupd_seen = True
+
+            # Normal command dispatch only while CKE is high and we
+            # didn't just consume the wire state as an entry command.
+            if cke_now == 1 and (cs_all & cs_sel_mask) != cs_sel_mask:
                 # Faithful a7ddrphy: decode a command at EVERY selected phase, so
                 # multiple commands issued in ONE DFI cycle (the sub-DFI-word BL4
                 # fix: two RDs at phases {P, P+2}) are all handled and pack into

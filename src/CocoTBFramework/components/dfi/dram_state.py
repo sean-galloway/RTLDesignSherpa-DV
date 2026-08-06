@@ -187,6 +187,9 @@ _DEFAULT_HARD: FrozenSet[str] = frozenset({
     "act_on_active_bank",
     "ref_with_open_row",
     "cmd_during_refresh",
+    "sre_with_open_row",
+    "cmd_during_self_refresh",
+    "cmd_during_powerdown",
     # Timing parameters
     "tRCD",
     "tRP",
@@ -200,6 +203,8 @@ _DEFAULT_HARD: FrozenSet[str] = frozenset({
 _DEFAULT_SOFT: FrozenSet[str] = frozenset({
     "tFAW",
     "tREFI",
+    "tXS",
+    "srx_without_ctrlupd",
     "tRFC",        # softer because refresh model is approximate
     "CL_mismatch",
     "CWL_mismatch",
@@ -339,6 +344,14 @@ class DramStateModel:
         self._last_ref_cycle: int = -1
         self._ref_end_cycle: int = -1
 
+        # Self-refresh / power-down state. SRE requires all banks
+        # precharged; while in either state the DRAM ignores the
+        # command bus, so any command routed here is a violation.
+        # After SRX, row commands must wait tXS = tRFC + 10ns.
+        self._in_self_refresh = False
+        self._in_powerdown = False
+        self._sr_exit_cycle: int = -1
+
         # tREFI windowing (JEDEC postpone limit): up to 8 refreshes may
         # be postponed, so the max legal REF-to-REF gap is 9 x tREFI.
         # Armed lazily at the first command (traffic implies the DRAM
@@ -393,6 +406,8 @@ class DramStateModel:
     def on_activate(self, bank_idx: int, row: int) -> None:
         """Process an ACT command."""
         self._arm_refi_window()
+        self._check_not_low_power("ACT")
+        self._check_txs("ACT")
         self._check_not_refreshing("act")
         b = self._bank(bank_idx)
         if b.state == BankState.ACTIVE:
@@ -453,6 +468,8 @@ class DramStateModel:
     def on_read(self, bank_idx: int) -> None:
         """Process a RD command."""
         self._arm_refi_window()
+        self._check_not_low_power("RD")
+        self._check_txs("RD")
         self._check_not_refreshing("rd")
         b = self._bank(bank_idx)
         if b.state != BankState.ACTIVE:
@@ -487,6 +504,8 @@ class DramStateModel:
     def on_write(self, bank_idx: int) -> None:
         """Process a WR command."""
         self._arm_refi_window()
+        self._check_not_low_power("WR")
+        self._check_txs("WR")
         self._check_not_refreshing("wr")
         b = self._bank(bank_idx)
         if b.state != BankState.ACTIVE:
@@ -511,6 +530,7 @@ class DramStateModel:
     def on_precharge(self, bank_idx: int, all_banks: bool = False) -> None:
         """Process a PRE command."""
         self._arm_refi_window()
+        self._check_not_low_power("PRE")
         self._check_not_refreshing("pre")
         targets = self.banks if all_banks else [self._bank(bank_idx)]
         for i, b in enumerate(targets):
@@ -551,6 +571,8 @@ class DramStateModel:
 
     def on_refresh(self) -> None:
         """Process a REF (all-bank refresh) command."""
+        self._check_not_low_power("REF")
+        self._check_txs("REF")
         # All banks must be precharged before REF.
         for i, b in enumerate(self.banks):
             if b.state == BankState.ACTIVE:
@@ -569,6 +591,91 @@ class DramStateModel:
         self._refi_deadline_cycle = (
             self.cycle + 9 * self.timings.tREFI_cycles
         )
+
+    # ----- Self-refresh / power-down -----
+
+    @property
+    def in_self_refresh(self) -> bool:
+        return self._in_self_refresh
+
+    @property
+    def in_powerdown(self) -> bool:
+        return self._in_powerdown
+
+    @property
+    def tXS_cycles(self) -> int:
+        """Self-refresh exit to first valid command: tRFC + 10 ns
+        (JEDEC DDR2/3/4 definition)."""
+        import math
+        return self.timings.tRFC_cycles + math.ceil(
+            10.0 / self.timings.tCK_ns)
+
+    def on_self_refresh_entry(self) -> None:
+        """SRE: REF encoding with CKE falling. All banks must be
+        precharged (same rule as REF)."""
+        for i, b in enumerate(self.banks):
+            if b.state == BankState.ACTIVE:
+                self.policy.report(
+                    "sre_with_open_row",
+                    f"self-refresh entry with bank {i} ACTIVE "
+                    f"(row=0x{b.row:x}) @ cycle {self.cycle}",
+                    self.log,
+                )
+        for b in self.banks:
+            b.state = BankState.IDLE
+            b.row = None
+        self._in_self_refresh = True
+        # The DRAM refreshes itself in SR — restart the tREFI window.
+        self._refi_deadline_cycle = (
+            self.cycle + 9 * self.timings.tREFI_cycles
+        )
+
+    def on_self_refresh_exit(self) -> None:
+        """SRX: CKE rising while in self-refresh. Row commands must
+        then wait tXS (checked in the command handlers)."""
+        self._in_self_refresh = False
+        self._sr_exit_cycle = self.cycle
+        # Self-refresh maintained the cells; restart the window.
+        self._refi_deadline_cycle = (
+            self.cycle + 9 * self.timings.tREFI_cycles
+        )
+
+    def on_powerdown_entry(self) -> None:
+        """PDE: CKE falling with the bus deselected/NOP. Legal with
+        open rows (active power-down) — no precharge requirement."""
+        self._in_powerdown = True
+
+    def on_powerdown_exit(self) -> None:
+        self._in_powerdown = False
+
+    def _check_not_low_power(self, cmd: str) -> None:
+        if self._in_self_refresh:
+            self.policy.report(
+                "cmd_during_self_refresh",
+                f"{cmd.upper()} issued while in self-refresh "
+                f"@ cycle {self.cycle}",
+                self.log,
+            )
+        if self._in_powerdown:
+            self.policy.report(
+                "cmd_during_powerdown",
+                f"{cmd.upper()} issued while in power-down "
+                f"@ cycle {self.cycle}",
+                self.log,
+            )
+
+    def _check_txs(self, cmd: str) -> None:
+        if self._sr_exit_cycle < 0:
+            return
+        elapsed = self.cycle - self._sr_exit_cycle
+        if elapsed < self.tXS_cycles:
+            self.policy.report(
+                "tXS",
+                f"{cmd.upper()} only {elapsed} cycles after self-"
+                f"refresh exit (needs tXS={self.tXS_cycles}) "
+                f"@ cycle {self.cycle}",
+                self.log,
+            )
 
     # ----- Helpers -----
 

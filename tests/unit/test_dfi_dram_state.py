@@ -294,3 +294,83 @@ def test_refi_ref_resets_the_window(model, timings):
     assert model.policy.soft_violation_counts.get("tREFI", 0) == 0
     _advance(model, 20)                       # now the new window expires
     assert model.policy.soft_violation_counts.get("tREFI", 0) == 1
+
+
+# ---------------------------------------------------------------------
+# Self-refresh / power-down
+# ---------------------------------------------------------------------
+
+
+def _soft_model(timings):
+    from CocoTBFramework.components.dfi.dram_state import (
+        DramStateModel, ViolationPolicy,
+    )
+    return DramStateModel(
+        timings=timings, num_banks=8,
+        policy=ViolationPolicy(hard=frozenset()),
+    )
+
+
+def test_sre_requires_precharged_banks(timings):
+    m = _soft_model(timings)
+    m.on_activate(0, row=0x10)
+    m.on_self_refresh_entry()
+    assert m.policy.soft_violation_counts.get("sre_with_open_row", 0) == 1
+    assert m.in_self_refresh
+
+
+def test_cmd_during_self_refresh_flags(timings):
+    m = _soft_model(timings)
+    m.on_self_refresh_entry()
+    m.on_activate(0, row=0x10)
+    assert m.policy.soft_violation_counts.get(
+        "cmd_during_self_refresh", 0) == 1
+
+
+def test_txs_enforced_after_srx(timings):
+    m = _soft_model(timings)
+    m.on_self_refresh_entry()
+    _advance(m, 100)
+    m.on_self_refresh_exit()
+    assert not m.in_self_refresh
+    _advance(m, 5)                    # way inside tXS = tRFC + 10ns
+    m.on_activate(0, row=0x10)
+    assert m.policy.soft_violation_counts.get("tXS", 0) == 1
+
+
+def test_txs_satisfied_after_wait(timings):
+    m = _soft_model(timings)
+    m.on_self_refresh_entry()
+    _advance(m, 100)
+    m.on_self_refresh_exit()
+    _advance(m, m.tXS_cycles + 1)
+    m.on_activate(0, row=0x10)
+    assert m.policy.soft_violation_counts.get("tXS", 0) is None or \
+        m.policy.soft_violation_counts.get("tXS", 0) == 0
+
+
+def test_powerdown_allows_open_rows_but_blocks_commands(timings):
+    m = _soft_model(timings)
+    m.on_activate(0, row=0x10)
+    _advance(m, 2)
+    m.on_powerdown_entry()            # active power-down: legal
+    assert m.policy.soft_violation_counts.get("sre_with_open_row", 0) in (0, None)
+    m.on_read(0)
+    assert m.policy.soft_violation_counts.get(
+        "cmd_during_powerdown", 0) == 1
+    m.on_powerdown_exit()
+    assert not m.in_powerdown
+
+
+def test_self_refresh_restarts_trefi_window(timings):
+    m = _soft_model(timings)
+    m.on_activate(0, row=0x10)        # arms the window at cycle 0
+    _advance(m, timings.tRAS_min_cycles + 1)
+    m.on_precharge(0)
+    window = 9 * timings.tREFI_cycles
+    # Stay comfortably inside the FIRST window (armed at the ACT),
+    # accounting for the tRAS advance already consumed.
+    _advance(m, window - timings.tRAS_min_cycles - 20)
+    m.on_self_refresh_entry()         # SR maintains the cells
+    _advance(m, window - 10)          # deep into the restarted window
+    assert m.policy.soft_violation_counts.get("tREFI", 0) in (0, None)

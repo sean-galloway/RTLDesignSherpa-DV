@@ -291,6 +291,43 @@ class DFIMasterMC(BusDriver):
         for _ in range(cycles):
             await RisingEdge(self.clock)
 
+    # ----- Self-refresh / power-down primitives (CKE-edge commands) -----
+
+    async def self_refresh_entry(self) -> None:
+        """SRE: the REF encoding sampled with CKE falling. All banks
+        must be precharged first (the slave's model checks)."""
+        self.bus.cs_n.value = 0
+        self.bus.ras_n.value = 0
+        self.bus.cas_n.value = 0
+        self.bus.we_n.value = 1
+        self.bus.cke.value = 0
+        await RisingEdge(self.clock)
+        self.bus.cs_n.value = 1
+        self.bus.ras_n.value = 1
+        self.bus.cas_n.value = 1
+        self.bus.we_n.value = 1
+        # CKE stays low for the duration of self-refresh.
+
+    async def self_refresh_exit(self) -> None:
+        """SRX: CKE rising with the bus deselected. Row commands must
+        then wait tXS = tRFC + 10 ns (the slave's model checks)."""
+        self.bus.cs_n.value = 1
+        self.bus.cke.value = 1
+        await RisingEdge(self.clock)
+
+    async def powerdown_entry(self) -> None:
+        """PDE: CKE falling with the bus deselected/NOP. Legal with
+        open rows (active power-down)."""
+        self.bus.cs_n.value = 1
+        self.bus.cke.value = 0
+        await RisingEdge(self.clock)
+
+    async def powerdown_exit(self) -> None:
+        """PDX: CKE rising (bus deselected)."""
+        self.bus.cs_n.value = 1
+        self.bus.cke.value = 1
+        await RisingEdge(self.clock)
+
     # ----- Write-data-interface primitives -----
 
     async def write_data(self, data: int, mask: int = 0) -> None:

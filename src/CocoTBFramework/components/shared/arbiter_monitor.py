@@ -745,16 +745,45 @@ class ArbiterMonitor(BusMonitor):
                         f"(decoded: {decoded_weights}) @ {signal_state.current_time}ns")
 
     def _decode_weights(self, packed_weights):
-        """NEW: Decode packed weight signal into individual client weights"""
-        # Assume 4 bits per weight (MAX_LEVELS_WIDTH = 4)
-        max_levels_width = 4
-        weights = []
+        """Decode the packed weight signal into per-client weights.
 
-        for i in range(self.clients):
-            weight = (packed_weights >> (i * max_levels_width)) & ((1 << max_levels_width) - 1)
-            weights.append(weight)
+        The field width is MAX_LEVELS_WIDTH = $clog2(MAX_LEVELS), so it is 3
+        bits for MAX_LEVELS=8 and 4 for MAX_LEVELS=16. This used to assume 4
+        unconditionally, which misaligned every field on any MAX_LEVELS=8 DUT:
+        arbiter_round_robin_weighted with CLIENTS=4, MAX_LEVELS=8 decoded as
+        weights [1, 1, 15, 0] and the compliance model then reported ~100
+        wrr_zero_weight_grant errors per run against an arbiter that was
+        behaving correctly.
 
-        return weights
+        The width is derived from the signal rather than taken as a parameter:
+        the packed vector is CLIENTS * MAX_LEVELS_WIDTH wide, so the DUT itself
+        says what the field size is and no caller can get it wrong.
+        """
+        width = getattr(self, '_weight_field_width', None)
+        if width is None:
+            total = 0
+            sig = getattr(self.bus, 'max_thresh', None)
+            if sig is not None:
+                # Width from the value's bit string. NOT len(sig._range): on a
+                # vector handle that returns the two range endpoints, so a
+                # 12-bit max_thresh measured as 2 and the width fell back to
+                # the old hardcoded 4 -- which reads a fourth field past the
+                # end of a CLIENTS=4/MAX_LEVELS=8 vector, making client 3 look
+                # permanently zero-weighted and flagging every grant it got.
+                try:
+                    total = len(sig.value.binstr)
+                except Exception:
+                    total = 0
+            width = (total // self.clients) if (total and self.clients) else 4
+            if width < 1:
+                width = 4
+            self._weight_field_width = width
+            if self.debug_enabled:
+                self.log.debug(f"ArbiterMonitor({self.title}): weight field width "
+                               f"{width} bits ({total} packed / {self.clients} clients)")
+
+        mask = (1 << width) - 1
+        return [(packed_weights >> (i * width)) & mask for i in range(self.clients)]
 
     def _create_grant_transaction(self, signal_state, transaction_type="standard"):
         """

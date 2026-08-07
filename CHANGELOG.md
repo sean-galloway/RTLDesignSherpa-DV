@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- **Packed arbiter weights were decoded at a hardcoded 4-bit field width**
+  ([#62]). The real width is `MAX_LEVELS_WIDTH = $clog2(MAX_LEVELS)`, so every
+  field misaligns on a `MAX_LEVELS=8` DUT: `arbiter_round_robin_weighted` with
+  `CLIENTS=4, MAX_LEVELS=8` packs 12 bits, four 4-bit reads run past the end,
+  and client 3 always decodes as weight 0 — ~125 false
+  `wrr_zero_weight_grant` errors per run against a correct arbiter.
+  `MAX_LEVELS=16` was unaffected, which is why it went unnoticed. The width now
+  comes from the signal, so the DUT itself declares the field size.
+
+  Take it from the value's bit string, **not** `len(sig._range)`: on a vector
+  handle that returns the two range endpoints, so a 12-bit signal measures as 2
+  and silently falls back to the old hardcoded 4. That fallback is why the
+  first attempt at this fix changed nothing.
+
 - **Arbiter compliance model: three defects that failed correct RTL.** Every
   round-robin violation the model reported against `rtl/common`'s arbiters was
   its own; the RTL was correct each time. Anyone using
@@ -43,6 +57,7 @@
   `docs/internal/arbiter-ack-mode-compliance.md`.
 
 [#50]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/50
+[#62]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/62
 
 ## [0.6.2] - 2026-08-01
 

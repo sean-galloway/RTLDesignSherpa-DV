@@ -636,6 +636,29 @@ class ArbiterMonitor(BusMonitor):
         current_time = signal_state.current_time
         gnt_id = signal_state.gnt_id
 
+        # Hand-off without grant_valid dropping: retire the previous owner.
+        #
+        # grant_active is otherwise cleared only when grant_valid FALLS (see
+        # the grant-ended branch in _process_grant_changes). An arbiter that
+        # passes the grant straight from one client to the next -- normal for
+        # WAIT_GNT_ACK=1 under continuous load -- never lowers grant_valid, so
+        # the old owner's flag stayed True forever. Its NEXT grant then failed
+        # the rising-edge test, was tagged 'grant_continuation' instead of
+        # 'new_grant', and the compliance model skipped it: no check AND no
+        # mask update. The model fell one grant behind the RTL and stayed
+        # there, so every later grant read as "expected client N, got N+1".
+        prev = self._last_grant_info
+        if prev['gnt_valid'] and prev['gnt_id'] != gnt_id:
+            old = self._ack_mode_state[prev['gnt_id']]
+            if old['grant_active']:
+                if self.debug_enabled:
+                    self.log.debug(
+                        f"ArbiterMonitor({self.title}): ACK MODE grant handed "
+                        f"from client {prev['gnt_id']} to {gnt_id} without "
+                        f"grant_valid dropping @ {current_time}ns")
+                old['grant_active'] = False
+                old['waiting_for_ack'] = False
+
         client_state = self._ack_mode_state[gnt_id]
 
         # Check if this is a new grant (rising edge of grant_valid for this client)

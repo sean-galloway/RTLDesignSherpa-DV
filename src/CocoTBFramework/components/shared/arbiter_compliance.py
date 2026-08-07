@@ -631,9 +631,21 @@ class ArbiterCompliance:
         current_time = transaction.timestamp
         current_winner = transaction.gnt_id
 
-        # Check if this is a new grant
-        existing_pending = [t for t, client in self.pending_acks.items() if client == current_winner]
-        is_new_grant = not existing_pending
+        # Is this a new grant? Ask the monitor, which tagged the transaction
+        # from the rising edge of grant_valid for this client
+        # (_process_ack_mode_grants: 'new_grant' then 'grant_continuation').
+        #
+        # This used to be re-derived as "the client has no outstanding entry in
+        # pending_acks", which is not the same question. A client granted again
+        # while its previous ACK was still outstanding -- or whose entry was
+        # never registered because the ACK that should have retired it arrived
+        # unmatched -- was classified a continuation and SKIPPED ENTIRELY: no
+        # compliance check and, worse, no mask update. The mask then lagged one
+        # grant behind the RTL and every subsequent grant looked like "expected
+        # client N, got N+1".
+        ttype = (transaction.metadata or {}).get('transaction_type')
+        is_new_grant = (ttype == 'new_grant') if ttype else (
+            not [t for t, c in self.pending_acks.items() if c == current_winner])
 
         if is_new_grant:
             # Same r_last_valid mirror as the no-ACK path: two grant-less

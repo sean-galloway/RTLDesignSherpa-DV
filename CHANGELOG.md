@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- **ACK-mode arbiter compliance was one grant behind the RTL** ([#50]).
+  `_ack_mode_state[i]['grant_active']` cleared only when `grant_valid` FALLS,
+  but an arbiter under continuous load passes the grant straight from one
+  client to the next without ever lowering it. The old owner's flag stayed
+  set, so that client's next grant failed the rising-edge test, was tagged
+  `grant_continuation` rather than `new_grant`, and the compliance model
+  skipped it -- no check and no mask update. The model fell one grant behind
+  and stayed there: every later grant read as "expected client N, got N+1",
+  and the same broken bookkeeping produced 114-146 `unexpected_ack` warnings
+  per run. Both symptoms went to zero together.
+
+  `WAIT_GNT_ACK=1` compliance was effectively unusable before this: consumers
+  saw 1-6 violations in 7 of 8 runs against correct RTL.
+
 - **Packed arbiter weights were decoded at a hardcoded 4-bit field width**
   ([#62]). The real width is `MAX_LEVELS_WIDTH = $clog2(MAX_LEVELS)`, so every
   field misaligns on a `MAX_LEVELS=8` DUT: `arbiter_round_robin_weighted` with

@@ -78,7 +78,7 @@ Feed an APB transaction into the scoreboard.
 
 ```python
 # Add APB transaction
-apb_transaction = create_apb_write(addr=0x1000, data=0xDEADBEEF)
+apb_transaction = create_apb4_write(addr=0x1000, data=0xDEADBEEF)
 scoreboard.add_apb_transaction(apb_transaction)
 ```
 
@@ -407,17 +407,17 @@ async def test_bridge_error_handling():
     scoreboard = APBGAXIScoreboard("ErrorTest", log=logger)
     
     # Normal transaction
-    normal_apb = create_apb_write(addr=0x1000, data=0x11111111)
+    normal_apb = create_apb4_write(addr=0x1000, data=0x11111111)
     normal_cmd = create_gaxi_command(addr=0x1000, data=0x11111111, cmd=1)
     normal_rsp = create_gaxi_response(status='OKAY')
     
     # Error transaction
-    error_apb = create_apb_write(addr=0x2000, data=0x22222222)
+    error_apb = create_apb4_write(addr=0x2000, data=0x22222222)
     error_cmd = create_gaxi_command(addr=0x2000, data=0x22222222, cmd=1)
     error_rsp = create_gaxi_response(status='SLVERR')  # Slave error
     
     # Timeout transaction (no response)
-    timeout_apb = create_apb_write(addr=0x3000, data=0x33333333)
+    timeout_apb = create_apb4_write(addr=0x3000, data=0x33333333)
     timeout_cmd = create_gaxi_command(addr=0x3000, data=0x33333333, cmd=1)
     # No response - will timeout
     
@@ -504,7 +504,7 @@ async def test_multi_bridge_system():
             addr = 0x10000 + (bridge_id * 0x1000) + (addr_offset * 4)
             data = 0xB0000000 + (bridge_id << 16) + addr_offset
             
-            apb_tx = create_apb_write(addr=addr, data=data)
+            apb_tx = create_apb4_write(addr=addr, data=data)
             gaxi_cmd = create_gaxi_command(addr=addr, data=data, cmd=1)
             gaxi_rsp = create_gaxi_response(status='OKAY')
             

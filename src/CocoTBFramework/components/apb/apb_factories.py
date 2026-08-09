@@ -25,7 +25,7 @@ from .apb_components import APBMaster, APBMonitor, APBSlave
 from .apb_sequence import APBSequence
 
 
-def create_apb_master(dut, title, prefix, clock, addr_width=32, data_width=32,
+def create_apb4_master(dut, title, prefix, clock, addr_width=32, data_width=32,
                         randomizer=None, log=None):
     """
     Create an APB Master component with configuration.
@@ -65,7 +65,7 @@ def create_apb_master(dut, title, prefix, clock, addr_width=32, data_width=32,
     )
 
 
-def create_apb_slave(dut, title, prefix, clock, addr_width=32, data_width=32,
+def create_apb4_slave(dut, title, prefix, clock, addr_width=32, data_width=32,
                         registers=None, randomizer=None, log=None,
                         error_overflow=False):
     """
@@ -110,7 +110,7 @@ def create_apb_slave(dut, title, prefix, clock, addr_width=32, data_width=32,
     )
 
 
-def create_apb_monitor(dut, title, prefix, clock, addr_width=32, data_width=32, log=None):
+def create_apb4_monitor(dut, title, prefix, clock, addr_width=32, data_width=32, log=None):
     """
     Create an APB Monitor component with configuration.
 
@@ -140,7 +140,7 @@ def create_apb_monitor(dut, title, prefix, clock, addr_width=32, data_width=32, 
     )
 
 
-def create_apb_scoreboard(name, addr_width=32, data_width=32, log=None):
+def create_apb4_scoreboard(name, addr_width=32, data_width=32, log=None):
     """
     Create an APB Scoreboard with configuration.
 
@@ -156,7 +156,7 @@ def create_apb_scoreboard(name, addr_width=32, data_width=32, log=None):
     return APBScoreboard(name, addr_width, data_width, log)
 
 
-def create_apb_components(dut, clock, title_prefix="", addr_width=32, data_width=32,
+def create_apb4_components(dut, clock, title_prefix="", addr_width=32, data_width=32,
                           memory_lines=1024, randomizer=None, log=None):
     """
     Create a complete set of APB components (master, slave, monitor, scoreboard).
@@ -185,7 +185,7 @@ def create_apb_components(dut, clock, title_prefix="", addr_width=32, data_width
     )
 
     # Create APB master
-    master = create_apb_master(
+    master = create_apb4_master(
         dut,
         f"{title_prefix}APB Master",
         "s_apb",
@@ -197,7 +197,7 @@ def create_apb_components(dut, clock, title_prefix="", addr_width=32, data_width
     )
 
     # Create APB monitor
-    monitor = create_apb_monitor(
+    monitor = create_apb4_monitor(
         dut,
         f"{title_prefix}APB Monitor",
         "s_apb",
@@ -208,7 +208,7 @@ def create_apb_components(dut, clock, title_prefix="", addr_width=32, data_width
     )
 
     # Create APB scoreboard
-    scoreboard = create_apb_scoreboard(
+    scoreboard = create_apb4_scoreboard(
         f"{title_prefix}APB_Scoreboard",
         addr_width=addr_width,
         data_width=data_width,
@@ -230,7 +230,7 @@ def create_apb_components(dut, clock, title_prefix="", addr_width=32, data_width
     }
 
 
-def create_apb_transformer(gaxi_field_config, gaxi_packet_class, log=None):
+def create_apb4_transformer(gaxi_field_config, gaxi_packet_class, log=None):
     """
     Create a transformer from APB to GAXI protocol.
 
@@ -245,7 +245,7 @@ def create_apb_transformer(gaxi_field_config, gaxi_packet_class, log=None):
     return APBtoGAXITransformer(gaxi_field_config, gaxi_packet_class, log)
 
 
-def create_apb_sequence(name="basic", num_regs=10, base_addr=0,
+def create_apb4_sequence(name="basic", num_regs=10, base_addr=0,
                             pattern="alternating", data_width=32,
                             randomize_delays=True):
     """
@@ -426,3 +426,32 @@ def create_apb_sequence(name="basic", num_regs=10, base_addr=0,
 
     else:
         raise ValueError(f"Unknown pattern type: {pattern}")
+
+
+# ---------------------------------------------------------------------------
+# Deprecated aliases (issue #64): the factories were renamed create_apb_* ->
+# create_apb4_* for protocol-version consistency with the apb5 components.
+# These shims keep old call sites working for one release cycle.
+# ---------------------------------------------------------------------------
+
+def _deprecated_factory(new_func, old_name):
+    import functools
+    import warnings
+
+    @functools.wraps(new_func)
+    def wrapper(*args, **kwargs):
+        warnings.warn(
+            f"{old_name} is deprecated; use {new_func.__name__} instead",
+            DeprecationWarning, stacklevel=2)
+        return new_func(*args, **kwargs)
+    wrapper.__name__ = old_name
+    return wrapper
+
+
+create_apb_master = _deprecated_factory(create_apb4_master, "create_apb_master")
+create_apb_slave = _deprecated_factory(create_apb4_slave, "create_apb_slave")
+create_apb_monitor = _deprecated_factory(create_apb4_monitor, "create_apb_monitor")
+create_apb_scoreboard = _deprecated_factory(create_apb4_scoreboard, "create_apb_scoreboard")
+create_apb_components = _deprecated_factory(create_apb4_components, "create_apb_components")
+create_apb_transformer = _deprecated_factory(create_apb4_transformer, "create_apb_transformer")
+create_apb_sequence = _deprecated_factory(create_apb4_sequence, "create_apb_sequence")

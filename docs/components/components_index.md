@@ -60,12 +60,12 @@ Everything that talks to your DUT lives here: a master, slave, and monitor for e
 ### Creating Components
 ```python
 # Import protocol-specific factory functions
-from CocoTBFramework.components.apb.apb_factories import create_apb_master, create_apb_slave
+from CocoTBFramework.components.apb.apb_factories import create_apb4_master, create_apb4_slave
 from CocoTBFramework.components.gaxi.gaxi_factories import create_gaxi_master, create_gaxi_slave
 from CocoTBFramework.components.fifo.fifo_factories import create_fifo_master, create_fifo_slave
 
 # Create components
-apb_master = create_apb_master(dut, "APB_Master", "apb_", dut.clk)
+apb_master = create_apb4_master(dut, "APB_Master", "apb_", dut.clk)
 gaxi_master = create_gaxi_master(dut, "GAXI_Master", "", dut.clk, field_config)
 fifo_master = create_fifo_master(dut, "FIFO_Master", dut.clk)
 ```
@@ -161,7 +161,7 @@ One memory model, two protocols — the fastest way to prove a bridge actually p
 
 ```python
 # Create components from different protocols
-apb_master = create_apb_master(dut, "APB_Master", "apb_", dut.clk)
+apb_master = create_apb4_master(dut, "APB_Master", "apb_", dut.clk)
 gaxi_slave = create_gaxi_slave(dut, "GAXI_Slave", "", dut.clk, field_config)
 
 # Use shared memory model for cross-protocol verification

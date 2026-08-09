@@ -240,7 +240,7 @@ Every protocol ships factory functions so creation is one line:
 
 ```python
 # Simple component creation with sensible defaults
-master = create_apb_master(dut, "APB_Master", "apb_", dut.clk)
+master = create_apb4_master(dut, "APB_Master", "apb_", dut.clk)
 slave = create_gaxi_slave(dut, "GAXI_Slave", "", dut.clk, field_config)
 
 # Complete system creation
@@ -254,7 +254,7 @@ Monitors are pure observers — they never drive a pin. Hang whatever callbacks 
 
 ```python
 # Monitor automatically observes transactions
-monitor = create_apb_monitor(dut, "Monitor", "apb_", dut.clk)
+monitor = create_apb4_monitor(dut, "Monitor", "apb_", dut.clk)
 
 # Add callbacks for real-time processing
 monitor.add_callback(scoreboard.add_transaction)
@@ -340,7 +340,7 @@ Because the infrastructure is shared, crossing protocols is boring — which is 
 shared_memory = MemoryModel(num_lines=1024, bytes_per_line=4)
 
 # Components from different protocols
-apb_master = create_apb_master(dut, "APB", "apb_", clk, memory=shared_memory)
+apb_master = create_apb4_master(dut, "APB", "apb_", clk, memory=shared_memory)
 gaxi_slave = create_gaxi_slave(dut, "GAXI", "", clk, config, memory=shared_memory)
 
 # Shared statistics and monitoring

@@ -213,10 +213,10 @@ Components do the pin work, scoreboards do the checking, TBClasses wire it all i
 ### Component-Level Testing
 ```python
 # Direct component usage for specific protocol testing
-from CocoTBFramework.components.apb.apb_factories import create_apb_master, create_apb_sequence
+from CocoTBFramework.components.apb.apb_factories import create_apb4_master, create_apb4_sequence
 
-master = create_apb_master(dut, "APB_Master", "apb_", dut.clk)
-sequence = create_apb_sequence(pattern="stress", num_regs=100)
+master = create_apb4_master(dut, "APB_Master", "apb_", dut.clk)
+sequence = create_apb4_sequence(pattern="stress", num_regs=100)
 
 for packet in sequence:
     await master.send(packet)

@@ -943,7 +943,7 @@ class WaveJSONGenerator:
 
 # Helper functions for creating protocol-specific configurations
 
-def create_apb_wavejson_generator(field_config: Optional[FieldConfig] = None) -> WaveJSONGenerator:
+def create_apb4_wavejson_generator(field_config: Optional[FieldConfig] = None) -> WaveJSONGenerator:
     """Create WaveJSON generator configured for APB protocol with FieldConfig integration"""
     generator = WaveJSONGenerator(debug_level=1, default_field_config=field_config)
 

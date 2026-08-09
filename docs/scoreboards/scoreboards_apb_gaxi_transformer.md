@@ -210,12 +210,12 @@ Convert a GAXI packet to an APB transaction and push it through the APB master.
 
 It calls `transformer.gaxi_to_apb(gaxi_packet, apb_transaction_class)`, records the packet in `pending_packets`, bumps `transaction_count`, then `await`s `apb_master.send(transaction)`.
 
-### `create_apb_gaxi_adapters(...)`
+### `create_apb4_gaxi_adapters(...)`
 
 A factory for the common case: you want both directions wired up against a shared transformer.
 
 ```python
-def create_apb_gaxi_adapters(apb_master, gaxi_master,
+def create_apb4_gaxi_adapters(apb_master, gaxi_master,
                              apb_transaction_class, gaxi_field_config,
                              log=None)
 ```
@@ -231,10 +231,10 @@ def create_apb_gaxi_adapters(apb_master, gaxi_master,
 - `tuple` of `(APBtoGAXIAdapter, GAXItoAPBAdapter)`—both sharing one freshly built `APBtoGAXITransformer`.
 
 ```python
-from CocoTBFramework.scoreboards.apb_gaxi_transformer import create_apb_gaxi_adapters
+from CocoTBFramework.scoreboards.apb_gaxi_transformer import create_apb4_gaxi_adapters
 
 # Build both adapters against a shared transformer
-apb_to_gaxi, gaxi_to_apb = create_apb_gaxi_adapters(
+apb_to_gaxi, gaxi_to_apb = create_apb4_gaxi_adapters(
     apb_master=apb_master,
     gaxi_master=gaxi_master,
     apb_transaction_class=APBPacket,

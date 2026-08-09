@@ -166,18 +166,18 @@ Four factory calls and a loop — a complete APB smoke test:
 ```python
 import cocotb
 from CocoTBFramework.components.apb.apb_factories import (
-    create_apb_master, create_apb_slave, create_apb_monitor, create_apb_sequence
+    create_apb4_master, create_apb4_slave, create_apb4_monitor, create_apb4_sequence
 )
 
 @cocotb.test()
 async def basic_apb_test(dut):
     # Create components
-    master = create_apb_master(dut, "APB_Master", "apb_", dut.clk)
-    slave = create_apb_slave(dut, "APB_Slave", "apb_", dut.clk, registers=1024)
-    monitor = create_apb_monitor(dut, "APB_Monitor", "apb_", dut.clk)
+    master = create_apb4_master(dut, "APB_Master", "apb_", dut.clk)
+    slave = create_apb4_slave(dut, "APB_Slave", "apb_", dut.clk, registers=1024)
+    monitor = create_apb4_monitor(dut, "APB_Monitor", "apb_", dut.clk)
     
     # Create test sequence
-    sequence = create_apb_sequence(pattern="alternating", num_regs=10)
+    sequence = create_apb4_sequence(pattern="alternating", num_regs=10)
     
     # Run test
     while sequence.has_more_transactions():
@@ -208,7 +208,7 @@ When you've learned to trust the block and want to stop:
 
 ```python
 # Create stress test with randomization
-stress_sequence = create_apb_sequence(
+stress_sequence = create_apb4_sequence(
     pattern="stress", 
     num_regs=100,
     randomize_delays=True
@@ -282,7 +282,7 @@ master.set_randomizer(FlexRandomizer({
 ## Getting Started
 
 ### Quick Setup
-1. **Import the factories**: `from CocoTBFramework.components.apb.apb_factories import create_apb_master, create_apb_slave, create_apb_monitor`
+1. **Import the factories**: `from CocoTBFramework.components.apb.apb_factories import create_apb4_master, create_apb4_slave, create_apb4_monitor`
 2. **Create master and slave** against the DUT's signals
 3. **Pick a sequence** — built-in pattern or your own lists
 4. **Run it**: send packets, watch the monitor, check the scoreboard

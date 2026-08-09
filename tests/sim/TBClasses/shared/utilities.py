@@ -53,8 +53,18 @@ def get_paths(dir_dict):
     # Define common log directory
     log_dir = os.path.abspath(os.path.join(tests_dir, 'logs'))
 
-    # Construct additional paths
-    paths_dict = {key: os.path.abspath(os.path.join(repo_root, value)) for key, value in dir_dict.items()}
+    # Construct additional paths. RTL lives in the RDS repo, not here:
+    # when a requested subdir doesn't exist under this repo, fall back to
+    # RDS_RTL_PATH (exported by env_python for Tier 2 sim tests).
+    rds_rtl_path = os.environ.get('RDS_RTL_PATH')
+    paths_dict = {}
+    for key, value in dir_dict.items():
+        path = os.path.abspath(os.path.join(repo_root, value))
+        if not os.path.exists(path) and rds_rtl_path:
+            rds_path = os.path.abspath(os.path.join(rds_rtl_path, value))
+            if os.path.exists(rds_path):
+                path = rds_path
+        paths_dict[key] = path
 
     return module, repo_root, tests_dir, log_dir, paths_dict
 

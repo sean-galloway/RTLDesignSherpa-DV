@@ -319,8 +319,8 @@ addr_map = [
 scoreboard.set_address_map(addr_map)
 
 # Add transactions - automatically routed
-gpio_transaction = create_apb_transaction(addr=0x0100, data=0xFF)  # → Slave 0
-uart_transaction = create_apb_transaction(addr=0x1004, data=0x55)  # → Slave 1
+gpio_transaction = create_apb4_transaction(addr=0x0100, data=0xFF)  # → Slave 0
+uart_transaction = create_apb4_transaction(addr=0x1004, data=0x55)  # → Slave 1
 
 scoreboard.add_master_transaction(gpio_transaction, master_id=0)
 scoreboard.add_master_transaction(uart_transaction, master_id=0)
@@ -347,7 +347,7 @@ bridge_scoreboard = GAXIScoreboard("APB_GAXI_Bridge", gaxi_field_config, log=log
 bridge_scoreboard.set_transformer(transformer)
 
 # Verify APB input produces correct GAXI output
-apb_input = create_apb_write(addr=0x2000, data=0x12345678)
+apb_input = create_apb4_write(addr=0x2000, data=0x12345678)
 gaxi_output = monitor_gaxi_transaction()
 
 bridge_scoreboard.add_expected(apb_input)    # Automatically transformed

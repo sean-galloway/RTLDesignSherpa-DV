@@ -109,7 +109,7 @@ Simple bus protocol for low-bandwidth peripherals.
 from CocoTBFramework.components.apb.apb_components import APBMaster, APBSlave, APBMonitor
 from CocoTBFramework.components.apb.apb_packet import APBPacket
 from CocoTBFramework.components.apb.apb_sequence import APBSequence
-from CocoTBFramework.components.apb.apb_factories import create_apb_monitor, create_apb_scoreboard
+from CocoTBFramework.components.apb.apb_factories import create_apb4_monitor, create_apb4_scoreboard
 ```
 
 #### AXI-Stream (AXIS4 / AXIS5)

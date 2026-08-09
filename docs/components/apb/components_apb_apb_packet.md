@@ -109,7 +109,7 @@ The default layout — what you get unless you pass your own `field_config`:
 
 #### Methods
 
-##### `create_apb_field_config(addr_width, data_width, strb_width)` [Static]
+##### `create_apb4_field_config(addr_width, data_width, strb_width)` [Static]
 
 Build a FieldConfig for a non-standard bus width, then pass it to the constructor. Most tests never need this — the defaults already cover 32-bit data, 32-bit address, 4 strobes.
 
@@ -122,7 +122,7 @@ Build a FieldConfig for a non-standard bus width, then pass it to the constructo
 
 ```python
 # Create custom field configuration
-config = APBPacket.create_apb_field_config(
+config = APBPacket.create_apb4_field_config(
     addr_width=16,
     data_width=64,
     strb_width=8
@@ -302,7 +302,7 @@ print(f"Read: {read_packet.formatted(compact=True)}")
 
 ```python
 # Create 64-bit APB configuration
-config = APBPacket.create_apb_field_config(
+config = APBPacket.create_apb4_field_config(
     addr_width=32,
     data_width=64,
     strb_width=8

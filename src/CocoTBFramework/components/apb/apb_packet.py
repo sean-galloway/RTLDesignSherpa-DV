@@ -58,7 +58,7 @@ class APBPacket(Packet):
 
         # Use default APB field config if none provided
         if field_config is None:
-            field_config = APBPacket.create_apb_field_config(addr_width, data_width, strb_width)
+            field_config = APBPacket.create_apb4_field_config(addr_width, data_width, strb_width)
 
         # Set default skip_compare_fields if none provided
         if skip_compare_fields is None:
@@ -74,7 +74,7 @@ class APBPacket(Packet):
         self.cycle = self  # In case code expects to access a 'cycle' attribute
 
     @staticmethod
-    def create_apb_field_config(addr_width, data_width, strb_width):
+    def create_apb4_field_config(addr_width, data_width, strb_width):
         """
         Create default field configuration for APB packets.
 
@@ -321,7 +321,7 @@ class APBTransaction(Randomized):
         self.addr_mask = (strb_width - 1)
 
         # Setup field configuration
-        self.field_config = APBPacket.create_apb_field_config(
+        self.field_config = APBPacket.create_apb4_field_config(
             addr_width, data_width, strb_width
         )
 

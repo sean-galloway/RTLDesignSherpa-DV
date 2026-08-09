@@ -136,7 +136,7 @@ def _create_field_definition_from_signal(field_name: str, full_signal_name: str,
 
     # Protocol-specific field definitions
     if protocol_hint.lower() == "apb":
-        return _create_apb_field_definition(field_name, signal_lower, data_width, addr_width)
+        return _create_apb4_field_definition(field_name, signal_lower, data_width, addr_width)
     elif protocol_hint.lower() == "axi":
         return _create_axi_field_definition(field_name, signal_lower, data_width, addr_width)
     elif protocol_hint.lower() == "gaxi":
@@ -145,7 +145,7 @@ def _create_field_definition_from_signal(field_name: str, full_signal_name: str,
         return _create_generic_field_definition(field_name, signal_lower, data_width, addr_width)
 
 
-def _create_apb_field_definition(field_name: str, signal_lower: str,
+def _create_apb4_field_definition(field_name: str, signal_lower: str,
                                 data_width: int, addr_width: int) -> FieldDefinition:
     """Create APB-specific field definition"""
 
@@ -597,7 +597,7 @@ def create_protocol_specific_field_config(protocol_name: str,
     protocol_lower = protocol_name.lower()
 
     if protocol_lower == "apb":
-        return _create_apb_field_config(data_width, addr_width, **kwargs)
+        return _create_apb4_field_config(data_width, addr_width, **kwargs)
     elif protocol_lower == "axi":
         return _create_axi_field_config(data_width, addr_width, **kwargs)
     elif protocol_lower == "gaxi":
@@ -607,7 +607,7 @@ def create_protocol_specific_field_config(protocol_name: str,
         return _create_generic_field_config(data_width, addr_width, **kwargs)
 
 
-def _create_apb_field_config(data_width: int, addr_width: int, **kwargs) -> FieldConfig:
+def _create_apb4_field_config(data_width: int, addr_width: int, **kwargs) -> FieldConfig:
     """Create APB-specific FieldConfig"""
     config = FieldConfig()
 

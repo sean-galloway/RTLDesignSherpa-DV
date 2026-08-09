@@ -293,7 +293,7 @@ class GAXItoAPBAdapter(APBGAXIAdapterBase):
         return transaction
 
 
-def create_apb_gaxi_adapters(apb_master, gaxi_master,
+def create_apb4_gaxi_adapters(apb_master, gaxi_master,
                           apb_transaction_class, gaxi_field_config,
                           log=None):
     """

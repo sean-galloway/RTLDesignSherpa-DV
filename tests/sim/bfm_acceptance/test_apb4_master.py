@@ -27,7 +27,7 @@ from CocoTBFramework.components.shared.memory_model import MemoryModel
 from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 from CocoTBFramework.components.apb.apb_sequence import APBSequence
 from CocoTBFramework.components.apb.apb_factories import \
-    create_apb_monitor, create_apb_scoreboard
+    create_apb4_monitor, create_apb4_scoreboard
 from CocoTBFramework.components.apb.apb_components import APBSlave
 from CocoTBFramework.components.gaxi.gaxi_factories import \
     create_gaxi_master, create_gaxi_slave, create_gaxi_monitor
@@ -46,7 +46,7 @@ from CocoTBFramework.components.wavedrom.constraint_solver import (
     SignalTransition,
     TemporalRelation
 )
-from CocoTBFramework.components.wavedrom.wavejson_gen import create_apb_wavejson_generator
+from CocoTBFramework.components.wavedrom.wavejson_gen import create_apb4_wavejson_generator
 from CocoTBFramework.components.wavedrom.utility import get_apb_field_config
 from TBClasses.wavedrom_user.apb import setup_apb_constraints_with_boundaries
 
@@ -304,7 +304,7 @@ class APBMasterTB(TBBase):
         super_debug = False  # Reduce debug output
 
         # Configure APB components
-        self.apb_monitor = create_apb_monitor(
+        self.apb_monitor = create_apb4_monitor(
             dut,
             'APB Monitor',
             'm_apb',
@@ -332,7 +332,7 @@ class APBMasterTB(TBBase):
         self.apb_slave.num_lines = self.num_line
 
         # Create APB scoreboard
-        self.apb_scoreboard = create_apb_scoreboard(
+        self.apb_scoreboard = create_apb4_scoreboard(
             'APB Scoreboard',
             addr_width=self.ADDR_WIDTH,
             data_width=self.DATA_WIDTH,
@@ -807,7 +807,7 @@ class APBMasterTB(TBBase):
 
 
 @cocotb.test(timeout_time=10, timeout_unit="sec")
-async def apb_master_wavedrom_test(dut):
+async def apb4_master_wavedrom_test(dut):
     """
     WaveDrom timing diagram generation for APB master.
 
@@ -843,7 +843,7 @@ async def apb_master_wavedrom_test(dut):
     addr_width = tb.ADDR_WIDTH
     data_width = tb.DATA_WIDTH
     field_config = get_apb_field_config(addr_width, data_width)
-    wave_generator = create_apb_wavejson_generator(field_config)
+    wave_generator = create_apb4_wavejson_generator(field_config)
 
     wave_solver = TemporalConstraintSolver(
         dut=dut,
@@ -950,7 +950,7 @@ async def apb_master_wavedrom_test(dut):
 
 
 @cocotb.test(timeout_time=100, timeout_unit="us")  # Increased timeout
-async def apb_master_test(dut):
+async def apb4_master_test(dut):
     tb = APBMasterTB(dut)
 
     # Use the seed for reproducibility
@@ -1050,7 +1050,7 @@ async def apb_master_test(dut):
             6,   # rsp_depth
         )
     ])
-def test_apb_master(request, addr_width, data_width, cmd_depth, rsp_depth):
+def test_apb4_master(request, addr_width, data_width, cmd_depth, rsp_depth):
     # Get worker ID for parallel execution isolation
     worker_id = os.environ.get('PYTEST_XDIST_WORKER', 'gw0')
 
@@ -1058,12 +1058,12 @@ def test_apb_master(request, addr_width, data_width, cmd_depth, rsp_depth):
     # get all of the directory and module information
     module, repo_root, tests_dir, log_dir, rtl_dict = get_paths({'rtl_cmn': 'rtl/common', 'rtl_amba': 'rtl/amba', 'rtl_amba_includes': 'rtl/amba/includes'})
 
-    dut_name = "apb_master"
+    dut_name = "apb4_master"
     toplevel = dut_name
 
     verilog_sources = [
         os.path.join(rtl_dict['rtl_amba'], "gaxi/gaxi_skid_buffer.sv"),
-        os.path.join(rtl_dict['rtl_amba'], f"apb/{dut_name}.sv")
+        os.path.join(rtl_dict['rtl_amba'], f"apb4/{dut_name}.sv")
     ]
 
     # create a human readable test identifier
@@ -1158,17 +1158,17 @@ def test_apb_master(request, addr_width, data_width, cmd_depth, rsp_depth):
 
 
 # WaveDrom test parameters
-def generate_apb_master_wavedrom_params():
+def generate_apb4_master_wavedrom_params():
     """Generate parameters for APB master WaveDrom tests"""
     return [
         # addr_width, data_width, cmd_depth, rsp_depth
         (32, 32, 6, 6),
     ]
 
-wavedrom_params = generate_apb_master_wavedrom_params()
+wavedrom_params = generate_apb4_master_wavedrom_params()
 
 @pytest.mark.parametrize("addr_width, data_width, cmd_depth, rsp_depth", wavedrom_params)
-def test_apb_master_wavedrom(request, addr_width, data_width, cmd_depth, rsp_depth):
+def test_apb4_master_wavedrom(request, addr_width, data_width, cmd_depth, rsp_depth):
     """APB master wavedrom test - generates timing diagrams."""
     # Get worker ID for parallel execution isolation
     worker_id = os.environ.get('PYTEST_XDIST_WORKER', 'gw0')
@@ -1176,10 +1176,10 @@ def test_apb_master_wavedrom(request, addr_width, data_width, cmd_depth, rsp_dep
     module, repo_root, tests_dir, log_dir, rtl_dict = get_paths({
         'rtl_cmn': 'rtl/common',
         'rtl_gaxi': 'rtl/amba/gaxi',
-        'rtl_apb': 'rtl/amba/apb',
+        'rtl_apb': 'rtl/amba/apb4',
      'rtl_amba_includes': 'rtl/amba/includes'})
 
-    toplevel = "apb_master"
+    toplevel = "apb4_master"
 
     verilog_sources = [
         os.path.join(rtl_dict['rtl_cmn'], "counter_bin.sv"),
@@ -1187,7 +1187,7 @@ def test_apb_master_wavedrom(request, addr_width, data_width, cmd_depth, rsp_dep
         os.path.join(rtl_dict['rtl_cmn'], "fifo_control.sv"),
         os.path.join(rtl_dict['rtl_gaxi'], "gaxi_fifo_sync.sv"),
         os.path.join(rtl_dict['rtl_gaxi'], "gaxi_skid_buffer.sv"),
-        os.path.join(rtl_dict['rtl_apb'], "apb_master.sv"),
+        os.path.join(rtl_dict['rtl_apb'], "apb4_master.sv"),
     ]
 
     aw_str = TBBase.format_dec(addr_width, 3)
@@ -1195,7 +1195,7 @@ def test_apb_master_wavedrom(request, addr_width, data_width, cmd_depth, rsp_dep
     cmd_str = TBBase.format_dec(cmd_depth, 3)
     rsp_str = TBBase.format_dec(rsp_depth, 3)
 
-    test_name_plus_params = f"test_{worker_id}_apb_master_aw{aw_str}_dw{dw_str}_cmd{cmd_str}_rsp{rsp_str}_wd"
+    test_name_plus_params = f"test_{worker_id}_apb4_master_aw{aw_str}_dw{dw_str}_cmd{cmd_str}_rsp{rsp_str}_wd"
     log_path = os.path.join(log_dir, f'{test_name_plus_params}.log')
     sim_build = os.path.join(tests_dir, 'local_sim_build', test_name_plus_params)
     enable_waves = bool(int(os.environ.get('WAVES', '0')))
@@ -1212,7 +1212,7 @@ def test_apb_master_wavedrom(request, addr_width, data_width, cmd_depth, rsp_dep
     extra_env = {
         'TRACE_FILE': f"{sim_build}/dump.fst",
         'VERILATOR_TRACE': '1',
-        'DUT': 'apb_master',
+        'DUT': 'apb4_master',
         'LOG_PATH': log_path,
         'COCOTB_LOG_LEVEL': 'INFO',
         'COCOTB_RESULTS_FILE': results_path,
@@ -1257,5 +1257,5 @@ def test_apb_master_wavedrom(request, addr_width, data_width, cmd_depth, rsp_dep
         compile_args=compile_args,
         sim_args=sim_args,
         plus_args=plus_args,
-        testcase="apb_master_wavedrom_test",  # Run wavedrom test specifically!
+        testcase="apb4_master_wavedrom_test",  # Run wavedrom test specifically!
     )

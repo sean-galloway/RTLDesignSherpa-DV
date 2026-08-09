@@ -2,7 +2,23 @@
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-08-09
+
+### Changed
+
+- **APB factories renamed `create_apb_*` -> `create_apb4_*`** ([#64]).
+  All seven factory functions (master, slave, monitor, scoreboard,
+  components, transformer, sequence) now carry the apb4 prefix for
+  protocol-version consistency with the apb5 components and the RDS-side
+  `rtl/amba/apb4` rename. The old names remain as thin deprecated aliases
+  (`DeprecationWarning`) for one release cycle.
+
 ### Fixed
+
+- **`get_paths()` never consulted `RDS_RTL_PATH`**, so the Tier 2
+  bfm_acceptance sim tests could not resolve RDS RTL from a DV checkout
+  (`env_python` has exported the variable all along). Paths that do not
+  exist under this repo now fall back to `RDS_RTL_PATH`.
 
 - **ACK-mode arbiter compliance was one grant behind the RTL** ([#50]).
   `_ack_mode_state[i]['grant_active']` cleared only when `grant_valid` FALLS,

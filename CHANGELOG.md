@@ -32,7 +32,7 @@
   and silently falls back to the old hardcoded 4. That fallback is why the
   first attempt at this fix changed nothing.
 
-- **Arbiter compliance model: three defects that failed correct RTL.** Every
+- **Arbiter compliance model: three defects that failed correct RTL** ([#63]). Every
   round-robin violation the model reported against `rtl/common`'s arbiters was
   its own; the RTL was correct each time. Anyone using
   `ArbiterMonitor`/`ArbiterCompliance` to sign off an arbiter has been reading
@@ -72,6 +72,7 @@
 
 [#50]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/50
 [#62]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/62
+[#63]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/63
 
 ## [0.6.2] - 2026-08-01
 

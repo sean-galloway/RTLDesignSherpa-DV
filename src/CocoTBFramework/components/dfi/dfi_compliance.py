@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Deque, Dict, FrozenSet, List, Optional, Tuple
 
 # All known rule names (the enabled_rules default).

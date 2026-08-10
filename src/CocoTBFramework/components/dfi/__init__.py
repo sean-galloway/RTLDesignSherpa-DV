@@ -74,6 +74,8 @@ from .dram_state import (
 from .jedec_timings import JedecTimings, builtin_timings, load_timings, ns_to_cycles
 
 __all__ = [
+    "DFIComplianceChecker",
+    "DFIComplianceParams",
     "DFIPhaseAdapter",
     "VALID_PHASE_COUNTS",
     "phase_act",

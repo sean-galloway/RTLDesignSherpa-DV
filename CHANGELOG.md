@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`DeficitRoundRobinArbiterMonitor` + `ArbiterCompliance(arbiter_type='drr')`**
+  ([#65]). Monitor/compliance support for the RDS-side
+  `arbiter_deficit_round_robin` (cost-proportional shares). The 'drr' mode
+  never runs the RR mask replay — deficit gating legitimately reorders
+  grants — and instead checks windowed SERVED-COST shares against the
+  quantum ratio, plus an immediate error on any zero-quantum grant. Three
+  correctness details baked in from bring-up: the cost attributed to a
+  grant is the previous cycle's sample (the arbitration cycle — the DUT
+  pipelines it as `r_cost_arb`, and the completion-cycle `req_cost` may
+  already belong to the winner's next frame); windows are only evaluated
+  when both the quanta AND the requester set were stable (a window
+  straddling an idle->active transition has no single expected
+  distribution); and the window scales with client count so a legitimate
+  high-cost/low-quantum client's lumpy service does not read as a share
+  deviation. Quanta ride the existing packed-config plumbing
+  (`max_thresh`), field widths derived from signal width per the
+  `_decode_weights` lesson.
+
 ## [0.6.3] - 2026-08-09
 
 ### Changed
@@ -89,6 +109,8 @@
 [#50]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/50
 [#62]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/62
 [#63]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/63
+[#64]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/64
+[#65]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/65
 
 ## [0.6.2] - 2026-08-01
 

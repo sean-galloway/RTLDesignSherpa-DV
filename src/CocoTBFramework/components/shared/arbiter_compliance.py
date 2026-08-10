@@ -136,8 +136,9 @@ class ArbiterCompliance:
         self.name = name
         self.title = name
         self.clients = clients
-        self.arbiter_type = arbiter_type  # 'rr' or 'wrr'
+        self.arbiter_type = arbiter_type  # 'rr', 'wrr' or 'drr'
         self.is_weighted = (arbiter_type == 'wrr')  # Auto-detect weighted mode
+        self.is_deficit = (arbiter_type == 'drr')   # Deficit round-robin mode
         self.ack_mode = ack_mode
         self.clock_period_ns = clock_period_ns
 
@@ -202,6 +203,10 @@ class ArbiterCompliance:
         if self.is_weighted:
             self._setup_weight_compliance()
 
+        # Deficit round-robin state tracking
+        if self.is_deficit:
+            self._setup_deficit_compliance()
+
         # Static period tracking (used by both RR and WRR)
         self.is_static_period = False
         self.static_stats = {
@@ -210,9 +215,34 @@ class ArbiterCompliance:
             'start_time': 0
         }
 
-        arbiter_type_name = "weighted round-robin" if self.is_weighted else "round-robin"
+        arbiter_type_name = ("deficit round-robin" if self.is_deficit else
+                             "weighted round-robin" if self.is_weighted else
+                             "round-robin")
         self.log.info(f"ArbiterCompliance({self.title}): Unified compliance checker initialized: {clients} clients, "
                     f"type={arbiter_type_name}, ack_mode={ack_mode}")
+
+    def _setup_deficit_compliance(self):
+        """Setup deficit-round-robin (DRR) compliance tracking.
+
+        DRR shares are proportional to COST SERVED, not grant count, so the
+        sliding window accumulates (winner, granted_cost, quanta) and the
+        evaluation compares each client's served-cost share against its
+        quantum share. Cycle-by-cycle DRR prediction depends on the deficit
+        implementation (replenish timing, carry), so like the WRR check this
+        is statistical - the cycle-exact deficit mirror belongs TB-side where
+        the driver knows its own cost intent.
+        """
+        # Window scales with client count: a fixed 200-grant window across 16
+        # clients holds only ~12 grants per client, and a legitimate
+        # high-cost/low-quantum client (served in LUMPS - e.g. cost 12 off
+        # quantum 2 completes one frame every ~6 replenish rounds) reads as a
+        # 2x share deviation whenever the window lands on its burst. Sizing
+        # by clients keeps enough service periods per client in view.
+        self.drr_check_window_size = max(200, 32 * self.clients)
+        self.drr_check_min_grants = max(30, 4 * self.clients)
+        self.drr_share_tolerance = 0.5       # max relative error vs expected share
+        self._drr_recent_grants = deque(maxlen=self.drr_check_window_size)
+        self._drr_grants_since_eval = 0
 
     def _setup_weight_compliance(self):
         """NEW: Setup weight-specific compliance tracking"""
@@ -469,6 +499,8 @@ class ArbiterCompliance:
                 warnings.extend(self._check_round_robin_compliance(transaction, active_requests))
             elif self.arbiter_type == 'wrr':
                 warnings.extend(self._check_weighted_round_robin_compliance(transaction, active_requests))
+            elif self.arbiter_type == 'drr':
+                warnings.extend(self._check_deficit_round_robin_compliance(transaction, active_requests))
 
         # ACK protocol checks (common to all arbiter types if enabled)
         if self.ack_mode:
@@ -799,6 +831,153 @@ class ArbiterCompliance:
         if self.debug_enabled:
             self.log.debug(f"ArbiterCompliance({self.title}): WRR window evaluated - "
                         f"{window_len} grants, {len(warnings)} deviations")
+
+        return warnings
+
+    # =======================================================================
+    # DEFICIT ROUND-ROBIN COMPLIANCE
+    # =======================================================================
+
+    def _check_deficit_round_robin_compliance(self, transaction, active_requests):
+        """Check deficit round-robin compliance statistically.
+
+        DRR's contract is COST-proportional service: long-run cost-units
+        served per client follow the quantum ratio, whatever the per-request
+        costs are. Grant ORDER is not RR - deficit gating legitimately skips
+        clients that cannot yet afford their cost - so no mask replay applies
+        (that mismatch on real DRR hardware is what this mode exists to fix,
+        see issue #65). Checks:
+
+        - A client with quantum 0 receiving any grant is a violation (error).
+        - Sliding window of (winner, granted_cost, quanta); once populated
+          with stable quanta, each participating client's served-COST share
+          is compared against quantum/sum(quanta) with relative tolerance
+          drr_share_tolerance -> 'drr_share_violation' warning.
+
+        granted_cost comes from transaction metadata and must be the
+        ARBITRATION-cycle cost (the monitor samples it one cycle behind the
+        grant, mirroring the DUT's r_cost_arb pipeline) - the completion
+        cycle's req_cost may already belong to the winner's NEXT frame.
+        """
+        warnings = []
+        current_time = transaction.timestamp
+        current_winner = transaction.gnt_id
+
+        current_quanta = transaction.metadata.get('current_quanta', None)
+        granted_cost = transaction.metadata.get('granted_cost', None)
+        if current_quanta is None:
+            self.log.warning(f"ArbiterCompliance({self.title}): No quantum information "
+                             f"in transaction metadata")
+            return warnings
+
+        # Immediate check: a zero-quantum client must never be granted
+        if (current_winner < len(current_quanta) and
+                current_quanta[current_winner] == 0):
+            warnings.append({
+                'type': 'drr_zero_quantum_grant',
+                'message': (f"DRR violation: client {current_winner} granted "
+                            f"with quantum 0 (quanta={list(current_quanta)})"),
+                'timestamp': current_time,
+                'client_id': current_winner,
+                'severity': 'error'
+            })
+
+        # Accumulate the sliding window and evaluate periodically. A missing
+        # cost degrades gracefully to grant-count weighting (cost 1). The
+        # requester set at arbitration rides along so evaluation can demand
+        # STABLE participation (see _evaluate_drr_window).
+        cost = granted_cost if granted_cost and granted_cost > 0 else 1
+        self._drr_recent_grants.append(
+            (current_winner, cost, tuple(current_quanta), active_requests))
+        self._drr_grants_since_eval += 1
+
+        if (len(self._drr_recent_grants) < self.drr_check_min_grants or
+                self._drr_grants_since_eval < self.drr_check_min_grants):
+            return warnings
+
+        self._drr_grants_since_eval = 0
+        warnings.extend(self._evaluate_drr_window(current_time))
+        return warnings
+
+    def _evaluate_drr_window(self, current_time):
+        """Evaluate served-cost shares in the sliding window against quanta."""
+        warnings = []
+        window = list(self._drr_recent_grants)
+
+        # Only evaluate when BOTH the quanta and the requester set were
+        # stable across the whole window. Either changing mid-window means
+        # there is no single expected distribution: quanta changes alter the
+        # ratio, and participation changes redistribute the shares (a window
+        # straddling a client's idle->active transition reads as a massive
+        # deviation for correct hardware). Saturated fairness runs - where
+        # share verification is meaningful - have both stable.
+        quanta_sets = {quanta for _, _, quanta, _ in window}
+        req_sets = {reqs for _, _, _, reqs in window}
+        if len(quanta_sets) != 1 or len(req_sets) != 1:
+            if self.debug_enabled:
+                self.log.debug(f"ArbiterCompliance({self.title}): DRR window skipped - "
+                               f"{len(quanta_sets)} quantum / {len(req_sets)} "
+                               f"participation configurations in window")
+            return warnings
+
+        quanta = quanta_sets.pop()
+        req_set = req_sets.pop()
+
+        served_cost = [0] * self.clients
+        for gnt_id, cost, _, _ in window:
+            if gnt_id < self.clients:
+                served_cost[gnt_id] += cost
+        total_served = sum(served_cost)
+        if total_served == 0:
+            return warnings
+
+        # Normalize expected shares over the REQUESTING clients. An idle
+        # client keeps its quantum but earns nothing - DRR shares
+        # redistribute among the active set, and normalizing over all quanta
+        # flags correct behavior as deviation whenever any client sits out
+        # (3 of 4 requesting: the trio legitimately serves 50/25/25).
+        total_quantum = sum(quanta[c] for c in range(min(self.clients, len(quanta)))
+                            if (req_set >> c) & 1)
+        if total_quantum == 0:
+            return warnings
+
+        for client in range(min(self.clients, len(quanta))):
+            quantum = quanta[client]
+            served = served_cost[client]
+            if quantum == 0 or served == 0:
+                # Zero-quantum grants are flagged immediately per grant;
+                # zero-served clients may simply not be requesting.
+                continue
+
+            expected_share = quantum / total_quantum
+            actual_share = served / total_served
+            relative_error = abs(actual_share - expected_share) / expected_share
+
+            if relative_error > self.drr_share_tolerance:
+                warnings.append({
+                    'type': 'drr_share_violation',
+                    'message': (f"DRR share deviation: client {client} served "
+                                f"{actual_share:.1%} of {total_served} cost-units, "
+                                f"expected {expected_share:.1%} "
+                                f"(quanta={list(quanta)}, relative error "
+                                f"{relative_error:.2f} > tolerance "
+                                f"{self.drr_share_tolerance:.2f})"),
+                    'timestamp': current_time,
+                    'client_id': client,
+                    'severity': 'warning',
+                    'details': {
+                        'expected_share': expected_share,
+                        'actual_share': actual_share,
+                        'served_cost': served,
+                        'total_served_cost': total_served,
+                        'window_grants': len(window),
+                        'quanta': list(quanta)
+                    }
+                })
+
+        if self.debug_enabled:
+            self.log.debug(f"ArbiterCompliance({self.title}): DRR window evaluated - "
+                           f"{len(window)} grants, {len(warnings)} deviations")
 
         return warnings
 
@@ -1322,7 +1501,9 @@ class ArbiterCompliance:
 
     def print_compliance_report(self):
         """Print compliance report"""
-        arbiter_type_name = "weighted round-robin" if self.is_weighted else "round-robin"
+        arbiter_type_name = ("deficit round-robin" if self.is_deficit else
+                             "weighted round-robin" if self.is_weighted else
+                             "round-robin")
         self.log.info("=== COMPLIANCE REPORT ===")
         self.log.info(f"Arbiter Type: {arbiter_type_name}")
         self.log.info(f"Total grants: {self.total_grants}")

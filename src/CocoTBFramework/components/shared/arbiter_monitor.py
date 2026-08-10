@@ -75,7 +75,8 @@ class ArbiterMonitor(BusMonitor):
     ]
 
     def __init__(self, entity, name, clock, reset_n,
-                clients=None, is_weighted=False, ack_mode=False, log=None,
+                clients=None, is_weighted=False, is_deficit=False,
+                ack_mode=False, log=None,
                 clock_period_ns=10, callback=None, event=None,
                 registered_grant=True, **kwargs):
         """
@@ -111,6 +112,15 @@ class ArbiterMonitor(BusMonitor):
         # Store title for consistent logging
         self.title = name
         self.is_weighted = is_weighted  # NEW: Auto-detect weighted vs non-weighted
+        # Deficit round-robin: quanta ride the same packed-config plumbing as
+        # WRR weights (the subclass maps its quantum signal to 'max_thresh'),
+        # plus a per-client cost signal sampled with one cycle of history -
+        # the grant registers a cycle after the arbitration that won it, so
+        # the cost belonging to a grant is the PREVIOUS cycle's sample
+        # (mirrors the DUT's r_cost_arb pipeline; issue #65).
+        self.is_deficit = is_deficit
+        self._drr_cost_now = 0
+        self._drr_cost_arb = 0
         self.ack_mode = ack_mode
         self.registered_grant = registered_grant
         self.clock_period_ns = clock_period_ns
@@ -142,7 +152,7 @@ class ArbiterMonitor(BusMonitor):
             self.clients = int(clients)
 
         # Initialize compliance checker with weight support
-        compliance_type = 'wrr' if is_weighted else 'rr'
+        compliance_type = 'drr' if is_deficit else ('wrr' if is_weighted else 'rr')
         self.compliance = ArbiterCompliance(
             name=f"{name}_compliance",
             clients=self.clients,
@@ -509,11 +519,21 @@ class ArbiterMonitor(BusMonitor):
         if hasattr(self.bus, 'block_arb') and self.bus.block_arb.value.is_resolvable:
             block_arb = bool(int(self.bus.block_arb.value))
 
-        # NEW: Sample weights for weighted arbiters
+        # NEW: Sample weights for weighted arbiters (DRR quanta ride the
+        # same 'max_thresh' plumbing - see __init__)
         weights = 0
-        if (self.is_weighted and hasattr(self.bus, 'max_thresh') and
+        if ((self.is_weighted or self.is_deficit) and hasattr(self.bus, 'max_thresh') and
             self.bus.max_thresh.value.is_resolvable):
             weights = int(self.bus.max_thresh.value)
+
+        # DRR: sample per-client costs with one cycle of history - the cost
+        # belonging to a grant observed THIS cycle is the PREVIOUS cycle's
+        # sample (the arbitration cycle; mirrors the DUT's r_cost_arb)
+        if self.is_deficit:
+            self._drr_cost_arb = self._drr_cost_now
+            if (hasattr(self.bus, 'req_cost') and
+                    self.bus.req_cost.value.is_resolvable):
+                self._drr_cost_now = int(self.bus.req_cost.value)
 
         # Detect changes
         prev = self._prev_state
@@ -808,6 +828,34 @@ class ArbiterMonitor(BusMonitor):
         mask = (1 << width) - 1
         return [(packed_weights >> (i * width)) & mask for i in range(self.clients)]
 
+    def _decode_costs(self, packed_costs):
+        """Decode the packed per-client cost signal into a list.
+
+        Same width-derivation rule as _decode_weights: the field width comes
+        from the SIGNAL width divided by the client count, never assumed -
+        the packed vector is CLIENTS * COST_WIDTH wide, so the DUT itself
+        says what the field size is.
+        """
+        width = getattr(self, '_cost_field_width', None)
+        if width is None:
+            total = 0
+            sig = getattr(self.bus, 'req_cost', None)
+            if sig is not None:
+                try:
+                    total = len(sig.value.binstr)
+                except Exception:
+                    total = 0
+            width = (total // self.clients) if (total and self.clients) else 4
+            if width < 1:
+                width = 4
+            self._cost_field_width = width
+            if self.debug_enabled:
+                self.log.debug(f"ArbiterMonitor({self.title}): cost field width "
+                               f"{width} bits ({total} packed / {self.clients} clients)")
+
+        mask = (1 << width) - 1
+        return [(packed_costs >> (i * width)) & mask for i in range(self.clients)]
+
     def _create_grant_transaction(self, signal_state, transaction_type="standard"):
         """
         Create transaction with type information for cycle-level reporting
@@ -836,6 +884,19 @@ class ArbiterMonitor(BusMonitor):
                 'max_thresh': signal_state.weights,
                 'current_weights': decoded_weights,
                 'weight_changes_count': self.weight_stats['weight_changes']
+            })
+
+        # DRR: quanta (decoded off the max_thresh plumbing) plus the winner's
+        # ARBITRATION-cycle cost (previous cycle's sample - the completion
+        # cycle's req_cost may already belong to the winner's next frame)
+        if self.is_deficit:
+            decoded_quanta = self._decode_weights(signal_state.weights)
+            decoded_costs = self._decode_costs(self._drr_cost_arb)
+            granted_cost = (decoded_costs[signal_state.gnt_id]
+                            if signal_state.gnt_id < len(decoded_costs) else 0)
+            metadata.update({
+                'current_quanta': decoded_quanta,
+                'granted_cost': granted_cost if granted_cost > 0 else 1,
             })
 
         # Create transaction with weight information
@@ -1574,3 +1635,66 @@ class WeightedRoundRobinArbiterMonitor(ArbiterMonitor):
     def get_current_weight_distribution(self, window_size=500):
         """Get current weight distribution analysis"""
         return self.analyze_current_weight_compliance(window_size)
+
+
+class DeficitRoundRobinArbiterMonitor(ArbiterMonitor):
+    """Monitor for Deficit Round Robin arbiters (issue #65).
+
+    DRR serves COST-proportional shares: each grant spends the request's
+    cost against a per-client deficit replenished by its quantum, so
+    long-run cost-units served follow the quantum ratio whatever the
+    per-request costs are. Grant ORDER is not round-robin - deficit gating
+    legitimately skips clients that cannot yet afford their cost - so this
+    monitor runs the 'drr' compliance mode (windowed served-cost shares +
+    zero-quantum-grant errors), never the RR mask replay.
+
+    The quantum signal rides the same packed-config plumbing as WRR weights
+    (mapped to 'max_thresh' internally); req_cost is sampled with one cycle
+    of history so the cost attributed to a grant is the ARBITRATION-cycle
+    cost, mirroring the DUT's r_cost_arb pipeline - the completion cycle's
+    req_cost may already belong to the winner's next frame.
+    """
+
+    def __init__(self, dut, title, clock, reset_n,
+                req_signal, gnt_valid_signal, gnt_signal, gnt_id_signal,
+                gnt_ack_signal=None, block_arb_signal=None,
+                quantum_signal=None, req_cost_signal=None, clients=None,
+                ack_mode=False, log=None, clock_period_ns=10, **kwargs):
+        """Initialize a Deficit Round Robin Arbiter Monitor"""
+
+        # Map individual signals to a bus-like interface for cocotb BusMonitor.
+        # quantum -> 'max_thresh': quanta reuse the WRR packed-config path
+        # (sampling, width derivation, decode) unchanged.
+        self._signal_map = {
+            'request': req_signal,
+            'grant_valid': gnt_valid_signal,
+            'grant': gnt_signal,
+            'grant_id': gnt_id_signal,
+            'grant_ack': gnt_ack_signal,
+            'block_arb': block_arb_signal,
+            'max_thresh': quantum_signal,
+            'req_cost': req_cost_signal
+        }
+
+        super().__init__(
+            entity=dut,
+            name=title,
+            clock=clock,
+            reset_n=reset_n,
+            clients=clients,
+            is_weighted=False,   # not WRR - no weight-stats machinery
+            is_deficit=True,     # 'drr' compliance mode
+            ack_mode=ack_mode,
+            log=log,
+            clock_period_ns=clock_period_ns,
+            **kwargs
+        )
+
+        # Override bus signal resolution to use individual signals
+        self._override_bus_signals()
+
+    def _override_bus_signals(self):
+        """Override bus signal resolution to use the provided individual signals"""
+        for signal_name, signal_ref in self._signal_map.items():
+            if signal_ref is not None:
+                setattr(self.bus, signal_name, signal_ref)

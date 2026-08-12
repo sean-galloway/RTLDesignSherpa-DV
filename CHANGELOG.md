@@ -4,6 +4,27 @@
 
 ### Added
 
+- **HBM4 support for the DFI BFM (DFI v6.0)** ([#66]). New `hbm_ca`
+  module implements the v6.0 §3.1.2.4 / Table 22 dfi_cmdaddr transport
+  for HBM4 — two independent DDR commands per 38-bit word (Row 10b +
+  Column 8b + ARFU, rising edge on [18:0] / falling on [37:19]) — with
+  pack/unpack, geometry constants, and range checking. Command opcodes
+  are out of scope until JESD270-4 is available (DFI defines transport
+  only). WCK memberships corrected to v6.0 Table 13: wck_en/wck_toggle
+  now include HBM4; wck_cs stays LPDDR5/LPDDR6.
+
+### Fixed
+
+- **WCK signal memberships held an enum, not a memory-type set**
+  ([#66]). `_WCK = frozenset({LPDDR5, LPDDR6})` was silently shadowed
+  by a later `_WCK = SubInterface.WCK_CONTROL` rebinding, so every WCK
+  Control signal's `memory_types` was a SubInterface enum. Distinct
+  names now, plus a membership regression test.
+
+[#66]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/66
+
+### Added
+
 - **`DeficitRoundRobinArbiterMonitor` + `ArbiterCompliance(arbiter_type='drr')`**
   ([#65]). Monitor/compliance support for the RDS-side
   `arbiter_deficit_round_robin` (cost-proportional shares). The 'drr' mode

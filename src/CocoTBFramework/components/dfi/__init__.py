@@ -71,9 +71,21 @@ from .dram_state import (
     ViolationCategory,
     ViolationPolicy,
 )
+from .hbm_ca import (
+    HBM4_CMDADDR_WIDTH,
+    HBM4CAEdge,
+    HBM4CAWord,
+    pack_hbm4_cmdaddr,
+    unpack_hbm4_cmdaddr,
+)
 from .jedec_timings import JedecTimings, builtin_timings, load_timings, ns_to_cycles
 
 __all__ = [
+    "HBM4_CMDADDR_WIDTH",
+    "HBM4CAEdge",
+    "HBM4CAWord",
+    "pack_hbm4_cmdaddr",
+    "unpack_hbm4_cmdaddr",
     "DFIComplianceChecker",
     "DFIComplianceParams",
     "DFIPhaseAdapter",

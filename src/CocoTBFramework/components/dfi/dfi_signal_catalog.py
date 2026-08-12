@@ -111,7 +111,15 @@ _RDLVL = frozenset({
     MemoryType.LPDDR3, MemoryType.LPDDR4,
 })
 _WRLVL = frozenset({MemoryType.DDR3, MemoryType.DDR4})
-_WCK = frozenset({MemoryType.LPDDR5, MemoryType.LPDDR6})
+# WCK memberships (v6.0 Table 13): wck_en / wck_toggle are required for
+# LPDDR5, LPDDR6, AND HBM4; wck_cs only for LPDDR5/LPDDR6 (multi-CS).
+# Named _WCK_MEM* because plain _WCK gets rebound to
+# SubInterface.WCK_CONTROL further down — that shadowing silently
+# replaced these frozensets with an enum and made every WCK signal
+# unresolvable for every memory type (fixed alongside HBM4 support).
+_WCK_MEM = frozenset({MemoryType.LPDDR5, MemoryType.LPDDR6})
+_WCK_MEM_ALL = frozenset({MemoryType.LPDDR5, MemoryType.LPDDR6,
+                          MemoryType.HBM4})
 _LPDDR5 = frozenset({MemoryType.LPDDR5})
 _HBM4 = frozenset({MemoryType.HBM4})
 
@@ -677,13 +685,15 @@ _WCK = SubInterface.WCK_CONTROL
 # --------------------------------------------------------------------
 WCK_CONTROL_SIGNALS: Tuple[SignalSpec, ...] = (
     _s("wck_en", _MC, WIDTH_WCK, _WCK, V5_2,
-       "WCK enable (per data slice)", memory_types=_WCK),
+       "WCK enable (per data slice). Required for LPDDR5/LPDDR6/HBM4 "
+       "(v6.0 Table 13; HBM4 from v6.0).", memory_types=_WCK_MEM_ALL),
     _s("wck_toggle", _MC, WIDTH_WCK, _WCK, V5_2,
        "WCK toggle pattern (2 bits per WCK per slice). NOTE: the "
        "LPDDR5 2:1 WCK:CK encoding CHANGED between v5.x and v6.0.",
-       memory_types=_WCK),
+       memory_types=_WCK_MEM_ALL),
     _s("wck_cs", _MC, WIDTH_WCK, _WCK, V5_2,
-       "WCK chip select (per CS per slice)", memory_types=_WCK),
+       "WCK chip select (per CS per slice); LPDDR5/LPDDR6 multi-CS "
+       "only (v6.0 Table 13).", memory_types=_WCK_MEM),
 )
 
 

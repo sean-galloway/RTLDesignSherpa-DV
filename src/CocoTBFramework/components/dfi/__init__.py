@@ -20,6 +20,13 @@ Public API:
   :class:`JedecTimings` — DRAM state / address / timing models
 """
 
+from .ca_map import (
+    HBM4_COL_CA_MAP,
+    HBM4_ROW_CA_MAP,
+    CACodec,
+    CAMap,
+    camap_from_dict,
+)
 from .dfi_base import DFIBase
 from .dfi_compliance import (
     DFIComplianceChecker,
@@ -92,6 +99,11 @@ from .hbm_ca import (
 from .jedec_timings import JedecTimings, builtin_timings, load_timings, ns_to_cycles
 
 __all__ = [
+    "CACodec",
+    "CAMap",
+    "HBM4_COL_CA_MAP",
+    "HBM4_ROW_CA_MAP",
+    "camap_from_dict",
     "ColumnCommand",
     "RowCommand",
     "decode_col_pair",

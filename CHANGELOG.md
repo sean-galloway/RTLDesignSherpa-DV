@@ -35,6 +35,19 @@
   and runs the real loader; `jedec/*.example` added to package-data
   (the 0.6.1 wheel-data lesson).
 
+- **Declarative CA maps** ([#66]). CA encodings vary per protocol and
+  per device, so `ca_map` moves them into data: a `CAMap` describes
+  commands as opcode-bit patterns plus field placements (contiguous
+  bit runs — non-contiguous scatters like the HBM4 MRS MA/OP
+  interleave are just multiple runs), and one `CACodec` engine
+  encodes/decodes any map. Maps validate at construction (bus bounds,
+  field-width coverage, first-edge distinguishability with declared
+  aliases like RNOP/PDX). `camap_from_dict` loads maps from
+  JSON-shaped dicts for vendor-specific devices. Ships with
+  `HBM4_ROW_CA_MAP`/`HBM4_COL_CA_MAP`, differentially tested
+  bit-for-bit against the hand-written `hbm4_commands` golden
+  encoders.
+
 ### Fixed
 
 - **WCK signal memberships held an enum, not a memory-type set**

@@ -62,6 +62,23 @@
   LPDDR6) — not in the local archive, and the spec-verified rule
   forbids fabricating truth tables.
 
+- **LPDDR5 and LPDDR6 CA maps** ([#66]). With JESD209-5C and
+  JESD209-6 on disk, the v6.0 command path is covered end to end.
+  LPDDR5 (Table 201) is a *factory*, `lpddr5_ca_map(bank_org,
+  pre_mode=)`, because bank organization rewrites the F1 field
+  layout: BG mode (BG[1:0]+BA[1:0]), 16B (BA[3:0]) and 8B (BA[2:0],
+  where reads carry burst-start B4 where a bank bit would sit).
+  WR32/RD32/DRFM exist only in BG/16B. REF/RFM/DRFM share an R1
+  pattern and split on F1, and PRE's two MR75-gated address-sample
+  variants are a `pre_mode=` selection rather than an ambiguous map,
+  since MR75 is device state and not decodable from the bus.
+  Prebuilt `LPDDR5_CA_MAP_BG` / `_16B` / `_8B`. LPDDR6 (Table 254)
+  is a single map with fixed BG+BA organization, but every command
+  is two clocks — four CA edges (R1/F1/R2/F2) and two `dfi_cmdaddr`
+  words. DES/PDX-NT carry no CA pattern (CS framing only) and are
+  documented rather than invented. Golden vectors hand-derived from
+  both truth tables.
+
 ### Fixed
 
 - **WCK signal memberships held an enum, not a memory-type set**

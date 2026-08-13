@@ -105,6 +105,13 @@ from .hbm_ca import (
     unpack_hbm4_cmdaddr,
 )
 from .jedec_timings import JedecTimings, builtin_timings, load_timings, ns_to_cycles
+from .lpddr5_ca_map import (
+    LPDDR5_CA_MAP_8B,
+    LPDDR5_CA_MAP_16B,
+    LPDDR5_CA_MAP_BG,
+    lpddr5_ca_map,
+)
+from .lpddr6_ca_map import LPDDR6_CA_MAP
 
 __all__ = [
     "CACodec",
@@ -117,6 +124,11 @@ __all__ = [
     "DDR5_CA_WIDTH",
     "LPDDR5_CA_WIDTH",
     "LPDDR6_CA_WIDTH",
+    "LPDDR5_CA_MAP_8B",
+    "LPDDR5_CA_MAP_16B",
+    "LPDDR5_CA_MAP_BG",
+    "LPDDR6_CA_MAP",
+    "lpddr5_ca_map",
     "pack_ddr_cmdaddr",
     "unpack_ddr_cmdaddr",
     "ColumnCommand",

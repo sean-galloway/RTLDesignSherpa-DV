@@ -71,6 +71,17 @@ from .dram_state import (
     ViolationCategory,
     ViolationPolicy,
 )
+from .hbm4_commands import (
+    ColumnCommand,
+    RowCommand,
+    decode_col_pair,
+    decode_row_act_sequence,
+    decode_row_edge,
+    encode_col_mrs,
+    encode_col_rd,
+    encode_col_wr,
+    encode_row_act,
+)
 from .hbm_ca import (
     HBM4_CMDADDR_WIDTH,
     HBM4CAEdge,
@@ -81,6 +92,15 @@ from .hbm_ca import (
 from .jedec_timings import JedecTimings, builtin_timings, load_timings, ns_to_cycles
 
 __all__ = [
+    "ColumnCommand",
+    "RowCommand",
+    "decode_col_pair",
+    "decode_row_act_sequence",
+    "decode_row_edge",
+    "encode_col_mrs",
+    "encode_col_rd",
+    "encode_col_wr",
+    "encode_row_act",
     "HBM4_CMDADDR_WIDTH",
     "HBM4CAEdge",
     "HBM4CAWord",

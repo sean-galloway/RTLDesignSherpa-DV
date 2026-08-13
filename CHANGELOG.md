@@ -13,6 +13,17 @@
   only). WCK memberships corrected to v6.0 Table 13: wck_en/wck_toggle
   now include HBM4; wck_cs stays LPDDR5/LPDDR6.
 
+- **HBM4 command opcodes (JESD270-4A Tables 33/34)** ([#66]). With the
+  DRAM standard now in the specs area, `hbm4_commands` implements the
+  full Row (RNOP/ACT/PREpb/PREab/REFpb/REFab/RFMpb/RFMab/PDE/SRE/PDX)
+  and Column (CNOP/RD/RDA/WR/WRA/MRS) encoders/decoders — including
+  the 3-edge ACT with RA[14:0] assembly, the REFab-vs-RFMab R8
+  discriminator, the RNOP/PDX state aliasing, and the MRS MA/OP bit
+  scatter. Golden vectors hand-derived from the truth tables. Still
+  out of scope: an HBM4 jedec timing CSV — Table 108 leaves the core
+  timing values vendor-defined (the spec fixes only e.g. tREFI=3.9us,
+  tPPD=2nCK), so real values need a vendor datasheet.
+
 ### Fixed
 
 - **WCK signal memberships held an enum, not a memory-type set**

@@ -20,6 +20,7 @@ Public API:
   :class:`JedecTimings` — DRAM state / address / timing models
 """
 
+from .ca_dispatch import TRANSLATIONS, CACommandDecoder, Translation
 from .ca_map import (
     HBM4_COL_CA_MAP,
     HBM4_ROW_CA_MAP,
@@ -115,7 +116,10 @@ from .lpddr6_ca_map import LPDDR6_CA_MAP
 
 __all__ = [
     "CACodec",
+    "CACommandDecoder",
     "CAMap",
+    "TRANSLATIONS",
+    "Translation",
     "HBM4_COL_CA_MAP",
     "HBM4_ROW_CA_MAP",
     "camap_from_dict",

@@ -79,6 +79,25 @@
   documented rather than invented. Golden vectors hand-derived from
   both truth tables.
 
+- **CA dispatch to the state model** ([#66]). `ca_dispatch` turns a
+  decoded CA command into the BFM's canonical
+  `(DRAMCommand, args)` — the same contract `decode_lpddr2_ca`
+  already returns, so every protocol reaches `DFISlavePHY` /
+  `DFIMonitor` through one interface. It handles what a lookup table
+  can't: LPDDR5/6 split ACTIVATE (ACT-1/ACT-2) and MODE REGISTER
+  WRITE (MRW-1/MRW-2) pairs are latched across intervening commands
+  per JESD209-5C note 4; the flat bank index is composed from
+  bank/bank-group fields using widths read from the map (including
+  the case where the fields were latched by a *different* command
+  than the one being emitted); and auto-precharge/all-banks arrive
+  correctly whether the protocol encodes them as distinct commands
+  (DDR5 RDA, HBM4 PREab) or as operand bits (LPDDR5/6 AP, AB).
+  Translations are explicit per map — no prefix guessing — and a
+  test asserts every translated name exists in its map, so map edits
+  can't silently orphan a translation. Orphan second halves raise in
+  `strict` mode (a slave BFM should surface the violation) and are
+  dropped when `strict=False` (a monitor may attach mid-stream).
+
 ### Fixed
 
 - **WCK signal memberships held an enum, not a memory-type set**

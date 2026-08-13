@@ -27,6 +27,14 @@ from .ca_map import (
     CAMap,
     camap_from_dict,
 )
+from .ca_transport import (
+    LPDDR5_CA_WIDTH,
+    LPDDR6_CA_WIDTH,
+    CAPhases,
+    pack_ddr_cmdaddr,
+    unpack_ddr_cmdaddr,
+)
+from .ddr5_ca_map import DDR5_CA_MAP, DDR5_CA_WIDTH
 from .dfi_base import DFIBase
 from .dfi_compliance import (
     DFIComplianceChecker,
@@ -104,6 +112,13 @@ __all__ = [
     "HBM4_COL_CA_MAP",
     "HBM4_ROW_CA_MAP",
     "camap_from_dict",
+    "CAPhases",
+    "DDR5_CA_MAP",
+    "DDR5_CA_WIDTH",
+    "LPDDR5_CA_WIDTH",
+    "LPDDR6_CA_WIDTH",
+    "pack_ddr_cmdaddr",
+    "unpack_ddr_cmdaddr",
     "ColumnCommand",
     "RowCommand",
     "decode_col_pair",

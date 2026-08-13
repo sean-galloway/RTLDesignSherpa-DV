@@ -12,12 +12,15 @@ encoding as data and one engine does the work:
 * a **field placement** is a list of contiguous bit runs
   ``(edge, bus_lo, field_lo, width)`` — non-contiguous scatters (e.g.
   the HBM4 MRS MA/OP interleave) are just multiple runs;
-* **decode** matches the first edge's opcode bits against every
-  command (longest/most-specific pattern wins), then gathers fields
-  from the declared number of edges. Deliberate aliases (patterns
-  identical by design, like HBM4 RNOP vs PDX/SRX where power state
-  selects the meaning) are declared with ``alias_of`` so map
-  validation doesn't reject them.
+* **decode** matches opcode bits across ALL of a command's edges
+  (most-specific pattern wins), then gathers fields. Commands may be
+  identical on their first edge and differ only later (DDR5 WR vs WRA
+  split on cycle-2 CA10); such commands must occupy the same number
+  of edges so a streaming consumer can classify edge count from the
+  first edge alone (:meth:`CACodec.match`). Deliberate aliases
+  (patterns identical by design, like HBM4 RNOP vs PDX/SRX where
+  power state selects the meaning) are declared with ``alias_of`` so
+  map validation doesn't reject them.
 
 Ships with :data:`HBM4_CA_MAP` (JESD270-4A Tables 33/34) as the
 reference map — differentially tested against the hand-written
@@ -122,23 +125,35 @@ class CAMap:
                             f"{self.name}.{c.name}.{f.name}: run "
                             f"exceeds bus width")
             _ = mask
-        # First-edge opcode patterns must be pairwise distinguishable
-        # unless one declares alias_of the other.
-        heads = []
+        # Full opcode signatures must be pairwise distinguishable
+        # unless one declares alias_of the other. Commands that are
+        # NOT distinguishable on edge 0 alone (they split on a later
+        # edge, e.g. DDR5 WR/WRA on cycle-2 CA10) must occupy the same
+        # number of edges — otherwise a streaming consumer cannot know
+        # how many edges to collect from the first edge.
+        sigs = []
         for c in self.commands:
-            bits = {(ob.bit): ob.value for ob in c.opcode if ob.edge == 0}
-            heads.append((c, bits))
-        for i, (ca,ba) in enumerate(heads):
-            for cb, bb in heads[i + 1:]:
-                common = set(ba) & set(bb)
-                if any(ba[k] != bb[k] for k in common):
-                    continue  # distinguishable
+            full = {(ob.edge, ob.bit): ob.value for ob in c.opcode}
+            head = {ob.bit: ob.value for ob in c.opcode if ob.edge == 0}
+            sigs.append((c, full, head))
+        for i, (ca, fa, ha) in enumerate(sigs):
+            for cb, fb, hb in sigs[i + 1:]:
                 if ca.alias_of == cb.name or cb.alias_of == ca.name:
                     continue
-                raise ValueError(
-                    f"{self.name}: commands {ca.name!r} and {cb.name!r} "
-                    f"are not distinguishable on edge 0 and are not "
-                    f"declared aliases")
+                if all(ha[k] == hb[k] for k in set(ha) & set(hb)):
+                    # edge-0-compatible: later edges must both split
+                    # them and be reachable in one streamed command.
+                    if ca.n_edges != cb.n_edges:
+                        raise ValueError(
+                            f"{self.name}: commands {ca.name!r} and "
+                            f"{cb.name!r} are not distinguishable on "
+                            f"edge 0 but occupy different edge counts "
+                            f"({ca.n_edges} vs {cb.n_edges})")
+                    if all(fa[k] == fb[k] for k in set(fa) & set(fb)):
+                        raise ValueError(
+                            f"{self.name}: commands {ca.name!r} and "
+                            f"{cb.name!r} are not distinguishable by "
+                            f"opcode bits and are not declared aliases")
 
 
 class CACodec:
@@ -146,10 +161,13 @@ class CACodec:
 
     def __init__(self, camap: CAMap):
         self.map = camap
-        # Most-specific-first decode order (more opcode bits first).
-        self._decode_order = sorted(
+        # Most-specific-first orders: edge-0 bits for streaming match,
+        # total opcode bits for full decode.
+        self._match_order = sorted(
             camap.commands,
             key=lambda c: -len([b for b in c.opcode if b.edge == 0]))
+        self._decode_order = sorted(
+            camap.commands, key=lambda c: -len(c.opcode))
 
     # -- encode --------------------------------------------------------
 
@@ -176,8 +194,16 @@ class CACodec:
     # -- decode --------------------------------------------------------
 
     def match(self, first_edge: int) -> CommandSpec:
-        """Classify a command by its first edge's opcode bits."""
-        for spec in self._decode_order:
+        """Classify a command by its first edge's opcode bits.
+
+        For streaming: the returned spec's ``n_edges`` tells you how
+        many edges to collect before calling :meth:`decode`. When
+        several commands share a first-edge pattern and split on a
+        later edge (DDR5 WR/WRA), this returns a representative —
+        map validation guarantees all of them occupy the same
+        ``n_edges``, so the edge count is still authoritative; only
+        :meth:`decode` names the final command."""
+        for spec in self._match_order:
             if all(((first_edge >> ob.bit) & 1) == ob.value
                    for ob in spec.opcode if ob.edge == 0):
                 return spec
@@ -189,11 +215,22 @@ class CACodec:
         """Decode a full command from its edges (len == n_edges of the
         matched command; use :meth:`match` first when streaming to know
         how many edges to collect)."""
-        spec = self.match(edges[0])
-        if len(edges) != spec.n_edges:
+        head = self.match(edges[0])
+        if len(edges) != head.n_edges:
             raise ValueError(
-                f"{spec.name} occupies {spec.n_edges} edge(s), "
+                f"{head.name} occupies {head.n_edges} edge(s), "
                 f"got {len(edges)}")
+        spec = None
+        for cand in self._decode_order:
+            if cand.n_edges == len(edges) and all(
+                    ((edges[ob.edge] >> ob.bit) & 1) == ob.value
+                    for ob in cand.opcode):
+                spec = cand
+                break
+        if spec is None:
+            raise ValueError(
+                f"{self.map.name}: no command matches edges "
+                f"{[hex(e) for e in edges]}")
         out: Dict[str, int] = {}
         for f in spec.fields:
             val = 0

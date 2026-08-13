@@ -48,6 +48,20 @@
   bit-for-bit against the hand-written `hbm4_commands` golden
   encoders.
 
+- **DDR5 CA map + v6.0 DDR-CA transport packers** ([#66]). The engine
+  now matches opcode signatures across ALL edges (validated with a
+  same-edge-count streaming constraint), which DDR5 needs: WR/WRA,
+  RD/RDA, WRP/WRPA split on the cycle-2 CA10 auto-precharge bit.
+  `DDR5_CA_MAP` covers JESD79-5B Table 31 (ACT through MPC/NOP, PDX
+  as NOP alias; DES is CS_n-level, RFU rows omitted) with golden
+  vectors hand-derived from the truth table. `ca_transport` adds the
+  DFI v6.0 §3.1.2 phase-lane packers (`pack/unpack_ddr_cmdaddr`) for
+  LPDDR5 (Table 15) and LPDDR6 DDR mode (Table 16); DDR5 (Table 18)
+  and LPDDR6 SDR (Table 17) are width-matched passthrough. LPDDR5/
+  LPDDR6 *command* maps wait on their base device specs (JESD209-5 /
+  LPDDR6) — not in the local archive, and the spec-verified rule
+  forbids fabricating truth tables.
+
 ### Fixed
 
 - **WCK signal memberships held an enum, not a memory-type set**

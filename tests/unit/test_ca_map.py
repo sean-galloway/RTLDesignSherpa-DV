@@ -142,3 +142,33 @@ def test_map_validation_rejects_ambiguity():
 def test_map_validation_rejects_bad_field_width():
     with pytest.raises(ValueError, match="declared width"):
         FieldSpec("f", 4, (BitRun(0, 0, 0, 3),))
+
+
+# ---------------------------------------------------------------------------
+# Multi-edge opcode signatures (DDR5 WR/WRA-style later-edge splits)
+# ---------------------------------------------------------------------------
+
+def _later_edge_map():
+    return CAMap("split", 4, (
+        CommandSpec("wr", 2, (OpcodeBit(0, 0, 1), OpcodeBit(1, 3, 1)),
+                    fields=(FieldSpec("c", 2, (BitRun(1, 0, 0, 2),)),)),
+        CommandSpec("wra", 2, (OpcodeBit(0, 0, 1), OpcodeBit(1, 3, 0)),
+                    fields=(FieldSpec("c", 2, (BitRun(1, 0, 0, 2),)),)),
+    ))
+
+
+def test_later_edge_split_validates_and_decodes():
+    codec = CACodec(_later_edge_map())
+    for name in ("wr", "wra"):
+        got, f = codec.decode(codec.encode(name, c=2))
+        assert (got, f["c"]) == (name, 2)
+    # match() on the shared first edge still gives the edge count.
+    assert codec.match(codec.encode("wra", c=0)[0]).n_edges == 2
+
+
+def test_later_edge_split_requires_equal_edge_counts():
+    with pytest.raises(ValueError, match="different edge counts"):
+        CAMap("bad", 4, (
+            CommandSpec("a", 1, (OpcodeBit(0, 0, 1),)),
+            CommandSpec("b", 2, (OpcodeBit(0, 0, 1), OpcodeBit(1, 3, 0))),
+        ))

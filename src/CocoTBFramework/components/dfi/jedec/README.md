@@ -86,3 +86,15 @@ slave = DFISlavePHY(dut, clock, timings=timings, violation_policy=policy)
 The defaults (`ViolationPolicy()` with no args) follow the split
 documented in issue #16 — JEDEC-critical timings halt sim, windowed /
 average timings warn, init-sequence specifics are ignored.
+
+## HBM4
+
+`hbm4-template.csv.example` is a fill-in sheet structured from
+JESD270-4A Table 108 / Table 3. The standard leaves HBM4 core timing
+values vendor-defined, so only the spec-fixed rows carry numbers
+(tREFI = 3.9 us, tPPD = 2 CK, tCKSRX = 5 CK). To create a real
+profile: copy to `hbm4-<vendor>-<part>.csv`, replace every FILL_ME
+from the product datasheet, and drop the `.example` suffix — the unit
+suite then auto-discovers and load-tests it like every other profile.
+The `.example` extension keeps the unfilled template out of that
+enumeration.

@@ -84,7 +84,7 @@ where = ["src"]
 # `builtin_timings` resolves Path(__file__).parent / "jedec", so the files must
 # land beside the module -- which is exactly what this does.
 [tool.setuptools.package-data]
-"CocoTBFramework.components.dfi" = ["jedec/*.csv", "jedec/*.md"]
+"CocoTBFramework.components.dfi" = ["jedec/*.csv", "jedec/*.md", "jedec/*.example"]
 "CocoTBFramework.components.axi4" = ["*.md"]
 "CocoTBFramework.components.uart" = ["*.md"]
 

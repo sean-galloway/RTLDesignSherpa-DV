@@ -1,0 +1,53 @@
+# HBM4 timing profile TEMPLATE — fill from a vendor datasheet.
+#
+# Structure: JESD270-4A Table 108 ("Timings Parameters") and Table 3
+# ("Array Access Timings Counted Individually Per Pseudo Channel").
+# JESD270-4A leaves the core array timing VALUES vendor-defined (the
+# min/max columns are blank in the standard) — only the values marked
+# "spec-fixed" below come from the standard itself. Everything marked
+# FILL_ME needs a real product datasheet (SK hynix / Samsung / Micron).
+#
+# To use: copy to hbm4-<vendor>-<part>.csv in this directory, replace
+# every FILL_ME, delete rows that don't apply, and drop the .example
+# suffix — the unit suite auto-discovers and load-tests every *.csv
+# here, which is why this template is NOT a .csv itself.
+#
+# Loader notes (jedec_timings.py):
+#   - The first 15 rows are the loader's REQUIRED set; the HBM4-native
+#     symbols they map to are named in each description.
+#   - Rows after the required set load as `extras` — keep the HBM4
+#     split-parameter detail there (RD/WR RCD split, L/S RRD, ab/pb
+#     RFC) even though the state model consumes the merged values.
+#   - Per Table 3, the array-access timings count INDIVIDUALLY PER
+#     PSEUDO CHANNEL; the DFI BFM models one pseudo channel per
+#     profile instance.
+
+parameter,   unit, value,   description
+tCK,         ns,   FILL_ME, DFI clock period for the modeled speed grade
+tRCD,        ns,   FILL_ME, ACT to RD delay — HBM4 tRCDRD (use the read value; tRCDWR goes in extras)
+tRP,         ns,   FILL_ME, PRECHARGE command period (tRP)
+tRAS_min,    ns,   FILL_ME, ACT to PRE minimum (tRAS; spec-fixed max = 9 x tREFI)
+tRC,         ns,   FILL_ME, ACT to ACT same bank (tRC)
+tWR,         ns,   FILL_ME, WRITE recovery (tWR)
+tWTR,        ns,   FILL_ME, WRITE to READ turnaround — HBM4 tWTRL (tWTRS in extras)
+tRTP,        ns,   FILL_ME, READ to PRECHARGE same bank (tRTP; spec gives nCK — convert)
+tRRD,        ns,   FILL_ME, ACT to ACT different bank — HBM4 tRRDL (tRRDS in extras)
+tFAW,        ns,   FILL_ME, Four-bank activate window (tFAW)
+tREFI,       ns,   3900,    Average refresh interval — spec-fixed 3.9 us (JESD270-4A section 6.9)
+tRFC,        ns,   FILL_ME, Refresh cycle time — HBM4 tRFCab (tRFCpb in extras)
+CL,          CK ,  FILL_ME, Read latency RL for the speed grade
+CWL,         CK ,  FILL_ME, Write latency WL for the speed grade
+BL,          beats, FILL_ME, Burst length (HBM4 prefetch)
+# --- HBM4-native detail (loads as extras) -----------------------------
+tRCDWR,      ns,   FILL_ME, ACT to WR delay (Table 108 tRCDWR)
+tRRDS,       ns,   FILL_ME, ACT to ACT different bank group (tRRDS)
+tWTRS,       ns,   FILL_ME, WRITE to READ different bank group (tWTRS)
+tRTW,        ns,   FILL_ME, READ to WRITE turnaround (tRTW)
+tCCDL,       CK ,  FILL_ME, CAS to CAS same bank group (tCCDL)
+tCCDS,       CK ,  FILL_ME, CAS to CAS different bank group (tCCDS)
+tCCDR,       CK ,  FILL_ME, CAS to CAS different pseudo channel (tCCDR)
+tRFCpb,      ns,   FILL_ME, Per-bank refresh cycle time (tRFCpb)
+tREFIPB,     ns,   FILL_ME, Per-bank refresh interval (tREFIPB)
+tRREFD,      ns,   FILL_ME, REFpb to REFpb different bank (tRREFD)
+tPPD,        CK ,  2,       PRE to PRE same pseudo channel — spec-fixed (Table 108)
+tCKSRX,      CK ,  5,       Valid clocks before SELF REFRESH EXIT — spec-fixed (Table 108)

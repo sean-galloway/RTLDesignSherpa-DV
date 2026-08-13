@@ -86,3 +86,20 @@ def test_wck_memberships_v6_table_13():
     assert wck(MemoryType.LPDDR6) == ["wck_cs", "wck_en", "wck_toggle"]
     assert wck(MemoryType.HBM4) == ["wck_en", "wck_toggle"]
     assert wck(MemoryType.DDR5) == []
+
+
+def test_hbm4_template_loads_when_filled(tmp_path):
+    """The fill-in sheet must stay loadable: substitute dummy values
+    for every FILL_ME and run it through the real loader."""
+    from pathlib import Path
+    from CocoTBFramework.components.dfi.jedec_timings import load_timings
+    import CocoTBFramework.components.dfi.jedec_timings as jt_mod
+
+    template = (Path(jt_mod.__file__).parent / "jedec"
+                / "hbm4-template.csv.example")
+    filled = tmp_path / "hbm4-filled.csv"
+    filled.write_text(template.read_text().replace("FILL_ME", "10"))
+    jt = load_timings(filled)
+    assert jt.tREFI_cycles > 0
+    for extra in ("tRCDWR", "tRRDS", "tRFCpb", "tPPD", "tCCDR"):
+        assert extra in jt.extras, f"template lost extra row {extra}"

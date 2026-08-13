@@ -24,6 +24,17 @@
   timing values vendor-defined (the spec fixes only e.g. tREFI=3.9us,
   tPPD=2nCK), so real values need a vendor datasheet.
 
+- **HBM4 timing fill-in sheet** ([#66]). `jedec/hbm4-template.csv.example`
+  — the Table 108 / Table 3 parameter set as a loadable template:
+  spec-fixed rows carry their values (tREFI, tPPD, tCKSRX), the
+  vendor-defined rows say FILL_ME with the HBM4-native symbol named
+  per row (tRCDRD/tRCDWR split, L/S variants, ab/pb refresh). Copy to
+  `hbm4-<vendor>-<part>.csv` with datasheet values and the suite
+  auto-discovers it; the `.example` suffix keeps the unfilled sheet
+  out of the profile enumeration. A guard test fills it with dummies
+  and runs the real loader; `jedec/*.example` added to package-data
+  (the 0.6.1 wheel-data lesson).
+
 ### Fixed
 
 - **WCK signal memberships held an enum, not a memory-type set**

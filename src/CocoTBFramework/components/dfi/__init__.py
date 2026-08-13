@@ -28,6 +28,7 @@ from .ca_map import (
     CAMap,
     camap_from_dict,
 )
+from .ca_stream import CAStream, HBM4CAStreams, args_to_legacy_addr
 from .ca_transport import (
     LPDDR5_CA_WIDTH,
     LPDDR6_CA_WIDTH,
@@ -118,6 +119,9 @@ __all__ = [
     "CACodec",
     "CACommandDecoder",
     "CAMap",
+    "CAStream",
+    "HBM4CAStreams",
+    "args_to_legacy_addr",
     "TRANSLATIONS",
     "Translation",
     "HBM4_COL_CA_MAP",

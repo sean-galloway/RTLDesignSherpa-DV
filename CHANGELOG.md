@@ -98,6 +98,30 @@
   `strict` mode (a slave BFM should surface the violation) and are
   dropped when `strict=False` (a monitor may attach mid-stream).
 
+- **CA decode wired into `DFISlavePHY`** ([#66]). `ca_stream` covers the
+  piece where the protocols disagree most — how much bus a command
+  occupies. `CACodec.match` reads the edge count off the head edge, so
+  one mechanism handles all of it: DDR5 commands are 1-2 SDR words,
+  LPDDR5 is one word (both phases), LPDDR6 needs two words, and HBM4
+  carries independent row and column streams in lanes of the same
+  38-bit word (`HBM4CAStreams`). Feeding is cycle-driven — the BFM
+  calls `feed_word` once per DFI cycle — so a command spanning cycles
+  simply reports NOP until its last word lands.
+
+  `DFISlavePHY` takes an opt-in `ca_map=` (plus `ca_map_col=` for
+  HBM4); default `None` leaves the ras/cas/we and LPDDR2 paths
+  bit-identical. The map is explicit rather than inferred because it
+  is not derivable from the DFI signals — LPDDR5's bank organization
+  is a device property. Decoded args fold into the `(bank, addr)`
+  contract the command handler already speaks (auto-precharge and
+  all-banks on addr bit 10, the convention the LPDDR2 decoder already
+  targets), so the CA path reuses the existing command handling rather
+  than forking it. `_is_lpddr2_family()` gates became a
+  `_uses_ca_bus()` predicate covering both CA decoders, which also
+  keeps CA protocols off the multi-phase ras/cas/we decoder. When two
+  commands complete in one cycle (HBM4 row + column), the extras are
+  dispatched rather than dropped.
+
 ### Fixed
 
 - **WCK signal memberships held an enum, not a memory-type set**

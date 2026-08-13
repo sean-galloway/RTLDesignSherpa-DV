@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Deque, Optional
 
 if TYPE_CHECKING:
+    from .ca_map import CAMap
     from .dfi_timing import DFITimingProfile
 
 from cocotb.triggers import FallingEdge
@@ -284,6 +285,10 @@ class DFISlavePHY(BusMonitor):
         timing: "Optional[DFITimingProfile]" = None,
         read_device_word_offset: int = 0,
         violation_policy=None,
+        ca_map: "Optional[CAMap]" = None,
+        ca_map_col: "Optional[CAMap]" = None,
+        ca_width: Optional[int] = None,
+        ca_sdr: bool = False,
         **kwargs,
     ):
         if side != "phy":
@@ -494,6 +499,25 @@ class DFISlavePHY(BusMonitor):
         # PHY-Master/Managed takeover event queue (v4.0+).
         self.takeover_events: Deque[TakeoverEvent] = deque()
 
+        # ---- CA-bus command decode (opt-in) ----
+        # DFI v5/v6 protocols carry the command on an encoded CA bus
+        # (dfi_cmdaddr) instead of ras/cas/we. Pass the device's CA map
+        # to decode it; default None keeps the ras/cas/we and LPDDR2
+        # paths exactly as they were. The map is explicit rather than
+        # inferred because it is not derivable from the DFI signals —
+        # LPDDR5's bank organization, for one, is a device property.
+        self._ca_streams = None
+        self._ca_args = None
+        if ca_map is not None:
+            from .ca_stream import CAStream, HBM4CAStreams
+            if ca_map_col is not None:
+                # HBM4: independent row/column streams in one word.
+                self._ca_streams = HBM4CAStreams(ca_map, ca_map_col)
+            else:
+                if ca_width is None:
+                    ca_width = ca_map.bus_width
+                self._ca_streams = CAStream(ca_map, ca_width, sdr=ca_sdr)
+
         # Statistics
         self.cmd_counts = {cmd: 0 for cmd in DRAMCommand}
         self.writes_committed = 0
@@ -559,7 +583,41 @@ class DFISlavePHY(BusMonitor):
                 return p
         return 0
 
+    def _uses_ca_bus(self) -> bool:
+        """True when commands ride an encoded CA bus rather than
+        ras/cas/we — either the LPDDR2 CA decoder or a CA map."""
+        return self._ca_streams is not None or self._is_lpddr2_family()
+
+    def _ca_bus_word(self) -> int:
+        """This cycle's CA word. v6.0 renamed dfi_address to
+        dfi_cmdaddr; accept whichever the bus exposes."""
+        sig = getattr(self.bus, "cmdaddr", None)
+        if sig is None:
+            sig = self.bus.address
+        return _v(sig)
+
     def _decode_command(self) -> DRAMCommand:
+        if self._ca_streams is not None:
+            # Cycle-driven: a command may span several DFI cycles, so
+            # most cycles legitimately yield nothing (NOP). When more
+            # than one completes in a cycle, the extras are handled
+            # here and only the last is returned to the caller — which
+            # then calls _handle_command once for it.
+            word = self._ca_bus_word()
+            if hasattr(self._ca_streams, "row"):
+                rows, cols = self._ca_streams.feed_word(word)
+                done = rows + cols
+            else:
+                done = self._ca_streams.feed_word(word)
+            done = [(c, a) for c, a in done if c != DRAMCommand.NOP]
+            if not done:
+                self._ca_args = None
+                return DRAMCommand.NOP
+            for cmd, args in done[:-1]:
+                self._ca_args = args
+                self._handle_command(cmd)
+            self._ca_args = done[-1][1]
+            return done[-1][0]
         if self._is_lpddr2_family():
             # LPDDR2/3 carry the command on the dfi_address CA bus;
             # ras_n/cas_n/we_n are held idle and useless for decode.
@@ -584,10 +642,13 @@ class DFISlavePHY(BusMonitor):
         # commands issued in ONE DFI cycle, each carries its own DFI phase (its
         # rd/wr-phase anchor). None => fall back to _active_phase() (the single-
         # command legacy path), so existing callers are unchanged.
-        if self._is_lpddr2_family():
+        if self._uses_ca_bus():
             # Pull bank/row/col/etc. from the decoded CA args, not the
-            # raw bus fields (which are held idle for LPDDR2/3).
-            args = getattr(self, "_lpddr_args", {}) or {}
+            # raw bus fields (which are held idle when the command
+            # rides the CA bus). Both decoders — the LPDDR2 one and the
+            # CA-map path — produce the same args shape.
+            args = (self._ca_args if self._ca_streams is not None
+                    else getattr(self, "_lpddr_args", {})) or {}
             bank = args.get("bank", 0)
             if cmd == DRAMCommand.ACT:
                 addr = args.get("row", 0)
@@ -721,10 +782,12 @@ class DFISlavePHY(BusMonitor):
         elif cmd == DRAMCommand.REF:
             self.dram.on_refresh()
         elif cmd == DRAMCommand.MRS:
-            # Record MRW {index: data} for init verification. LPDDR2 carries
-            # mr_addr/mr_data in the decoded CA args; skip MRR (read).
-            if self._is_lpddr2_family():
-                _a = getattr(self, "_lpddr_args", {}) or {}
+            # Record MRW {index: data} for init verification. CA-bus
+            # protocols carry mr_addr/mr_data in the decoded args; skip
+            # MRR (a read, which writes nothing).
+            if self._uses_ca_bus():
+                _a = (self._ca_args if self._ca_streams is not None
+                      else getattr(self, "_lpddr_args", {})) or {}
                 if not _a.get("is_mrr"):
                     self.mode_regs[_a.get("mr_addr", 0)] = _a.get("mr_data", 0)
         # NOP: ignored (just kept in cmd_counts)
@@ -1194,7 +1257,7 @@ class DFISlavePHY(BusMonitor):
                 # as its anchor. LPDDR2 rides the CA bus (one cmd/cycle) so it
                 # keeps the single-decode path. The plain models also keep single
                 # decode (bit-identical to before).
-                if self._read_bl_anchored and not self._is_lpddr2_family():
+                if self._read_bl_anchored and not self._uses_ca_bus():
                     for _p, _cmd in decode_all_phases(
                             cs_all, _v(self.bus.ras_n), _v(self.bus.cas_n),
                             _v(self.bus.we_n), dfi_rate):

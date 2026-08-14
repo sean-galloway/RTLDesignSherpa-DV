@@ -35,13 +35,33 @@ one-line reason (for deferred: the condition that un-defers it).
 
 ## Areas
 
-| Area | Status | Covers | Source (pre-migration) |
-|---|---|---|---|
-| [dfi](dfi/INDEX.md) | **migrated** | DFI BFMs: CA maps, state model, BFM parity | `TODO.md` §"DFI BFM Capability Parity" (D1–D11, folded in 2026-08-13) |
+Areas mirror `src/CocoTBFramework/`. An area gets its own directory once it
+has in-flight work worth a rollup; until then its row says where the work
+actually lives, so the map is complete even where the pages are not.
 
-Other component families (axi4, gaxi, apb, axis, …) have no task pages yet;
-their outstanding work is tracked as GitHub issues. Create an area directory
-when a family accumulates enough in-flight work to need a rollup.
+| Area | Status | Covers | Where its work lives now |
+|---|---|---|---|
+| [dfi](dfi/INDEX.md) | **migrated** | DFI BFMs: CA maps, transport, dispatch, DRAM state model, BFM parity | here (`TODO.md` D1–D11 folded in 2026-08-13) |
+| gaxi | pending | generic ready/valid infrastructure — the workhorse every AXI\* family builds on, so it carries the highest bar | GitHub issues |
+| axi4 / axi5 | pending | AXI4 full + AXI5, compliance, sequences | GitHub issues |
+| axil4 | pending | AXI4-Lite | GitHub issues |
+| apb / apb5 | pending | APB4 + APB5 (sideband, parity, wakeup) | GitHub issues |
+| axis4 / axis5 | pending | AXI-Stream | GitHub issues |
+| fifo | pending | FIFO controllers | GitHub issues |
+| smbus / uart | pending | SMBus, UART | GitHub issues |
+| shared | pending | packet, field_config, memory_model, randomizer, statistics — the layer the parity items (DFI-012, DFI-014) pull DFI onto | GitHub issues; DFI's dependency on it tracked in [dfi](dfi/INDEX.md) |
+| scoreboards | pending | `BaseScoreboard` and per-protocol scoreboards | GitHub issues; DFI-016 |
+| wavedrom | pending | waveform generation | GitHub issues |
+| packaging | pending | wheel/PyPI, package-data, release cuts | GitHub issues; the current cut is DFI-010; practice in [[packaging]] |
+
+`pending` is not a backlog of empty files — it means that family's work is
+tracked as GitHub issues and nobody has needed a rollup yet. Promote a row to
+its own directory when you find yourself wanting to know "what is in flight
+here" and the issue list cannot answer it.
+
+**Do not create an area directory speculatively.** Five empty lifecycle pages
+per family is scatter of exactly the kind this directory replaces; the map
+above is the cheap version of the same information.
 
 ## Reporting status
 

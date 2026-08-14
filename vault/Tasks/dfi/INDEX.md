@@ -8,39 +8,49 @@ Umbrella issues: [#16](https://github.com/sean-galloway/RTLDesignSherpa-DV/issue
 | State | Count |
 |---|---|
 | [active](active.md) | 0 |
-| [open](open.md) | 15 |
-| [deferred](deferred.md) | 2 |
+| [open](open.md) | 1 |
+| [deferred](deferred.md) | 16 |
 | [closed](closed.md) | 6 |
 | [dropped](dropped.md) | 0 |
 
+## The area is parked
+
+**The DFI protocol and BFM programme is deferred as of 2026-08-14**, on the
+owner's steer that it is not needed until the memory-controller work that
+consumes it is close. Fourteen shaped tasks moved from `open` to
+`deferred` — they had been filed as ready-to-start, which overstated their
+priority. Nothing is blocked on effort or on an unknown; it is blocked on
+having a consumer. See the note at the top of [deferred.md](deferred.md)
+for the un-defer condition and the order to restart in.
+
+The CA-map stack is complete and green, so the pause lands at a coherent
+point rather than mid-change.
+
 ## Open shortlist
 
-- **DFI-007** — wire CA decode into `DFIMonitor`. The highest-value open
-  item: the slave-PHY half shipped, so a monitor on a CA-bus DUT currently
-  reports every command as NOP. Scoped, unblocked, pieces already built.
-- **DFI-010** — cut the 0.6.4 release. `[Unreleased]` has held the entire
-  CA-map stack since 0.6.3; the main repo consumes this as a built wheel,
-  so nothing propagates until a release.
-- **DFI-011** — `FlexRandomizer` into `DFIMasterMC`. Highest-leverage parity
-  item: DFI already owns the `DramStateModel` violation checker the other
-  families lack, so randomized stimulus becomes self-checking immediately.
-- **DFI-008** — `dram_state` v6.0 semantics (per-pseudo-channel refresh,
-  sub-channel selects, RFM as its own class). Decode already passes the
-  fields through; this is state-model work.
-- **DFI-009** — express LPDDR2's CA encoding as a `CAMap`, differentially
-  tested against the hand codec that is shared with the RTL.
+- **DFI-010** — cut the 0.6.4 release. The only DFI item still open,
+  because it is a packaging action rather than protocol work:
+  `[Unreleased]` has held the entire CA-map stack since 0.6.3, and the
+  main repo consumes this package as a built wheel, so nothing propagates
+  until a release happens.
 
 ## Reading order for someone picking this up
 
-Start with [closed.md](closed.md) DFI-001 → DFI-005 in order: they build one
+Start with [closed.md](closed.md) DFI-001 → DFI-006 in order: they build one
 stack (maps → transport → dispatch → streaming → BFM wiring) and each one
-explains why the next exists. Then DFI-007 is the direct continuation.
+explains why the next exists. Then read the parking note in
+[deferred.md](deferred.md), which says where to resume.
 
-The two [deferred](deferred.md) items are the honest limits of what has been
-done. **DFI-023 matters most:** the whole CA stack is spec-verified and
-unit-tested but has never run against RTL, because no v5/v6 co-simulation
-target exists. That is why release notes must not advertise the
-LPDDR/multi-version features yet.
+Two of the deferred items are the honest limits of what has been done, and
+predate the parking. **DFI-023 matters most:** the whole CA stack is
+spec-verified and unit-tested but has never run against RTL, because no
+v5/v6 co-simulation target exists. That is why release notes must not
+advertise the LPDDR/multi-version features yet.
+
+One deferred item carries a real correctness edge worth knowing about even
+while parked: **DFI-007** — `DFIMonitor` has no CA-bus decode at all, so a
+monitor attached to any CA-bus DUT (including LPDDR2 today) silently
+reports every command as NOP.
 
 ## Local conventions worth knowing
 

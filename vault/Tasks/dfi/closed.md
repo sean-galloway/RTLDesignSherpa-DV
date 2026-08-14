@@ -8,6 +8,37 @@ in `CHANGELOG.md` `[Unreleased]` pending the 0.6.4 cut ([[DFI-010]]).
 
 ---
 
+## DFI-007 — Wire CA decode into `DFIMonitor`
+**Status:** closed 2026-08-14 — pulled out of the parked programme
+because it was a correctness bug, not an enhancement
+
+`DFIMonitor._decode_command` was ras/cas/we only, so a monitor attached
+to any CA-bus DUT reported every command as NOP — including LPDDR2,
+which the slave had decoded for some time. Silent, and it looked like an
+idle bus rather than a broken decode.
+
+The monitor now takes the same opt-in `ca_map=` / `ca_map_col=` the
+slave does (default `None` leaves the ras/cas/we path bit-identical) and
+reuses `CAStream` / `ca_dispatch` unchanged. Two things differ from the
+slave, both deliberate:
+
+- **Non-strict streams.** A monitor can attach partway through a
+  command, so an orphan second half or an unrecognised head edge
+  resyncs rather than raising; `CAStream.resyncs` counts it.
+- **It must not gate on CS.** The existing loop captured only when
+  `cs_n == 0`, which is right for ras/cas/we but truncates every
+  multi-cycle CA command: DDR5 drives CS_n *high* on cycle 2 of a
+  two-cycle command by design. The CA path feeds while `cs_n == 0`
+  **or** a command is in flight, and skips idle DES cycles so they
+  cannot be mistaken for a command pattern.
+
+`DFIControlPacket` gained a `ca_args` field carrying the decoded
+fields; `address` holds the raw bus word and `bank` the decoded bank,
+so existing consumers are unaffected.
+
+11 unit tests, including the CS-deassert case that motivated the
+in-flight rule and the mid-stream attach that motivated non-strict.
+
 ## DFI-006 — HBM4 support in the DFI collateral
 **Status:** closed 2026-08-12 — #66
 

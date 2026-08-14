@@ -73,32 +73,6 @@ CA wiring — currently a monitor on any CA-bus DUT reports every
 command as NOP, which is the one item with a real correctness edge),
 then DFI-011 → 012 → 013, then DFI-014 → 017, then the rest.
 
-## DFI-007 — Wire CA decode into `DFIMonitor`
-**Status:** deferred 2026-08-14 (raised 2026-08-13) — parked with the DFI programme (see note above); the slave-PHY half shipped (DFI-005), monitor did not
-
-`DFISlavePHY` decodes the encoded CA bus via an opt-in `ca_map=`
-([[DFI-005]]), but `DFIMonitor._decode_command` (`dfi_monitor.py:170`) is
-still `_CMD_DECODE.get((ras, cas, we))` — pure ras/cas/we. It does not
-handle a CA bus at *all*: not the v5/v6 maps, and not even the LPDDR2 CA
-decoder the slave has had for some time. So a monitor attached to any
-CA-bus DUT silently reports every command as NOP.
-
-The pieces are already built and tested: construct a `CAStream` (or
-`HBM4CAStreams`) the same way the slave does and feed `dfi_cmdaddr` once
-per cycle. Two monitor-specific details:
-
-- Construct the decoder with `strict=False`. A monitor may attach
-  mid-command, and an orphan ACT-2 or an unrecognized head edge should
-  resync (the `resyncs` counter is already there for this) rather than
-  raise the way it correctly does in a slave.
-- The monitor emits packets rather than driving a state model, so it
-  wants the decoded `args` dict directly, not the `(bank, addr)` fold
-  `args_to_legacy_addr` does for the slave's command handler.
-
-**Acceptance:** a monitor with a `ca_map` reports the same command
-sequence a slave sees for the same stimulus; without one, behaviour is
-bit-identical to today.
-
 ## DFI-008 — `dram_state` v6.0 semantics
 **Status:** deferred 2026-08-14 (raised 2026-08-13) — parked with the DFI programme (see note above)
 

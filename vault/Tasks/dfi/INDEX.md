@@ -9,16 +9,16 @@ Umbrella issues: [#16](https://github.com/sean-galloway/RTLDesignSherpa-DV/issue
 |---|---|
 | [active](active.md) | 0 |
 | [open](open.md) | 1 |
-| [deferred](deferred.md) | 16 |
-| [closed](closed.md) | 6 |
+| [deferred](deferred.md) | 15 |
+| [closed](closed.md) | 7 |
 | [dropped](dropped.md) | 0 |
 
 ## The area is parked
 
 **The DFI protocol and BFM programme is deferred as of 2026-08-14**, on the
 owner's steer that it is not needed until the memory-controller work that
-consumes it is close. Fourteen shaped tasks moved from `open` to
-`deferred` — they had been filed as ready-to-start, which overstated their
+consumes it is close. Thirteen shaped tasks sit in `deferred` (fourteen
+moved from `open`; DFI-007 was pulled straight back out and fixed) — they had been filed as ready-to-start, which overstated their
 priority. Nothing is blocked on effort or on an unknown; it is blocked on
 having a consumer. See the note at the top of [deferred.md](deferred.md)
 for the un-defer condition and the order to restart in.
@@ -47,10 +47,10 @@ spec-verified and unit-tested but has never run against RTL, because no
 v5/v6 co-simulation target exists. That is why release notes must not
 advertise the LPDDR/multi-version features yet.
 
-One deferred item carries a real correctness edge worth knowing about even
-while parked: **DFI-007** — `DFIMonitor` has no CA-bus decode at all, so a
-monitor attached to any CA-bus DUT (including LPDDR2 today) silently
-reports every command as NOP.
+**DFI-007 was fixed rather than parked** (2026-08-14): it was a
+correctness bug, not an enhancement — `DFIMonitor` had no CA-bus decode
+at all, so a monitor on any CA-bus DUT, LPDDR2 included, silently
+reported every command as NOP. See [closed.md](closed.md).
 
 ## Local conventions worth knowing
 

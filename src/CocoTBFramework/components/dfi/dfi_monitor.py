@@ -142,6 +142,10 @@ class DFIMonitor(BusMonitor):
         clock,
         side: str = "phy",
         title: Optional[str] = None,
+        ca_map=None,
+        ca_map_col=None,
+        ca_width: Optional[int] = None,
+        ca_sdr: bool = False,
         **kwargs,
     ):
         if side not in ("mc", "phy"):
@@ -165,6 +169,28 @@ class DFIMonitor(BusMonitor):
         self.write_data_count = 0
         self.read_data_count = 0
 
+        # ---- CA-bus command decode (opt-in) ----
+        # DFI v5/v6 protocols (and LPDDR2/3 before them) carry the
+        # command on an encoded CA bus, where ras/cas/we are held idle
+        # and decode to NOP forever. Pass the device's CA map to decode
+        # it; default None keeps the ras/cas/we path exactly as it was.
+        #
+        # strict=False, unlike the slave: a monitor can attach partway
+        # through a command, so an orphan second half or an
+        # unrecognised head edge must resync rather than raise. The
+        # stream's `resyncs` counter records how often that happened.
+        self._ca_streams = None
+        if ca_map is not None:
+            from .ca_stream import CAStream, HBM4CAStreams
+            if ca_map_col is not None:
+                self._ca_streams = HBM4CAStreams(ca_map, ca_map_col,
+                                                 strict=False)
+            else:
+                if ca_width is None:
+                    ca_width = ca_map.bus_width
+                self._ca_streams = CAStream(ca_map, ca_width, sdr=ca_sdr,
+                                            strict=False)
+
     # ----- Decoders -----
 
     def _decode_command(self) -> DRAMCommand:
@@ -172,6 +198,35 @@ class DFIMonitor(BusMonitor):
         cas = _v(self.bus.cas_n)
         we  = _v(self.bus.we_n)
         return _CMD_DECODE.get((ras, cas, we), DRAMCommand.NOP)
+
+    def _ca_bus_word(self) -> int:
+        """This cycle's CA word. v6.0 renamed dfi_address to
+        dfi_cmdaddr; accept whichever the bus exposes."""
+        sig = getattr(self.bus, "cmdaddr", None)
+        if sig is None:
+            sig = self.bus.address
+        return _v(sig)
+
+    @property
+    def _ca_in_flight(self) -> bool:
+        """True while a CA command is mid-collection across cycles."""
+        s = self._ca_streams
+        if s is None:
+            return False
+        if hasattr(s, "row"):
+            return s.row.partial or s.col.partial
+        return s.partial
+
+    def _decode_ca_commands(self) -> list:
+        """Every command completed by this cycle's CA word, as
+        ``(DRAMCommand, args)``. NOPs are filtered out."""
+        word = self._ca_bus_word()
+        if hasattr(self._ca_streams, "row"):
+            rows, cols = self._ca_streams.feed_word(word)
+            done = rows + cols
+        else:
+            done = self._ca_streams.feed_word(word)
+        return [(c, a) for c, a in done if c != DRAMCommand.NOP]
 
     # ----- Sampling loop -----
 
@@ -182,7 +237,32 @@ class DFIMonitor(BusMonitor):
 
             # --- Command sub-interface: capture when CS is asserted ---
             cs_n = _v(self.bus.cs_n)
-            if cs_n == 0:
+            if self._ca_streams is not None:
+                # CA-bus protocols: feed the stream when CS selects a
+                # new command, and keep feeding while one is in flight.
+                # The second condition is not optional -- a multi-cycle
+                # command deasserts CS on its continuation cycles by
+                # design (DDR5 drives CS_n high on cycle 2), so gating
+                # purely on CS would truncate every one of them. Idle
+                # DES cycles are skipped so they cannot be mistaken for
+                # a command pattern.
+                if cs_n == 0 or self._ca_in_flight:
+                    for cmd, args in self._decode_ca_commands():
+                        pkt = DFIControlPacket(
+                            address=self._ca_bus_word(),
+                            cke=_v(self.bus.cke),
+                            cs_n=cs_n,
+                            bank=args.get("bank", 0),
+                            odt=_v(self.bus.odt),
+                            reset_n=_v(self.bus.reset_n),
+                            cmd=cmd,
+                            ca_args=args,
+                            timestamp_ns=ts,
+                        )
+                        self.command_q.append(pkt)
+                        self.command_count += 1
+                        self._recv(pkt)
+            elif cs_n == 0:
                 cmd = self._decode_command()
                 if cmd != DRAMCommand.NOP:
                     pkt = DFIControlPacket(

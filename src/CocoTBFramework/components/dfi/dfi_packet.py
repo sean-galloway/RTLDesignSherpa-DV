@@ -116,6 +116,11 @@ class DFIControlPacket:
     # Capture-side metadata. Populated by DFIMonitor; ignored by drivers.
     cmd: Optional["DRAMCommand"] = None
     timestamp_ns: float = 0.0
+    #: Decoded CA-bus fields (bank/row/col/selectors) when the command
+    #: rode an encoded CA bus rather than ras/cas/we. None otherwise.
+    #: The legacy `address`/`bank` fields carry the raw bus word and the
+    #: decoded bank respectively, so existing consumers keep working.
+    ca_args: Optional[dict] = None
 
     @classmethod
     def from_command(

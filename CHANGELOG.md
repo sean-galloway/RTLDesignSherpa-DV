@@ -124,6 +124,25 @@
 
 ### Fixed
 
+- **`DFIMonitor` decoded nothing on a CA bus** ([#66]). Its
+  `_decode_command` was ras/cas/we only, so a monitor attached to any
+  CA-bus DUT reported every command as NOP — not just the new v5/v6
+  maps but LPDDR2, which the slave had decoded for some time. Silent,
+  and indistinguishable from an idle bus. The monitor now takes the
+  same opt-in `ca_map=` / `ca_map_col=` as the slave (default `None`
+  keeps the ras/cas/we path bit-identical) and reuses `CAStream` and
+  `ca_dispatch` unchanged. Two monitor-specific behaviours: streams are
+  built non-strict, so attaching mid-command resyncs instead of raising
+  (`CAStream.resyncs` counts it); and the capture is no longer gated
+  purely on `cs_n == 0`, because a multi-cycle CA command deasserts CS
+  on its continuation cycles by design (DDR5 drives CS_n high on cycle
+  2), which would have truncated every one of them — it feeds while CS
+  is asserted *or* a command is in flight, skipping idle DES cycles.
+  `DFIControlPacket` gains `ca_args` with the decoded fields; `address`
+  still carries the raw bus word and `bank` the decoded bank.
+
+### Fixed
+
 - **WCK signal memberships held an enum, not a memory-type set**
   ([#66]). `_WCK = frozenset({LPDDR5, LPDDR6})` was silently shadowed
   by a later `_WCK = SubInterface.WCK_CONTROL` rebinding, so every WCK

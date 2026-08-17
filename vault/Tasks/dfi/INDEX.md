@@ -8,9 +8,9 @@ Umbrella issues: [#16](https://github.com/sean-galloway/RTLDesignSherpa-DV/issue
 | State | Count |
 |---|---|
 | [active](active.md) | 0 |
-| [open](open.md) | 1 |
+| [open](open.md) | 0 |
 | [deferred](deferred.md) | 15 |
-| [closed](closed.md) | 7 |
+| [closed](closed.md) | 8 |
 | [dropped](dropped.md) | 0 |
 
 ## The area is parked
@@ -28,11 +28,8 @@ point rather than mid-change.
 
 ## Open shortlist
 
-- **DFI-010** — cut the 0.6.4 release. The only DFI item still open,
-  because it is a packaging action rather than protocol work:
-  `[Unreleased]` has held the entire CA-map stack since 0.6.3, and the
-  main repo consumes this package as a built wheel, so nothing propagates
-  until a release happens.
+Nothing open. 0.6.4 shipped the CA-map stack on 2026-08-17; everything
+else in the area is deferred pending the memory-controller work.
 
 ## Reading order for someone picking this up
 

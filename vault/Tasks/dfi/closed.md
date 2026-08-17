@@ -8,6 +8,36 @@ in `CHANGELOG.md` `[Unreleased]` pending the 0.6.4 cut ([[DFI-010]]).
 
 ---
 
+## DFI-010 — Cut the 0.6.4 release
+**Status:** closed 2026-08-17 — f2da744, tag `v0.6.4`, live on PyPI
+
+Shipped the whole CA-map stack (DFI-001…006) plus the DFIMonitor CA
+decode fix (DFI-007). Publish workflow green in 50 s.
+
+**Verified from PyPI, not from the build directory:** installed
+`cocotb-framework==0.6.4` into a fresh venv and checked the DDR5
+encoder produces correct output and the `jedec/` data files are
+present — the exact failure that made 0.6.1 a bad release, and one the
+source tree can never reveal because the files are always there
+locally.
+
+**The standing LPDDR constraint was honoured by framing, not omission.**
+The release notes and the CHANGELOG section both open with a scope
+note: the DDR5/LPDDR5/LPDDR6/HBM4 maps are spec-verified and
+unit-tested but *not* simulation-exercised, there is no v5/v6 co-sim
+target, and they should be treated as available to build against
+rather than validated capability. LPDDR2 is called out as unchanged.
+A reader hits that before the feature list.
+
+Note for next time: GitHub returned 503 twice on the releases endpoint
+during a partial outage. Each retry was preceded by checking whether
+the release had been partially created — blind retries against a
+creation endpoint are how duplicates happen.
+
+Also unresolved and unrelated: **v0.6.2 and v0.6.3 were never tagged**,
+so the tag history runs 0.6.1 → 0.6.4. Backfilling is safe (tags do not
+trigger the publish workflow; only Releases do).
+
 ## DFI-007 — Wire CA decode into `DFIMonitor`
 **Status:** closed 2026-08-14 — pulled out of the parked programme
 because it was a correctness bug, not an enhancement

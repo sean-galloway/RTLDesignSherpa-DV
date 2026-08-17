@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-08-17
+
+> **Scope note on the DFI CA work.** The CA maps for DDR5, LPDDR5,
+> LPDDR6 and HBM4 are **spec-verified and unit-tested, not
+> simulation-exercised** — there is no v5/v6 co-simulation target in
+> either repo, so none of this has run against RTL. Treat the
+> multi-version and LPDDR support as available for building against,
+> not as validated silicon-facing capability. The LPDDR2 path, which
+> does have a co-sim consumer, is unchanged by this release.
+
 ### Added
 
 - **HBM4 support for the DFI BFM (DFI v6.0)** ([#66]). New `hbm_ca`

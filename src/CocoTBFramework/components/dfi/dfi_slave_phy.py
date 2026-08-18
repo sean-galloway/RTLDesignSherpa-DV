@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from .dfi_timing import DFITimingProfile
 
 from cocotb.triggers import FallingEdge
+from cocotb.utils import get_sim_time
 from cocotb_bus.monitors import BusMonitor
 
 from ..shared.memory_model import MemoryModel
@@ -636,6 +637,58 @@ class DFISlavePHY(BusMonitor):
             (_v(self.bus.cas_n) >> p) & 1,
             (_v(self.bus.we_n)  >> p) & 1)
 
+    @staticmethod
+    def _sim_time_ns() -> str:
+        """Simulation time for a log line, or '-' when no simulator is
+        attached. Logging must never be the thing that kills a run, and
+        get_sim_time() raises outside a simulation context."""
+        try:
+            return f"{get_sim_time('ns')}"
+        except Exception:
+            return "-"
+
+    def _log_command(self, cmd: DRAMCommand, bank: int, addr: int,
+                     cycle: int) -> None:
+        """One line per accepted command, in the shape the AXI BFMs use.
+
+        The AXI slaves log a transaction with every field that decides
+        what it does (id, addr, len, size, resp). The DFI equivalent is
+        the DRAM command plus the bank state it acts on -- and, when the
+        command arrived on an encoded CA bus, the decoded fields, which
+        the legacy (bank, addr) fold throws away. Without them a trace
+        of an HBM4 or LPDDR5 run cannot tell you which pseudo-channel,
+        sub-channel or stack ID a command targeted, which is exactly
+        what you need when a burst lands in the wrong place.
+
+        Gated on DFI_CMD_TRACE=1 so normal runs stay quiet.
+        """
+        row = (self.dram.banks[bank].row
+               if bank < len(self.dram.banks) else None)
+        open_row = f"0x{row:X}" if row is not None else "closed"
+
+        fields = ""
+        args = self._ca_args if self._ca_streams is not None else \
+            getattr(self, "_lpddr_args", None)
+        if args:
+            # Order the interesting ones first, then any protocol
+            # selectors the map carried through (pc/sid/sc/cid/...).
+            shown = []
+            for key in ("row", "col", "ap", "auto_precharge", "all_banks"):
+                if key in args:
+                    v = args[key]
+                    shown.append(f"{key}={v if isinstance(v, bool) else f'0x{v:X}'}")
+            for key in sorted(k for k in args
+                              if k not in ("row", "col", "ap", "bank",
+                                           "auto_precharge", "all_banks")):
+                shown.append(f"{key}={args[key]}")
+            if shown:
+                fields = " " + " ".join(shown)
+
+        self.log.info(
+            f"@ {self._sim_time_ns()}ns: DFISlavePHY: {cmd.name} "
+            f"cyc={cycle} bank={bank} addr=0x{addr:X} "
+            f"open_row={open_row}{fields}")
+
     def _handle_command(self, cmd: DRAMCommand,
                         phase_override: Optional[int] = None) -> None:
         # phase_override: when the faithful multi-command decoder handles several
@@ -675,11 +728,7 @@ class DFISlavePHY(BusMonitor):
         self.cmd_counts[cmd] = self.cmd_counts.get(cmd, 0) + 1
 
         if _CMD_TRACE:
-            _row = self.dram.banks[bank].row if bank < len(self.dram.banks) else None
-            self.log.info(
-                f"[CMDTRACE] cyc={cycle} {cmd.name} bank={bank} "
-                f"addr=0x{addr:X} open_row_at_decode="
-                f"{('0x%X' % _row) if _row is not None else 'closed'}")
+            self._log_command(cmd, bank, addr, cycle)
 
         beats = self.base.beats_per_burst
 

@@ -55,6 +55,8 @@ Thumbs.db
 
 # cocotb sim build artifacts
 tests/sim/local_sim_build/
+# Verilator build trees appear under any test subdir, not just tests/sim/
+**/local_sim_build/
 tests/sim/logs/
 
 kimi_humanization_style_guide.md

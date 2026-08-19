@@ -44,6 +44,44 @@ import sys
 from pathlib import Path
 
 
+def rtl_root(repo_root):
+    """Where the RTL and its filelists actually live.
+
+    This repo ships verification infrastructure only — the RTL under
+    test stays in RTLDesignSherpa. A caller here passes its own
+    `repo_root`, which is the DV checkout, so every `$REPO_ROOT/rtl/...`
+    path in a filelist would resolve into a tree that deliberately has
+    no RTL in it. `RDS_RTL_PATH` (set by `env_python`) points at the RDS
+    checkout; use it whenever the local repo has no `rtl/` of its own.
+
+    Falls back to `repo_root` so a repo that does carry its own RTL, or
+    a caller that already passed the RDS root, keeps working unchanged.
+    """
+    if os.path.isdir(os.path.join(repo_root, 'rtl')):
+        return repo_root
+
+    rds = os.environ.get('RDS_RTL_PATH')
+    if rds and os.path.isdir(os.path.join(rds, 'rtl')):
+        return rds
+
+    raise FileNotFoundError(
+        f"No RTL tree found. {repo_root} has no rtl/ directory (this repo "
+        "ships verification infrastructure only), and RDS_RTL_PATH is "
+        f"{'unset' if not rds else f'set to {rds!r}, which has no rtl/'}.\n"
+        "Point RDS_RTL_PATH at an RTLDesignSherpa checkout, or "
+        "`source env_python`, which auto-detects one."
+    )
+
+
+def _processor_dir(repo_root, rtl):
+    """Directory holding file_list_processor.py, local copy first."""
+    for candidate in (Path(repo_root), Path(rtl)):
+        path = candidate / 'bin' / 'FileFolderFunctions'
+        if (path / 'file_list_processor.py').exists():
+            return path
+    return Path(repo_root) / 'bin' / 'FileFolderFunctions'
+
+
 def get_sources_from_filelist(repo_root, filelist_path):
     """
     Process an RTL file list and return verilog_sources and includes for CocoTB.
@@ -76,18 +114,19 @@ def get_sources_from_filelist(repo_root, filelist_path):
         - Removes duplicates from final lists
     """
     # Import FileListProcessor (add to path if needed)
-    filelist_processor_dir = Path(repo_root) / 'bin' / 'FileFolderFunctions'
+    rtl = rtl_root(repo_root)
+    filelist_processor_dir = _processor_dir(repo_root, rtl)
     if str(filelist_processor_dir) not in sys.path:
         sys.path.insert(0, str(filelist_processor_dir))
 
     from file_list_processor import FileListProcessor
 
     # Set REPO_ROOT environment variable for substitution
-    os.environ['REPO_ROOT'] = repo_root
+    os.environ['REPO_ROOT'] = rtl
 
     # Set component root environment variables (from env_python)
     # These are used in filelists for referencing cross-component dependencies
-    components_root = os.path.join(repo_root, 'projects', 'components')
+    components_root = os.path.join(rtl, 'projects', 'components')
     os.environ['APB_XBAR_ROOT'] = os.path.join(components_root, 'apb_xbar')
     os.environ['BRIDGE_ROOT'] = os.path.join(components_root, 'bridge')
     os.environ['CONVERTERS_ROOT'] = os.path.join(components_root, 'converters')
@@ -95,7 +134,7 @@ def get_sources_from_filelist(repo_root, filelist_path):
     os.environ['STREAM_ROOT'] = os.path.join(components_root, 'dmas', 'stream')
 
     # Construct absolute path to file list
-    filelist_abs = os.path.join(repo_root, filelist_path)
+    filelist_abs = os.path.join(rtl, filelist_path)
 
     if not os.path.exists(filelist_abs):
         raise FileNotFoundError(
@@ -118,16 +157,27 @@ def get_sources_from_filelist(repo_root, filelist_path):
     # Example: filelist at rtl/filelists/bridge_1x2_wr.f, paths relative to rtl/
     base_dir = os.path.dirname(filelist_dir)
 
-    # Resolve verilog_sources relative to base directory (parent of filelist dir)
-    verilog_sources = []
-    for source in verilog_sources_raw:
-        if os.path.isabs(source):
-            # Already absolute
-            verilog_sources.append(source)
-        else:
-            # Relative to base directory (parent of filelist directory)
-            abs_path = os.path.normpath(os.path.join(base_dir, source))
-            verilog_sources.append(abs_path)
+    # A filelist here can mix two roots: generated bridge RTL is listed
+    # relative to THIS repo (`tests/sim/rtl/bridges/...`), while shared
+    # RTL comes in as `$REPO_ROOT/rtl/...` against the RDS tree. So a
+    # relative entry is tried against each plausible root and the one
+    # that exists wins, rather than assuming a single base — assuming
+    # base_dir alone doubles the prefix on the bridge entries.
+    roots = [base_dir, repo_root, rtl]
+
+    def _resolve(entry):
+        for root in roots:
+            candidate = os.path.normpath(os.path.join(root, entry))
+            if os.path.exists(candidate):
+                return candidate
+        # Nothing matched; keep the historical base_dir form so the
+        # simulator's error names a path someone can act on.
+        return os.path.normpath(os.path.join(base_dir, entry))
+
+    verilog_sources = [
+        source if os.path.isabs(source) else _resolve(source)
+        for source in verilog_sources_raw
+    ]
 
     # Resolve include directories relative to base directory (same as verilog_sources)
     includes = []
@@ -136,14 +186,9 @@ def get_sources_from_filelist(repo_root, filelist_path):
         import re
         expanded = re.sub(r'\$(\w+)', lambda m: os.getenv(m.group(1), m.group(0)), inc)
 
-        # Then resolve relative paths
-        if os.path.isabs(expanded):
-            # Already absolute
-            includes.append(expanded)
-        else:
-            # Relative to base directory (parent of filelist directory)
-            abs_path = os.path.normpath(os.path.join(base_dir, expanded))
-            includes.append(abs_path)
+        # Then resolve relative paths, same multi-root rule as sources
+        includes.append(expanded if os.path.isabs(expanded)
+                        else _resolve(expanded))
 
     return verilog_sources, includes
 
@@ -172,17 +217,18 @@ def get_sources_from_multiple_filelists(repo_root, filelist_paths):
         )
     """
     # Import FileListProcessor
-    filelist_processor_dir = Path(repo_root) / 'bin' / 'FileFolderFunctions'
+    rtl = rtl_root(repo_root)
+    filelist_processor_dir = _processor_dir(repo_root, rtl)
     if str(filelist_processor_dir) not in sys.path:
         sys.path.insert(0, str(filelist_processor_dir))
 
     from file_list_processor import FileListProcessor, remove_dups_from_list
 
     # Set REPO_ROOT environment variable
-    os.environ['REPO_ROOT'] = repo_root
+    os.environ['REPO_ROOT'] = rtl
 
     # Construct absolute paths
-    filelist_abs_paths = [os.path.join(repo_root, fp) for fp in filelist_paths]
+    filelist_abs_paths = [os.path.join(rtl, fp) for fp in filelist_paths]
 
     # Check all exist
     for filelist_abs in filelist_abs_paths:
@@ -226,17 +272,18 @@ def debug_filelist(repo_root, filelist_path, output_file='filelist_debug.txt'):
         # Check scheduler_group_debug.txt for processing details
     """
     # Import FileListProcessor
-    filelist_processor_dir = Path(repo_root) / 'bin' / 'FileFolderFunctions'
+    rtl = rtl_root(repo_root)
+    filelist_processor_dir = _processor_dir(repo_root, rtl)
     if str(filelist_processor_dir) not in sys.path:
         sys.path.insert(0, str(filelist_processor_dir))
 
     from file_list_processor import FileListProcessor
 
     # Set REPO_ROOT environment variable
-    os.environ['REPO_ROOT'] = repo_root
+    os.environ['REPO_ROOT'] = rtl
 
     # Construct absolute path
-    filelist_abs = os.path.join(repo_root, filelist_path)
+    filelist_abs = os.path.join(rtl, filelist_path)
 
     if not os.path.exists(filelist_abs):
         raise FileNotFoundError(f"File list not found: {filelist_abs}")

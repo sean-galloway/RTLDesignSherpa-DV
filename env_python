@@ -61,6 +61,15 @@ if [ -z "${RDS_RTL_PATH:-}" ]; then
     done
 fi
 
+# RDS bin/ carries tooling the sim tests and RTL generators reach for --
+# rtl_generators (the bridge generator imports it), FileFolderFunctions,
+# and friends. Appended, not prepended, so this repo's own modules always
+# win a name collision.
+if [ -n "${RDS_RTL_PATH:-}" ] && [ -d "$RDS_RTL_PATH/bin" ]; then
+    export PYTHONPATH="$PYTHONPATH:$RDS_RTL_PATH/bin"
+    export RDS_BIN="$RDS_RTL_PATH/bin"
+fi
+
 # ---------------------------------------------------------------------------
 # Default simulator (overridable: `SIM=icarus source env_python`)
 # ---------------------------------------------------------------------------

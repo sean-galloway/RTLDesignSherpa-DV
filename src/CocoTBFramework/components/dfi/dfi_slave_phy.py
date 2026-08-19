@@ -290,6 +290,7 @@ class DFISlavePHY(BusMonitor):
         ca_map_col: "Optional[CAMap]" = None,
         ca_width: Optional[int] = None,
         ca_sdr: bool = False,
+        log=None,
         **kwargs,
     ):
         if side != "phy":
@@ -331,7 +332,12 @@ class DFISlavePHY(BusMonitor):
 
         BusMonitor.__init__(self, entity, f"{side}_dfi", clock, **kwargs)
         self.clock = clock
-        self.log = self.entity._log
+        # Default to the entity's logger, but let a testbench inject its
+        # own the way the AXI BFMs take `log=`. Without this the slave's
+        # output goes to the cocotb entity logger while everything else
+        # in the TB goes to TBBase's, so a DFI trace and the transactions
+        # that caused it land in two different places.
+        self.log = log if log is not None else self.entity._log
 
         # Pending operation queues. Reads serialize behind writes
         # already in flight — the user wants queue-don't-collide

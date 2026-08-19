@@ -15,6 +15,8 @@ tests do.
 
 import logging
 
+import pytest
+
 from CocoTBFramework.components.dfi.dfi_packet import DRAMCommand
 from CocoTBFramework.components.dfi.dfi_slave_phy import DFISlavePHY
 
@@ -102,3 +104,26 @@ def test_sim_time_helper_survives_no_simulator():
     """Logging must never be what kills a run. Outside a simulation
     get_sim_time() raises, so the helper degrades to '-'."""
     assert DFISlavePHY._sim_time_ns() == "-"
+
+
+@pytest.mark.parametrize("cls_name,module", [
+    ("DFISlavePHY", "dfi_slave_phy"),
+    ("DFIMonitor", "dfi_monitor"),
+    ("DFIMasterMC", "dfi_master_mc"),
+])
+def test_components_accept_an_injected_logger(cls_name, module):
+    """A testbench must be able to hand these its TBBase logger.
+
+    Each of these used to pin `self.log` to the cocotb entity logger
+    unconditionally, so DFI output landed somewhere other than the log
+    file holding the transactions that caused it.
+    """
+    import importlib
+    import inspect
+
+    cls = getattr(importlib.import_module(
+        f"CocoTBFramework.components.dfi.{module}"), cls_name)
+    params = inspect.signature(cls.__init__).parameters
+    assert "log" in params, f"{cls_name} takes no log= argument"
+    assert params["log"].default is None, \
+        f"{cls_name}'s log= must default to the entity logger"

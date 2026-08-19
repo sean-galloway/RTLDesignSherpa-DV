@@ -81,6 +81,7 @@ class DFIMasterMC(BusDriver):
         side: str = "mc",
         title: Optional[str] = None,
         memory_type=None,
+        log=None,
         **kwargs,
     ):
         if side != "mc":
@@ -99,7 +100,8 @@ class DFIMasterMC(BusDriver):
 
         BusDriver.__init__(self, entity, f"{side}_dfi", clock, **kwargs)
         self.clock = clock
-        self.log = self.entity._log
+        # Injectable like the AXI BFMs' `log=`; see DFISlavePHY.
+        self.log = log if log is not None else self.entity._log
         self._init_idle()
 
     # ----- Idle drive -----

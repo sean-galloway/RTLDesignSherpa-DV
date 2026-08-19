@@ -41,6 +41,13 @@
   gracefully outside a simulation rather than letting a logging call
   raise.
 
+- **`log=` on the DFI slave, monitor and master**. All three pinned
+  `self.log` to the cocotb entity logger unconditionally, so their
+  output went somewhere other than the log file holding the transactions
+  that caused it. They now take an injectable logger the way the AXI
+  BFMs do, defaulting to the entity logger when none is given, so a
+  testbench can hand them its TBBase logger.
+
 ### Fixed
 
 - Sim-build gitignore matched only `tests/sim/local_sim_build/`, leaving

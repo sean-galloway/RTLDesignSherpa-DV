@@ -146,6 +146,7 @@ class DFIMonitor(BusMonitor):
         ca_map_col=None,
         ca_width: Optional[int] = None,
         ca_sdr: bool = False,
+        log=None,
         **kwargs,
     ):
         if side not in ("mc", "phy"):
@@ -156,7 +157,8 @@ class DFIMonitor(BusMonitor):
         prefix = f"{side}_dfi"
         BusMonitor.__init__(self, entity, prefix, clock, **kwargs)
         self.clock = clock
-        self.log = self.entity._log
+        # Injectable like the AXI BFMs' `log=`; see DFISlavePHY.
+        self.log = log if log is not None else self.entity._log
 
         # Per-sub-interface capture queues. The default _recvQ from
         # BusMonitor still works (every packet goes there too), but

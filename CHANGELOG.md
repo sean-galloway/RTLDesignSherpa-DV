@@ -206,6 +206,7 @@
   names now, plus a membership regression test.
 
 [#66]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/66
+[#67]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/67
 
 ### Added
 

@@ -182,11 +182,172 @@ def load_timings(csv_path: Union[str, Path]) -> JedecTimings:
     )
 
 
+def _jedec_dir() -> Path:
+    return Path(__file__).parent / "jedec"
+
+
+def available_timings() -> list:
+    """Names accepted by :func:`builtin_timings`, sorted.
+
+    Only devices whose timings are fixed by a public JEDEC speed bin are
+    vendored. Devices whose AC timings are vendor-defined (HBM stacks,
+    for instance) are deliberately absent — see
+    :func:`timings_from_params` for those.
+    """
+    return sorted(p.stem for p in _jedec_dir().glob("*.csv"))
+
+
 def builtin_timings(name: str) -> JedecTimings:
     """Convenience loader for the CSVs vendored in this package.
 
     Usage:
         timings = builtin_timings("ddr3-1600")
     """
-    here = Path(__file__).parent / "jedec"
-    return load_timings(here / f"{name}.csv")
+    path = _jedec_dir() / f"{name}.csv"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"No built-in timing profile {name!r}. Available: "
+            f"{', '.join(available_timings())}.\n"
+            "Profiles are vendored only where a public JEDEC speed bin "
+            "fixes the numbers. For a device whose AC timings come from a "
+            "vendor datasheet, build them from your own values with "
+            "timings_from_params(...) or load_timings('your.csv') and pass "
+            "the result as the slave's timings= argument."
+        )
+    return load_timings(path)
+
+
+def timings_from_params(**params) -> JedecTimings:
+    """Build :class:`JedecTimings` from values in code, no CSV needed.
+
+    For parts whose AC timings this package cannot ship — anything
+    vendor-defined rather than fixed by a public JEDEC speed bin — this
+    is how a consumer supplies their own. It applies exactly the same
+    conversion the CSV loader does, so a profile built here and one
+    loaded from a file are indistinguishable downstream.
+
+    Each timing is given with an explicit unit suffix, in whichever form
+    the datasheet quotes it:
+
+        ``tRCD_ns=13.75``   nanoseconds, converted with ceiling rounding
+        ``tRCD_ck=11``      already in clock cycles, taken as-is
+
+    ``tCK_ns`` is always required, as are ``CL``, ``CWL`` and ``BL``
+    (unitless). Parameters outside the required set are kept in
+    ``extras`` under their bare name, matching the loader.
+
+        >>> t = timings_from_params(
+        ...     tCK_ns=0.3125, tRCD_ns=18.0, tRP_ns=18.0,
+        ...     tRAS_min_ns=32.0, tRC_ns=50.0, tWR_ns=30.0,
+        ...     tWTR_ns=10.0, tRTP_ns=7.5, tRRD_ns=8.0, tFAW_ns=40.0,
+        ...     tREFI_ns=3900.0, tRFC_ns=295.0, CL=40, CWL=38, BL=16)
+        >>> t.tRCD_cycles
+        58
+
+    Raises ValueError listing exactly what is missing or unrecognized,
+    so a caller working from a datasheet is told what to look up next.
+    """
+    unitless = {"CL", "CWL", "BL"}
+
+    if "tCK_ns" not in params:
+        raise ValueError(
+            "tCK_ns is required — every ns value is converted to cycles "
+            "with it"
+        )
+    tCK_ns = float(params.pop("tCK_ns"))
+    if tCK_ns <= 0:
+        raise ValueError(f"tCK_ns must be positive, got {tCK_ns}")
+
+    parsed: Dict[str, Union[int, float]] = {}
+    bad_suffix = []
+    for key, value in params.items():
+        if key in unitless:
+            parsed[key] = int(value)
+        elif key.endswith("_ns"):
+            parsed[key[:-3]] = ns_to_cycles(float(value), tCK_ns)
+        elif key.endswith("_ck"):
+            parsed[key[:-3]] = int(value)
+        else:
+            bad_suffix.append(key)
+
+    if bad_suffix:
+        raise ValueError(
+            f"Parameter(s) {sorted(bad_suffix)} need an explicit unit "
+            "suffix: '_ns' for nanoseconds or '_ck' for clock cycles "
+            f"(the unitless ones are {sorted(unitless)})"
+        )
+
+    required = {p for p in _REQUIRED_PARAMS if p != "tCK"}
+    missing = required - set(parsed)
+    if missing:
+        raise ValueError(
+            f"missing required parameter(s) {sorted(missing)} — supply "
+            "each as <name>_ns or <name>_ck"
+        )
+
+    extras = {k: float(v) for k, v in parsed.items()
+              if k not in _REQUIRED_PARAMS}
+
+    return JedecTimings(
+        tCK_ns=tCK_ns,
+        tRCD_cycles=int(parsed["tRCD"]),
+        tRP_cycles=int(parsed["tRP"]),
+        tRAS_min_cycles=int(parsed["tRAS_min"]),
+        tRC_cycles=int(parsed["tRC"]),
+        tWR_cycles=int(parsed["tWR"]),
+        tWTR_cycles=int(parsed["tWTR"]),
+        tRTP_cycles=int(parsed["tRTP"]),
+        tRRD_cycles=int(parsed["tRRD"]),
+        tFAW_cycles=int(parsed["tFAW"]),
+        tREFI_cycles=int(parsed["tREFI"]),
+        tRFC_cycles=int(parsed["tRFC"]),
+        CL=int(parsed["CL"]),
+        CWL=int(parsed["CWL"]),
+        BL=int(parsed["BL"]),
+        extras=extras,
+    )
+
+
+_TEMPLATE_DESCRIPTIONS = {
+    "tCK": "Clock period",
+    "tRCD": "Activate to Read/Write, same bank",
+    "tRP": "Precharge command period",
+    "tRAS_min": "Activate to Precharge, minimum",
+    "tRC": "Activate to Activate, same bank",
+    "tWR": "Write recovery",
+    "tWTR": "Write to Read turnaround",
+    "tRTP": "Read to Precharge",
+    "tRRD": "Activate to Activate, different bank",
+    "tFAW": "Four activate window",
+    "tREFI": "Average refresh interval",
+    "tRFC": "Refresh cycle time",
+    "CL": "CAS latency",
+    "CWL": "CAS write latency",
+    "BL": "Burst length",
+}
+
+
+def write_timings_template(csv_path: Union[str, Path],
+                           device: str = "<device>") -> Path:
+    """Write a blank CSV with every parameter the loader requires.
+
+    The companion to :func:`timings_from_params` for people who would
+    rather keep timings in a file next to the testbench than in code.
+    Values are left empty on purpose: filling them in is a datasheet
+    lookup, and a template carrying plausible-looking defaults would be
+    indistinguishable from a real profile once someone forgot to edit it.
+    """
+    path = Path(csv_path)
+    unit = {"CL": "CK", "CWL": "CK", "BL": "beats"}
+    lines = [
+        f"# {device} timing profile — fill in from the datasheet.",
+        "# Units: ns (converted to cycles, rounded up) | CK | beats.",
+        "# tCK must stay first; it sets the ns->cycle conversion.",
+        "# Extra rows beyond these are preserved in JedecTimings.extras.",
+        "",
+        "parameter, unit, value, description",
+    ]
+    lines += [f"{p}, {unit.get(p, 'ns')}, , {_TEMPLATE_DESCRIPTIONS[p]}"
+              for p in _REQUIRED_PARAMS]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path

@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Consumer-supplied JEDEC timing profiles** ([#67]). `DFIBase` takes
+  `timings=` as a mandatory argument, and profiles are vendored only
+  where a public JEDEC speed bin fixes the numbers — which HBM4 never
+  will, since JESD270-4A leaves the AC table vendor-defined, and which
+  DDR5/LPDDR5/LPDDR6 do not have yet. The practical effect was that
+  those devices could not be constructed at all: their CA maps decoded
+  correctly in unit tests while a consumer never got far enough to use
+  them. Two supported ways to close that gap:
+
+  - `timings_from_params(tCK_ns=..., tRCD_ns=..., tWTR_ck=..., ...)`
+    builds a profile in code from datasheet values. Every timing takes
+    an explicit `_ns` or `_ck` suffix — the two differ by roughly an
+    order of magnitude, so an ambiguous value is rejected rather than
+    guessed at and silently mis-timing every command.
+  - `write_timings_template(path, device=...)` emits a CSV skeleton
+    carrying every required parameter with the value column empty, for
+    keeping timings in a file. It ships no default values on purpose: a
+    template with plausible numbers in it is a profile nobody remembers
+    to edit.
+
+  Both route through the same conversion as a vendored CSV — identical
+  ceiling rounding, `extras` preserved — verified by round-tripping a
+  vendored profile through the in-code API and asserting equality.
+  `available_timings()` lists what is vendored, and an unknown name now
+  reports both that list and the way out instead of a bare
+  `FileNotFoundError` on a path.
+
+- **DFI slave command logging carries the decoded CA fields**. The
+  slave's `DFI_CMD_TRACE` output logged only the folded `(bank, addr)`
+  pair, discarding every selector the CA decode had just recovered —
+  pseudo-channel, sub-channel, stack ID, auto-precharge — which are the
+  first things wanted when a burst lands somewhere unexpected. Lines now
+  follow the AXI BFM shape (sim timestamp, component, then every field
+  that decided what the slave did) and the timestamp helper degrades
+  gracefully outside a simulation rather than letting a logging call
+  raise.
+
+### Fixed
+
+- Sim-build gitignore matched only `tests/sim/local_sim_build/`, leaving
+  Verilator trees under test subdirectories untracked but visible, one
+  `git add -A` away from being committed.
+
+
 ## [0.6.4] - 2026-08-17
 
 > **Scope note on the DFI CA work.** The CA maps for DDR5, LPDDR5,

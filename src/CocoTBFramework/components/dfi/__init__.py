@@ -106,7 +106,15 @@ from .hbm_ca import (
     pack_hbm4_cmdaddr,
     unpack_hbm4_cmdaddr,
 )
-from .jedec_timings import JedecTimings, builtin_timings, load_timings, ns_to_cycles
+from .jedec_timings import (
+    JedecTimings,
+    available_timings,
+    builtin_timings,
+    load_timings,
+    ns_to_cycles,
+    timings_from_params,
+    write_timings_template,
+)
 from .lpddr5_ca_map import (
     LPDDR5_CA_MAP_8B,
     LPDDR5_CA_MAP_16B,
@@ -193,7 +201,10 @@ __all__ = [
     "ViolationCategory",
     "ViolationPolicy",
     "JedecTimings",
+    "available_timings",
     "builtin_timings",
     "load_timings",
+    "timings_from_params",
+    "write_timings_template",
     "ns_to_cycles",
 ]

@@ -6,9 +6,12 @@
 
 `timescale 1ns / 1ps
 
-import bridge_a_axi4_widthmix_4x4_pkg::*;
 
-module bridge_a_axi4_widthmix_4x4_xbar (
+module bridge_a_axi4_widthmix_4x4_xbar
+    import bridge_a_axi4_widthmix_4x4_pkg::*;
+#(
+    parameter int NUM_SLAVES = 4
+) (
     input  logic aclk,
     input  logic aresetn,
 
@@ -480,7 +483,6 @@ module bridge_a_axi4_widthmix_4x4_xbar (
     // ================================================================
     // Crossbar Routing
     // ================================================================
-    localparam NUM_SLAVES = 4;
 
     // ================================================================
     // Slave 0: ddr0 (256b)

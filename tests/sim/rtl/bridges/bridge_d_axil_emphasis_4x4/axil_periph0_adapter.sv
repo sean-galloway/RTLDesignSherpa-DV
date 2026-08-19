@@ -6,9 +6,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_d_axil_emphasis_4x4_pkg::*;
 
-module axil_periph0_adapter #(
+module axil_periph0_adapter
+    import bridge_d_axil_emphasis_4x4_pkg::*;
+#(
     parameter int ID_WIDTH = 4
 ) (
     input  logic aclk,

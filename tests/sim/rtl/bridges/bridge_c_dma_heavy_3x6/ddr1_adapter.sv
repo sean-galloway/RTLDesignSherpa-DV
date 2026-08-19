@@ -6,9 +6,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_c_dma_heavy_3x6_pkg::*;
 
-module ddr1_adapter #(
+module ddr1_adapter
+    import bridge_c_dma_heavy_3x6_pkg::*;
+#(
     parameter int ID_WIDTH = 8
 ) (
     input  logic aclk,

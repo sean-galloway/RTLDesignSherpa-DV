@@ -4,9 +4,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_d_axil_emphasis_4x4_pkg::*;
 
-module host1_axil_adapter #(
+module host1_axil_adapter
+    import bridge_d_axil_emphasis_4x4_pkg::*;
+#(
     parameter NUM_SLAVES = 4,
     parameter BRIDGE_ID = 3,  // Unique ID for this master
     parameter BRIDGE_ID_WIDTH = 2,

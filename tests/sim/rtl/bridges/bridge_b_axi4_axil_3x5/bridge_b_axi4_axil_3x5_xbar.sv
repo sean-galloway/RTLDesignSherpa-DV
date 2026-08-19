@@ -6,9 +6,12 @@
 
 `timescale 1ns / 1ps
 
-import bridge_b_axi4_axil_3x5_pkg::*;
 
-module bridge_b_axi4_axil_3x5_xbar (
+module bridge_b_axi4_axil_3x5_xbar
+    import bridge_b_axi4_axil_3x5_pkg::*;
+#(
+    parameter int NUM_SLAVES = 5
+) (
     input  logic aclk,
     input  logic aresetn,
 
@@ -452,7 +455,6 @@ module bridge_b_axi4_axil_3x5_xbar (
     // ================================================================
     // Crossbar Routing
     // ================================================================
-    localparam NUM_SLAVES = 5;
 
     // ================================================================
     // Slave 0: ddr0 (128b)

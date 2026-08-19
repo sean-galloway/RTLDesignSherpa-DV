@@ -6,9 +6,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_f_fanout_2x8_pkg::*;
 
-module apb_periph1_adapter #(
+module apb_periph1_adapter
+    import bridge_f_fanout_2x8_pkg::*;
+#(
     parameter int ID_WIDTH = 8
 ) (
     input  logic aclk,
@@ -185,7 +186,7 @@ module apb_periph1_adapter #(
     assign rid_valid     = (ar_ptr != r_ptr);
 
     // AXI4-to-APB converter shim
-    axi4_to_apb_shim #(
+    axi4_to_apb4_shim #(
         .DEPTH_AW(2),
         .DEPTH_W(4),
         .DEPTH_B(2),
@@ -194,6 +195,7 @@ module apb_periph1_adapter #(
         .SIDE_DEPTH(4),
         .APB_CMD_DEPTH(4),
         .APB_RSP_DEPTH(4),
+        .USE_JOHNSON(0),
         .AXI_ID_WIDTH(8),
         .AXI_ADDR_WIDTH(32),
         .AXI_DATA_WIDTH(32),

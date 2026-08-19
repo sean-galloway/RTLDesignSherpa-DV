@@ -6,9 +6,12 @@
 
 `timescale 1ns / 1ps
 
-import bridge_c_dma_heavy_3x6_pkg::*;
 
-module bridge_c_dma_heavy_3x6_xbar (
+module bridge_c_dma_heavy_3x6_xbar
+    import bridge_c_dma_heavy_3x6_pkg::*;
+#(
+    parameter int NUM_SLAVES = 6
+) (
     input  logic aclk,
     input  logic aresetn,
 
@@ -574,7 +577,6 @@ module bridge_c_dma_heavy_3x6_xbar (
     // ================================================================
     // Crossbar Routing
     // ================================================================
-    localparam NUM_SLAVES = 6;
 
     // ================================================================
     // Slave 0: ddr0 (256b)

@@ -6,9 +6,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_a_axi4_widthmix_4x4_pkg::*;
 
-module scratch_adapter #(
+module scratch_adapter
+    import bridge_a_axi4_widthmix_4x4_pkg::*;
+#(
     parameter int ID_WIDTH = 4
 ) (
     input  logic aclk,

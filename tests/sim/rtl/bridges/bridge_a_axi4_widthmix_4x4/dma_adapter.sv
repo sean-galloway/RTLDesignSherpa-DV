@@ -4,9 +4,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_a_axi4_widthmix_4x4_pkg::*;
 
-module dma_adapter #(
+module dma_adapter
+    import bridge_a_axi4_widthmix_4x4_pkg::*;
+#(
     parameter NUM_SLAVES = 4,
     parameter BRIDGE_ID = 1,  // Unique ID for this master
     parameter BRIDGE_ID_WIDTH = 2,

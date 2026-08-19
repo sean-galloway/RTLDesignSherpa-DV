@@ -10,13 +10,14 @@
 //   - Width adaptation
 //
 //   Slave Adapter contains:
-//   - Timing wrapper (axi4_master_wr/rd) or Protocol converter (axi4_to_apb/axil)
+//   - Timing wrapper (axi4_master_wr/rd) or Protocol converter (axi4_to_apb4/axil)
 
 `timescale 1ns / 1ps
 
-import bridge_mix_a_pkg::*;
 
-module bridge_mix_a (
+module bridge_mix_a
+    import bridge_mix_a_pkg::*;
+(
     input  logic aclk,
     input  logic aresetn,
 

@@ -18,11 +18,24 @@ skid buffers, dwidth converters) at the pinned commit — resolved via
 | Field | Value |
 |---|---|
 | Source repo | `sean-galloway/RTLDesignSherpa` |
-| Source commit | `7aee11af7a8363fbafa75465f7e704f0328debeb` |
-| Source date | 2026-06-09 |
-| Copied on | 2026-06-09 |
+| Source commit | `cbe571c1e21e1b36f0dd0f3948c79292ee727893` |
+| Source date | 2026-08-18 |
+| Regenerated on | 2026-08-18 |
 
-### Group 1 — Snapshots from RDS at the pinned commit
+> **All nine bridges are regenerated output, not file copies.** They were
+> originally snapshotted at `7aee11a` (2026-06-09) and went stale when RDS
+> renamed APB→APB4 and moved the CDC blocks: the filelists still named
+> `rtl/amba/apb/apb_master.sv`, `axi4_to_apb_shim.sv` and
+> `rtl/amba/shared/cdc_{2,4}_phase_handshake.sv`, and the adapters
+> instantiated the old module names, so every bridge failed to elaborate.
+> Regenerating from each bridge's own TOML picked up the current generator,
+> which pulls each component's own closure filelist (`-f .../axi4_to_apb4_shim.f`)
+> instead of hand-listing sources — the reason this class of rot happened at
+> all. Group 1's bridges gained filelists in the process; two never had one.
+>
+> Fix the generator, not these files: everything here is generated output.
+
+### Group 1 — Originally snapshotted from RDS, now regenerated
 
 Per-bridge source paths (relative to RDS root):
 
@@ -55,7 +68,12 @@ for spec in /path/to/DV/tests/sim/bridge_specs/bridge_*.toml; do
     $REPO_ROOT/projects/components/bridge/bin/bridge_generator.py \
     --ports "$spec" --output-dir /tmp/bridge_gen_out
 done
-# Copy back, then fix filelist local paths:
+# Copy back, then rewrite the generated-file paths.
+#
+# A bridge filelist deliberately carries two roots: shared RTL as
+# $REPO_ROOT/... against RDS, and the generated files as paths relative
+# to THIS repo. The generator anchors the latter on wherever it wrote
+# them, so they need rewriting to their resting place here.
 for d in /tmp/bridge_gen_out/bridge_*; do
   name=$(basename "$d")
   mkdir -p /path/to/DV/tests/sim/rtl/bridges/$name
@@ -64,6 +82,17 @@ for d in /tmp/bridge_gen_out/bridge_*; do
   sed -i "s|bridge_gen_out/$name/|tests/sim/rtl/bridges/$name/|g" \
     /path/to/DV/tests/sim/rtl/bridges/$name/$name.f
 done
+```
+
+The Group 1 bridges keep their TOML alongside the RTL, so they
+regenerate the same way — point `--ports` at
+`tests/sim/rtl/bridges/<name>/<name>.toml`.
+
+Afterwards, confirm every filelist still closes over real files and that
+each bridge elaborates:
+
+```bash
+verilator --lint-only --top-module <name> <sources from the .f>
 ```
 
 ## Curation rationale

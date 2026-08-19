@@ -2,18 +2,17 @@
 +incdir+$REPO_ROOT/rtl/amba/includes
 
 # Bridge RTL files (generated)
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/bridge_c_dma_heavy_3x6_pkg.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/cpu_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/dma0_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/dma1_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/bridge_c_dma_heavy_3x6.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/bridge_c_dma_heavy_3x6_xbar.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/apb_periph0_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/axil_periph0_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/axil_periph1_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/ddr0_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/ddr1_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/scratch_adapter.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/bridge_4x4_rw_pkg.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/cpu_master_adapter.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/dma0_master_adapter.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/dma1_master_adapter.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/gpu_master_adapter.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/bridge_4x4_rw.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/bridge_4x4_rw_xbar.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/ddr0_slave_adapter.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/gpu_mem_slave_adapter.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/periph_slave_adapter.sv
+tests/sim/rtl/bridges/bridge_4x4_rw/sram_slave_adapter.sv
 
 # AXI4 Wrapper modules (timing isolation)
 #
@@ -46,16 +45,3 @@ tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/scratch_adapter.sv
 -f $REPO_ROOT/projects/components/converters/rtl/filelists/axi4_dwidth_converter_wr.f
 -f $REPO_ROOT/projects/components/converters/rtl/filelists/axil_to_axi4_wide_align_wr.f
 -f $REPO_ROOT/projects/components/converters/rtl/filelists/axil_to_axi4_wide_align_rd.f
-
-# APB protocol converter (AXI4 to APB).
-#
-# The converters component owns its own closure: the shim + convert
-# core, the CDC handshakes, the APB master/stub, the AXI4 slave stubs,
-# axi_gen_addr and both gaxi FIFOs. Hand-listing those here is how the
-# shim's newer gaxi_fifo_async CDC dependency went missing.
--f $REPO_ROOT/projects/components/converters/rtl/filelists/axi4_to_apb4_shim.f
-
-# AXI4-Lite protocol converter dependencies.
-# -f the converters filelists; do not hand-list its sources.
--f $REPO_ROOT/projects/components/converters/rtl/filelists/axi4_to_axil4_rd.f
--f $REPO_ROOT/projects/components/converters/rtl/filelists/axi4_to_axil4_wr.f

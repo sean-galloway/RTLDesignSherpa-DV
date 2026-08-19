@@ -6,9 +6,12 @@
 
 `timescale 1ns / 1ps
 
-import bridge_e_grand_mix_5x5_pkg::*;
 
-module bridge_e_grand_mix_5x5_xbar (
+module bridge_e_grand_mix_5x5_xbar
+    import bridge_e_grand_mix_5x5_pkg::*;
+#(
+    parameter int NUM_SLAVES = 5
+) (
     input  logic aclk,
     input  logic aresetn,
 
@@ -560,7 +563,6 @@ module bridge_e_grand_mix_5x5_xbar (
     // ================================================================
     // Crossbar Routing
     // ================================================================
-    localparam NUM_SLAVES = 5;
 
     // ================================================================
     // Slave 0: ddr0 (256b)

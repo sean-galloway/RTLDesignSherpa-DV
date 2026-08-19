@@ -6,9 +6,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_b_axi4_axil_3x5_pkg::*;
 
-module sram_adapter #(
+module sram_adapter
+    import bridge_b_axi4_axil_3x5_pkg::*;
+#(
     parameter int ID_WIDTH = 4
 ) (
     input  logic aclk,

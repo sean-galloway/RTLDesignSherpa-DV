@@ -4,9 +4,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_e_grand_mix_5x5_pkg::*;
 
-module gpu_adapter #(
+module gpu_adapter
+    import bridge_e_grand_mix_5x5_pkg::*;
+#(
     parameter NUM_SLAVES = 5,
     parameter BRIDGE_ID = 1,  // Unique ID for this master
     parameter BRIDGE_ID_WIDTH = 3,

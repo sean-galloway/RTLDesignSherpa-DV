@@ -6,9 +6,12 @@
 
 `timescale 1ns / 1ps
 
-import bridge_d_axil_emphasis_4x4_pkg::*;
 
-module bridge_d_axil_emphasis_4x4_xbar (
+module bridge_d_axil_emphasis_4x4_xbar
+    import bridge_d_axil_emphasis_4x4_pkg::*;
+#(
+    parameter int NUM_SLAVES = 4
+) (
     input  logic aclk,
     input  logic aresetn,
 
@@ -400,7 +403,6 @@ module bridge_d_axil_emphasis_4x4_xbar (
     // ================================================================
     // Crossbar Routing
     // ================================================================
-    localparam NUM_SLAVES = 4;
 
     // ================================================================
     // Slave 0: ddr0 (128b)

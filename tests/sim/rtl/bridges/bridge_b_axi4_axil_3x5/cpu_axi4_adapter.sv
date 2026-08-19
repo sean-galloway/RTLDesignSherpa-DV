@@ -4,9 +4,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_b_axi4_axil_3x5_pkg::*;
 
-module cpu_axi4_adapter #(
+module cpu_axi4_adapter
+    import bridge_b_axi4_axil_3x5_pkg::*;
+#(
     parameter NUM_SLAVES = 5,
     parameter BRIDGE_ID = 0,  // Unique ID for this master
     parameter BRIDGE_ID_WIDTH = 2,

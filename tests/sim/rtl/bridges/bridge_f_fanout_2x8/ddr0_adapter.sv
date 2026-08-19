@@ -6,9 +6,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_f_fanout_2x8_pkg::*;
 
-module ddr0_adapter #(
+module ddr0_adapter
+    import bridge_f_fanout_2x8_pkg::*;
+#(
     parameter int ID_WIDTH = 8
 ) (
     input  logic aclk,

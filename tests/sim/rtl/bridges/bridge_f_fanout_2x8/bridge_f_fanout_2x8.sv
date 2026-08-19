@@ -10,13 +10,14 @@
 //   - Width adaptation
 //
 //   Slave Adapter contains:
-//   - Timing wrapper (axi4_master_wr/rd) or Protocol converter (axi4_to_apb/axil)
+//   - Timing wrapper (axi4_master_wr/rd) or Protocol converter (axi4_to_apb4/axil)
 
 `timescale 1ns / 1ps
 
-import bridge_f_fanout_2x8_pkg::*;
 
-module bridge_f_fanout_2x8 (
+module bridge_f_fanout_2x8
+    import bridge_f_fanout_2x8_pkg::*;
+(
     input  logic aclk,
     input  logic aresetn,
 

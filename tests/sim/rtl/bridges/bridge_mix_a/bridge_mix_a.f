@@ -2,18 +2,14 @@
 +incdir+$REPO_ROOT/rtl/amba/includes
 
 # Bridge RTL files (generated)
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/bridge_c_dma_heavy_3x6_pkg.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/cpu_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/dma0_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/dma1_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/bridge_c_dma_heavy_3x6.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/bridge_c_dma_heavy_3x6_xbar.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/apb_periph0_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/axil_periph0_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/axil_periph1_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/ddr0_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/ddr1_adapter.sv
-tests/sim/rtl/bridges/bridge_c_dma_heavy_3x6/scratch_adapter.sv
+tests/sim/rtl/bridges/bridge_mix_a/bridge_mix_a_pkg.sv
+tests/sim/rtl/bridges/bridge_mix_a/cpu_axi4_adapter.sv
+tests/sim/rtl/bridges/bridge_mix_a/host_axil_adapter.sv
+tests/sim/rtl/bridges/bridge_mix_a/bridge_mix_a.sv
+tests/sim/rtl/bridges/bridge_mix_a/bridge_mix_a_xbar.sv
+tests/sim/rtl/bridges/bridge_mix_a/apb_periph_adapter.sv
+tests/sim/rtl/bridges/bridge_mix_a/axil_periph_adapter.sv
+tests/sim/rtl/bridges/bridge_mix_a/ddr_adapter.sv
 
 # AXI4 Wrapper modules (timing isolation)
 #

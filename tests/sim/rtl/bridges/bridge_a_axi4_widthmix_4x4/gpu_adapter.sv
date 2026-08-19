@@ -4,9 +4,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_a_axi4_widthmix_4x4_pkg::*;
 
-module gpu_adapter #(
+module gpu_adapter
+    import bridge_a_axi4_widthmix_4x4_pkg::*;
+#(
     parameter NUM_SLAVES = 4,
     parameter BRIDGE_ID = 2,  // Unique ID for this master
     parameter BRIDGE_ID_WIDTH = 2,

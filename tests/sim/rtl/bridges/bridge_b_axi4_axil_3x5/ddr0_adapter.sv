@@ -6,9 +6,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_b_axi4_axil_3x5_pkg::*;
 
-module ddr0_adapter #(
+module ddr0_adapter
+    import bridge_b_axi4_axil_3x5_pkg::*;
+#(
     parameter int ID_WIDTH = 4
 ) (
     input  logic aclk,

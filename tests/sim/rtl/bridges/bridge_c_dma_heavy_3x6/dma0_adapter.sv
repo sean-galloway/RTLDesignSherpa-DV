@@ -4,9 +4,10 @@
 
 `timescale 1ns / 1ps
 
-import bridge_c_dma_heavy_3x6_pkg::*;
 
-module dma0_adapter #(
+module dma0_adapter
+    import bridge_c_dma_heavy_3x6_pkg::*;
+#(
     parameter NUM_SLAVES = 6,
     parameter BRIDGE_ID = 1,  // Unique ID for this master
     parameter BRIDGE_ID_WIDTH = 2,

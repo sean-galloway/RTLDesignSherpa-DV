@@ -6,9 +6,12 @@
 
 `timescale 1ns / 1ps
 
-import bridge_f_fanout_2x8_pkg::*;
 
-module bridge_f_fanout_2x8_xbar (
+module bridge_f_fanout_2x8_xbar
+    import bridge_f_fanout_2x8_pkg::*;
+#(
+    parameter int NUM_SLAVES = 8
+) (
     input  logic aclk,
     input  logic aresetn,
 
@@ -620,7 +623,6 @@ module bridge_f_fanout_2x8_xbar (
     // ================================================================
     // Crossbar Routing
     // ================================================================
-    localparam NUM_SLAVES = 8;
 
     // ================================================================
     // Slave 0: ddr0 (256b)

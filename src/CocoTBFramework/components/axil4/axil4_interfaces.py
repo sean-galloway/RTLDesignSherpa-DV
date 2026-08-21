@@ -505,6 +505,12 @@ class AXIL4SlaveRead:
         # 0xDEADDEAD/SLVERR.
         self.base_addr = kwargs.get('base_addr', 0)
         self.response_delay_cycles = kwargs.get('response_delay', 1)
+        # Optional response override: a callable (address) -> resp code,
+        # or None to leave the natural response alone. Without this the
+        # slave can only ever answer OKAY (or SLVERR by crashing a memory
+        # read), so a DUT's error path is untestable -- which is how an
+        # error-masking bug reaches a converter that has a passing suite.
+        self.resp_override = kwargs.get('resp_override')
 
         # AR Channel - GAXISlave drives arready and receives AR requests
         self.ar_channel = GAXISlave(
@@ -600,6 +606,11 @@ class AXIL4SlaveRead:
                 # Default data pattern
                 data = (address & 0xFFFFFFFF) ^ 0xDEADBEEF
 
+            if self.resp_override is not None:
+                forced = self.resp_override(address)
+                if forced is not None:
+                    resp = forced
+
             # Create and send R response using generic field names (SIMPLIFIED)
             r_packet = self.r_channel.create_packet(
                 data=data,
@@ -650,6 +661,10 @@ class AXIL4SlaveWrite:
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')
         self.response_delay_cycles = kwargs.get('response_delay', 1)
+        # Optional response override: a callable (address) -> resp code,
+        # or None to leave the natural response alone. Mirrors
+        # AXIL4SlaveRead; see the note there.
+        self.resp_override = kwargs.get('resp_override')
 
         # Base address offset (mirrors AXI4SlaveWrite). Subtracted from
         # incoming absolute AWADDR before indexing into memory_model.
@@ -803,6 +818,11 @@ class AXIL4SlaveWrite:
                     resp = 2  # SLVERR
 
             # Create and send B response using generic field names (SIMPLIFIED)
+            if self.resp_override is not None:
+                forced = self.resp_override(address)
+                if forced is not None:
+                    resp = forced
+
             b_packet = self.b_channel.create_packet(
                 resp=resp
                 # SIMPLIFIED: No user field

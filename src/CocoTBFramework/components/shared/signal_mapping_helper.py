@@ -1279,11 +1279,26 @@ class SignalResolver:
             patterns = optional_map[mode_key]
 
             if self.multi_sig:
-                # Multi-signal mode: resolve individual field signals
+                # Multi-signal mode: resolve individual field signals.
+                #
+                # A field declared in field_config is REQUIRED. Treating it as
+                # optional means an unbindable field degrades to a warning and
+                # the component reads 0 forever: every data comparison passes
+                # against 0x0, every LAST reads False, and the testbench cannot
+                # fail. That is not hypothetical -- the converters' width
+                # primitives ran that way through 22 configurations because
+                # `prefix="wide_"` plus `pkt_prefix="wide"` looked for
+                # `wide_wide_data`, and the miss was only a warning.
+                #
+                # Genuinely optional fields (a `user` field a given DUT does not
+                # carry) opt out by name via `optional_fields`.
+                optional_fields = set(self.config.get('optional_fields', ()) or ())
                 for field_name in self.field_config.field_names():
                     logical_name = f'field_{field_name}_sig'
-                    signal_obj = self._find_signal_match(logical_name, patterns,
-                                                        required=False, field_name=field_name)
+                    is_required = field_name not in optional_fields
+                    signal_obj = self._find_signal_match(
+                        logical_name, patterns,
+                        required=is_required, field_name=field_name)
                     self.resolved_signals[logical_name] = signal_obj
             else:
                 # Single signal mode: resolve data signal

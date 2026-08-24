@@ -547,11 +547,15 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
         self._set("rdlvl_resp", 0)
         self._set("wrlvl_req", 0)
         self._set("wrlvl_resp", 0)
-        # PHY-driven status: init_complete asserts once the slave is
-        # ready for DFI transactions (this construction-time BFM is
-        # ready immediately); de-asserting it later acknowledges a
-        # frequency-change request.
-        self._set("init_complete", 1)
+        # PHY-driven status: dfi_init_complete is DELIBERATELY not
+        # driven here (#70). Asserting it at construction is a protocol
+        # EVENT, not an idle tie-off — it releases any DUT init FSM
+        # waiting in its dfi-init state, and a testbench that owns the
+        # bring-up choreography (hold low through reset, assert N
+        # cycles later) gets stomped: the 0.6.3 regression launched
+        # pumice's LPDDR2 MR walk early enough to scramble its CA
+        # framing. A test that wants this BFM to own readiness calls
+        # ``set_init_complete(1)`` explicitly after construction.
         # PHY-driven low-power ack
         self._set("lp_ack", 0)
         # PHY-driven takeover request (dfi_phymngd_req from v5.2)

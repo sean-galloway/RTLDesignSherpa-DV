@@ -94,7 +94,10 @@ async def dfi_freq_change_v3_1_basic_test(dut):
     master = DFIMasterMC(dut, dut.dfi_clk)
     await Timer(1, units="ns")
 
-    # Slave asserts init_complete at construction; request = init_start
+    # PHY declares itself ready (#70: the constructor no longer asserts
+    # init_complete — that's a protocol event, owned by the test);
+    # request = init_start during normal operation.
+    slave.set_init_complete(1)
     master.request_freq_change(freq_ratio=1)
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
@@ -118,6 +121,8 @@ async def dfi_freq_change_v4_0_indicator_and_accept_test(dut):
     master = DFIMasterMC(dut, dut.dfi_clk)
     await Timer(1, units="ns")
 
+    # PHY ready first (#70 — construction no longer asserts it)
+    slave.set_init_complete(1)
     master.request_freq_change(frequency_code=7, freq_ratio=2)
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)

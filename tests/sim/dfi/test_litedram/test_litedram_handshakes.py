@@ -227,6 +227,10 @@ async def litedram_handshakes_v4_0_test(dut):
     )
 
     # ----- Frequency change: init_start + indicator, PHY accepts -----
+    # PHY declares ready first (#70 — construction no longer asserts
+    # init_complete), so the later de-assert is a real edge.
+    slave.set_init_complete(1)
+    await _hold(dut, 1)
     dut.mc_dfi_frequency.value = 7
     dut.mc_dfi_freq_ratio.value = 2
     dut.mc_dfi_init_start.value = 1

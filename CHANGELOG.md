@@ -50,6 +50,24 @@
 
 ### Fixed
 
+- **`DFISlavePHY` no longer asserts `dfi_init_complete` at
+  construction** ([#70]). The 0.6.3 spec-verification sweep added it
+  to the constructor's idle drives, but readiness is a protocol EVENT,
+  not a tie-off: it releases any DUT init FSM waiting in its dfi-init
+  state, and a testbench that owns the bring-up choreography (hold low
+  through reset, assert N cycles later — the pumice TBs say in as many
+  words "inputs that the BFM does NOT drive") got stomped. On pumice
+  the stomp launched the LPDDR2 MR walk early enough to scramble its
+  CA framing — MRW writes to MR{63,10,1,2,3} decoded as MR{0,5,4,3}
+  with wrong data. Bisected to the sweep commit itself with a
+  missing-signal shim so every commit in the range was constructable,
+  and pinned by a clean-build A/B (0.6.2 passes, 0.6.4 fails,
+  identical decode source). The constructor's other status drives are
+  genuine idles (requests to 0) and stay. Tests that want the BFM to
+  own readiness call ``set_init_complete(1)`` — the freq-change and
+  LiteDRAM-handshake sim tests now do exactly that, which also makes
+  their accept-by-deassert checks a real edge instead of a leftover.
+
 - **DFI BFMs bind a v2.1 bus again — signals beyond the declared
   version are optional** ([#69]). The spec-verification sweep in 0.6.3
   made the BFMs declare the union of the DFI 2.1–6.0 signal catalog
@@ -243,6 +261,7 @@
 [#66]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/66
 [#67]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/67
 [#69]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/69
+[#70]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/70
 
 ### Added
 

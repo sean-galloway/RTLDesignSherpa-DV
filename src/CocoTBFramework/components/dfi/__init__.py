@@ -48,7 +48,7 @@ from .dfi_field_configs import (
     write_data_field_config,
 )
 from .dfi_master_mc import DFIMasterMC
-from .dfi_monitor import DFIMonitor
+from .dfi_monitor import DFIMonitor, partition_wired_signals, signal_version_note
 from .dfi_packet import (
     DFIControlPacket,
     DFIReadDataPacket,
@@ -193,6 +193,8 @@ __all__ = [
     "DFIBase",
     "DFIMasterMC",
     "DFIMonitor",
+    "partition_wired_signals",
+    "signal_version_note",
     "DFISlavePHY",
     "AddressMapping",
     "Bank",

@@ -50,6 +50,34 @@
 
 ### Fixed
 
+- **DFI BFMs bind a v2.1 bus again — signals beyond the declared
+  version are optional** ([#69]). The spec-verification sweep in 0.6.3
+  made the BFMs declare the union of the DFI 2.1–6.0 signal catalog
+  with `_optional_signals` empty, so every wire was mandatory and a
+  DUT implementing DFI v2.1 — no `dfi_alert_n` (v3.0+), no
+  `dfi_reset_n` on DDR2, none of the post-2.1 interfaces — died at TB
+  construction on `self.bus.alert_n.value = 1` with an
+  `AttributeError` on `None`. `DFISlavePHY`, `DFIMasterMC`, and
+  `DFIMonitor` now partition the wired union per instance via
+  `partition_wired_signals(dfi_version, memory_type)`: required is the
+  command/write/read core filtered by `SignalSpec.applies()` (both the
+  version axis and the memory axis — `dfi_reset_n` is DDR3+, ras/cas/we
+  are the DDR command families), optional is everything else, bound
+  when the DUT wires it and skipped when it does not. The slave and
+  master take the pair from their `DFIBase` / constructor; the monitor
+  grew optional `dfi_version=` / `memory_type=` kwargs. Three failure
+  modes got honest errors on the way: a missing *required* wire now
+  fails construction with the wire names and the declared pair (it
+  used to bind as a silent `None` and crash at first use), the public
+  setters (`set_alert_n()`, …) raise the wire's spec lifecycle
+  ("dfi_alert_n is defined v3.1..v5.2 (ddr3/ddr4/ddr5)") instead of an
+  `AttributeError` from inside cocotb_bus, and a wired-tuple name
+  missing from the catalog raises at partition time instead of binding
+  unchecked. A full-union bus (the sim shim) partitions to exactly its
+  old binding, verified by the unit suite; the reported consumers (the
+  pumice top tier and the ddr2-char sims, 83 tests red on 0.6.4) pass
+  against the fix.
+
 - Sim-build gitignore matched only `tests/sim/local_sim_build/`, leaving
   Verilator trees under test subdirectories untracked but visible, one
   `git add -A` away from being committed.
@@ -214,6 +242,7 @@
 
 [#66]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/66
 [#67]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/67
+[#69]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/69
 
 ### Added
 

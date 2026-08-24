@@ -108,7 +108,172 @@ def _v(sig) -> int:
     return v.integer if v.is_resolvable else 0
 
 
-class DFIMonitor(BusMonitor):
+# ---------------------------------------------------------------------
+# Version-aware signal partition (issue #69)
+# ---------------------------------------------------------------------
+#
+# The BFMs wire the union of every signal they know how to touch, but a
+# DUT only carries the wires its DFI version and memory type define — a
+# v2.1 DDR2 controller has no dfi_alert_n (v3.0+) and no dfi_reset_n
+# (DDR3+). Making the whole union mandatory (the 0.6.3 regression) made
+# every pre-v3.0 bus unconstructable.
+#
+# The split below is therefore two-tier:
+#   REQUIRED  — the command / write-data / read-data core the BFM cannot
+#               function without, filtered by SignalSpec.applies() so a
+#               wire outside the declared (version, memory) envelope is
+#               never demanded.
+#   OPTIONAL  — everything else. Bound when present (a full-union shim
+#               keeps exactly its old behavior), silently absent
+#               otherwise; every drive/sample of these goes through the
+#               presence-guarded helpers on _DFIBusAccessMixin.
+
+_CORE_SIGNALS = tuple(_COMMAND_SIGNALS + _WRITE_DATA_SIGNALS
+                      + _READ_DATA_SIGNALS)
+_AUX_SIGNALS = tuple(_ERROR_SIGNALS + _ALERT_SIGNALS + _UPDATE_SIGNALS
+                     + _TRAINING_SIGNALS + _CA_PARITY_SIGNALS
+                     + _STATUS_SIGNALS + _LOW_POWER_SIGNALS
+                     + _DISCONNECT_SIGNALS + _PHY_MASTER_SIGNALS)
+
+
+def _specs_by_name():
+    """name → tuple(SignalSpec, ...) over the spec catalog (renames and
+    memory-type variants mean a name can carry several entries)."""
+    from .dfi_signal_catalog import ALL_SIGNALS
+    by_name = {}
+    for spec in ALL_SIGNALS:
+        by_name.setdefault(spec.name, []).append(spec)
+    return by_name
+
+
+def _spec_applies(spec, dfi_version, memory_type) -> bool:
+    """SignalSpec.applies() with None on either axis meaning
+    'undeclared'.
+
+    An undeclared version skips the version-lifecycle test. An
+    undeclared memory type is stricter than a wildcard: a memory-scoped
+    signal (dfi_reset_n is DDR3+, ras/cas/we are the DDR command
+    families) can only be *required* of a DUT whose memory type is
+    known to need it — without a declaration only the wires every
+    memory type carries may be demanded. Either way the wire stays
+    bound optionally when the DUT has it.
+    """
+    from .dfi_signal_types import version_rank
+    if dfi_version is not None:
+        if version_rank(dfi_version) < version_rank(spec.min_version):
+            return False
+        if (spec.max_version is not None
+                and version_rank(dfi_version) > version_rank(spec.max_version)):
+            return False
+    if spec.memory_types:
+        if memory_type is None or memory_type not in spec.memory_types:
+            return False
+    return True
+
+
+def signal_version_note(name: str) -> str:
+    """Human-readable lifecycle of a wired signal, for error messages —
+    e.g. ``dfi_alert_n is defined v3.1..v5.2 (ddr3/ddr4/ddr5)``."""
+    specs = _specs_by_name().get(name)
+    if not specs:
+        return f"dfi_{name} is not in the spec catalog"
+    spans = []
+    for s in specs:
+        span = f"v{s.min_version.value}..{'v' + s.max_version.value if s.max_version else 'latest'}"
+        if s.memory_types:
+            span += " (" + "/".join(sorted(m.value for m in s.memory_types)) + ")"
+        spans.append(span)
+    return f"dfi_{name} is defined {', '.join(spans)}"
+
+
+def partition_wired_signals(dfi_version=None, memory_type=None):
+    """Split the wired signal union into (required, optional) for a DUT
+    declaring ``(dfi_version, memory_type)``.
+
+    Required is the command/write/read core, minus any wire the spec
+    does not define for that pair (dfi_reset_n on DDR2, dfi_ras_n on
+    LPDDR5, ...). Optional is everything else the BFMs know how to
+    touch — bound when the DUT wires it, skipped when it does not.
+    ``None`` on either axis skips that filter (the pre-#69 behavior
+    for callers that declare nothing).
+    """
+    by_name = _specs_by_name()
+    required = []
+    optional = []
+    for name in _CORE_SIGNALS:
+        specs = by_name.get(name)
+        if specs is None:
+            raise ValueError(
+                f"wired signal dfi_{name} has no entry in the DFI signal "
+                f"catalog — fix dfi_signal_catalog.py or the wired tuples"
+            )
+        if any(_spec_applies(s, dfi_version, memory_type) for s in specs):
+            required.append(name)
+        else:
+            optional.append(name)
+    optional.extend(_AUX_SIGNALS)
+    return required, optional
+
+
+class _DFIBusAccessMixin:
+    """Presence-tolerant bus access shared by the three DFI BFM roles.
+
+    cocotb_bus binds a missing *required* signal as a silent ``None``
+    attribute (its case-insensitive lookup falls through) and skips
+    missing *optional* signals entirely — so both absences surface as
+    ``getattr(self.bus, name, None) is None`` and, unguarded, as an
+    ``AttributeError`` deep inside the first drive. These helpers turn
+    that into either a skip (idle drives of wires the DUT doesn't
+    carry) or a construction-time / call-time error that names the wire
+    and its spec lifecycle.
+    """
+
+    def _check_required_bound(self) -> None:
+        """Fail construction loudly if a required wire didn't bind."""
+        missing = [name for name in self._signals
+                   if getattr(self.bus, name, None) is None]
+        if missing:
+            ver = getattr(self, "_declared_version", None)
+            mem = getattr(self, "_declared_memory", None)
+            ctx = (f" for DFI v{ver.value}" if ver is not None else "") + \
+                  (f" / {mem.value}" if mem is not None else "")
+            raise AttributeError(
+                f"{self.title}: bus is missing required DFI signal(s)"
+                f"{ctx}: " +
+                ", ".join(f"dfi_{n}" for n in missing) +
+                ". If the DUT's DFI version/memory type does not define "
+                "them, declare that version so they become optional."
+            )
+
+    def _sig(self, name):
+        """The bound handle for ``name``, or None if the DUT lacks it."""
+        return getattr(self.bus, name, None)
+
+    def _set(self, name: str, value: int) -> None:
+        """Drive ``name`` if the DUT wires it; silently skip otherwise.
+        For idle tie-offs and event drives of optional wires."""
+        sig = self._sig(name)
+        if sig is not None:
+            sig.value = value
+
+    def _vopt(self, name: str, default: int = 0) -> int:
+        """Sample ``name`` if wired, else ``default``."""
+        sig = self._sig(name)
+        return _v(sig) if sig is not None else default
+
+    def _api_sig(self, name: str):
+        """The handle for a public setter — raises a clear error naming
+        the wire and its spec lifecycle when the DUT lacks it."""
+        sig = self._sig(name)
+        if sig is None:
+            raise AttributeError(
+                f"{self.title}: this bus has no dfi_{name} "
+                f"({signal_version_note(name)})"
+            )
+        return sig
+
+
+class DFIMonitor(_DFIBusAccessMixin, BusMonitor):
     """Per-sub-interface DFI bus monitor.
 
     Args:
@@ -118,23 +283,21 @@ class DFIMonitor(BusMonitor):
                 ``"phy"`` for the PHY-facing port. Determines the signal
                 prefix (``mc_dfi`` vs ``phy_dfi``).
         title:  Optional title for log messages.
+        dfi_version: Optional :class:`~.dfi_signal_types.DFIVersion` of
+                the observed bus. Wires the spec does not define for
+                this version become optional instead of required
+                (issue #69). ``None`` keeps every core wire required.
+        memory_type: Optional :class:`~.dfi_signal_types.MemoryType`,
+                same role on the memory-type axis (dfi_reset_n exists
+                only for DDR3+, ras/cas/we only for the DDR-command
+                families, ...).
     """
 
-    _signals = (
-        list(_COMMAND_SIGNALS)
-        + list(_WRITE_DATA_SIGNALS)
-        + list(_READ_DATA_SIGNALS)
-        + list(_ERROR_SIGNALS)
-        + list(_ALERT_SIGNALS)
-        + list(_UPDATE_SIGNALS)
-        + list(_TRAINING_SIGNALS)
-        + list(_CA_PARITY_SIGNALS)
-        + list(_STATUS_SIGNALS)
-        + list(_LOW_POWER_SIGNALS)
-        + list(_DISCONNECT_SIGNALS)
-        + list(_PHY_MASTER_SIGNALS)
-    )
-    _optional_signals: List[str] = []
+    # Class-level defaults (no version declared): full core required,
+    # every auxiliary sub-interface optional. Instances refine this in
+    # __init__ via partition_wired_signals().
+    _signals = list(_CORE_SIGNALS)
+    _optional_signals: List[str] = list(_AUX_SIGNALS)
 
     def __init__(
         self,
@@ -147,6 +310,8 @@ class DFIMonitor(BusMonitor):
         ca_width: Optional[int] = None,
         ca_sdr: bool = False,
         log=None,
+        dfi_version=None,
+        memory_type=None,
         **kwargs,
     ):
         if side not in ("mc", "phy"):
@@ -154,8 +319,16 @@ class DFIMonitor(BusMonitor):
         self.side = side
         self.title = title or f"DFIMonitor[{side}]"
 
+        # Per-instance signal partition — shadows the class attributes
+        # before BusMonitor.__init__ builds the Bus from them.
+        self._declared_version = dfi_version
+        self._declared_memory = memory_type
+        self._signals, self._optional_signals = partition_wired_signals(
+            dfi_version, memory_type)
+
         prefix = f"{side}_dfi"
         BusMonitor.__init__(self, entity, prefix, clock, **kwargs)
+        self._check_required_bound()
         self.clock = clock
         # Injectable like the AXI BFMs' `log=`; see DFISlavePHY.
         self.log = log if log is not None else self.entity._log
@@ -255,8 +428,8 @@ class DFIMonitor(BusMonitor):
                             cke=_v(self.bus.cke),
                             cs_n=cs_n,
                             bank=args.get("bank", 0),
-                            odt=_v(self.bus.odt),
-                            reset_n=_v(self.bus.reset_n),
+                            odt=self._vopt("odt"),
+                            reset_n=self._vopt("reset_n", default=1),
                             cmd=cmd,
                             ca_args=args,
                             timestamp_ns=ts,
@@ -275,8 +448,8 @@ class DFIMonitor(BusMonitor):
                         cas_n=_v(self.bus.cas_n),
                         ras_n=_v(self.bus.ras_n),
                         we_n=_v(self.bus.we_n),
-                        odt=_v(self.bus.odt),
-                        reset_n=_v(self.bus.reset_n),
+                        odt=self._vopt("odt"),
+                        reset_n=self._vopt("reset_n", default=1),
                         cmd=cmd,
                         timestamp_ns=ts,
                     )

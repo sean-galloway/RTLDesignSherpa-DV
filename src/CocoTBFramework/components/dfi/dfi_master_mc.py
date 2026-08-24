@@ -29,22 +29,14 @@ from cocotb.triggers import RisingEdge
 from cocotb_bus.drivers import BusDriver
 
 from .dfi_monitor import (
-    _ALERT_SIGNALS,
-    _CA_PARITY_SIGNALS,
-    _COMMAND_SIGNALS,
-    _DISCONNECT_SIGNALS,
-    _ERROR_SIGNALS,
-    _LOW_POWER_SIGNALS,
-    _PHY_MASTER_SIGNALS,
-    _READ_DATA_SIGNALS,
-    _STATUS_SIGNALS,
-    _TRAINING_SIGNALS,
-    _UPDATE_SIGNALS,
-    _WRITE_DATA_SIGNALS,
+    _AUX_SIGNALS,
+    _CORE_SIGNALS,
+    _DFIBusAccessMixin,
+    partition_wired_signals,
 )
 
 
-class DFIMasterMC(BusDriver):
+class DFIMasterMC(_DFIBusAccessMixin, BusDriver):
     """MC-side DFI driver.
 
     Args:
@@ -56,23 +48,17 @@ class DFIMasterMC(BusDriver):
         memory_type: Optional :class:`~.dfi_signals.MemoryType`; defaults
                   to DDR3. Pass LPDDR2/LPDDR3 so the primitives drive the
                   20-bit CA word on ``dfi_address`` instead of ras/cas/we.
+        dfi_version: Optional :class:`~.dfi_signal_types.DFIVersion` of
+                  the driven bus. Wires the spec does not define for
+                  this (version, memory) pair become optional instead of
+                  required (issue #69). ``None`` keeps every core wire
+                  required for the declared memory type.
     """
 
-    _signals = (
-        list(_COMMAND_SIGNALS)
-        + list(_WRITE_DATA_SIGNALS)
-        + list(_READ_DATA_SIGNALS)
-        + list(_ERROR_SIGNALS)   # MC observes; PHY-driven
-        + list(_ALERT_SIGNALS)   # MC observes dfi_alert_n; PHY-driven
-        + list(_UPDATE_SIGNALS)  # MC drives ctrlupd_req/phyupd_ack
-        + list(_TRAINING_SIGNALS)  # MC drives *_en; observes *_req/resp
-        + list(_CA_PARITY_SIGNALS)  # MC drives parity_in; observes parity_error
-        + list(_STATUS_SIGNALS)  # MC drives init_start/ratios; observes init_complete
-        + list(_LOW_POWER_SIGNALS)  # MC drives lp_*_req/wakeup; observes lp_ack
-        + list(_DISCONNECT_SIGNALS)  # MC drives disconnect_error
-        + list(_PHY_MASTER_SIGNALS)  # MC drives phymstr_ack; observes req
-    )
-    _optional_signals: list = []
+    # Class-level defaults; instances refine in __init__ from the
+    # declared (dfi_version, memory_type) pair.
+    _signals = list(_CORE_SIGNALS)
+    _optional_signals: list = list(_AUX_SIGNALS)
 
     def __init__(
         self,
@@ -82,6 +68,7 @@ class DFIMasterMC(BusDriver):
         title: Optional[str] = None,
         memory_type=None,
         log=None,
+        dfi_version=None,
         **kwargs,
     ):
         if side != "mc":
@@ -98,7 +85,15 @@ class DFIMasterMC(BusDriver):
         from .dfi_signals import MemoryType
         self.memory_type = memory_type or MemoryType.DDR3
 
+        # Per-instance signal partition — shadows the class attributes
+        # before BusDriver.__init__ builds the Bus from them (issue #69).
+        self._declared_version = dfi_version
+        self._declared_memory = self.memory_type
+        self._signals, self._optional_signals = partition_wired_signals(
+            dfi_version, self.memory_type)
+
         BusDriver.__init__(self, entity, f"{side}_dfi", clock, **kwargs)
+        self._check_required_bound()
         self.clock = clock
         # Injectable like the AXI BFMs' `log=`; see DFISlavePHY.
         self.log = log if log is not None else self.entity._log
@@ -113,41 +108,45 @@ class DFIMasterMC(BusDriver):
         to this state after each transaction so the bus naturally idles
         between commands.
         """
-        self.bus.address.value = 0
-        self.bus.bank.value = 0
-        self.bus.cs_n.value = 1   # deselected (active low)
-        self.bus.ras_n.value = 1
-        self.bus.cas_n.value = 1
-        self.bus.we_n.value = 1
-        self.bus.cke.value = 1    # clock enabled
-        self.bus.odt.value = 0
-        self.bus.reset_n.value = 1
-        self.bus.wrdata.value = 0
-        self.bus.wrdata_en.value = 0
-        self.bus.wrdata_mask.value = 0
-        self.bus.rddata_en.value = 0
+        # Every idle drive is presence-guarded (issue #69): required
+        # wires are guaranteed bound so the guard is a no-op for them,
+        # and wires the DUT's (version, memory) pair doesn't carry are
+        # skipped instead of crashing.
+        self._set("address", 0)
+        self._set("bank", 0)
+        self._set("cs_n", 1)   # deselected (active low)
+        self._set("ras_n", 1)
+        self._set("cas_n", 1)
+        self._set("we_n", 1)
+        self._set("cke", 1)    # clock enabled
+        self._set("odt", 0)
+        self._set("reset_n", 1)
+        self._set("wrdata", 0)
+        self._set("wrdata_en", 0)
+        self._set("wrdata_mask", 0)
+        self._set("rddata_en", 0)
         # Update-interface MC-driven outputs
-        self.bus.ctrlupd_req.value = 0
-        self.bus.phyupd_ack.value = 0
+        self._set("ctrlupd_req", 0)
+        self._set("phyupd_ack", 0)
         # CA parity MC-driven output
-        self.bus.parity_in.value = 0
+        self._set("parity_in", 0)
         # Status-interface MC-driven outputs. init_start low; the
         # frequency-change protocol is init_start asserted during
         # normal operation (there is no dedicated request wire).
-        self.bus.init_start.value = 0
-        self.bus.freq_ratio.value = 0    # 'b00 = 1:1 MC:PHY
-        self.bus.frequency.value = 0
+        self._set("init_start", 0)
+        self._set("freq_ratio", 0)    # 'b00 = 1:1 MC:PHY
+        self._set("frequency", 0)
         # Training MC-driven enables
-        self.bus.rdlvl_en.value = 0
-        self.bus.rdlvl_gate_en.value = 0
-        self.bus.wrlvl_en.value = 0
+        self._set("rdlvl_en", 0)
+        self._set("rdlvl_gate_en", 0)
+        self._set("wrlvl_en", 0)
         # Low-power MC-driven requests + wakeup encoding
-        self.bus.lp_ctrl_req.value = 0
-        self.bus.lp_data_req.value = 0
-        self.bus.lp_wakeup.value = 0
+        self._set("lp_ctrl_req", 0)
+        self._set("lp_data_req", 0)
+        self._set("lp_wakeup", 0)
         # Disconnect flag + PHY-Master ack
-        self.bus.disconnect_error.value = 0
-        self.bus.phymstr_ack.value = 0
+        self._set("disconnect_error", 0)
+        self._set("phymstr_ack", 0)
 
     # ----- Internal: family check -----
 
@@ -186,11 +185,13 @@ class DFIMasterMC(BusDriver):
         at idle per DFI v2.1 Table 1 for LPDDR2 memory."""
         self.bus.cs_n.value = 0
         self.bus.address.value = ca_word
-        # ras_n/cas_n/we_n/bank already idle from init_idle / return path
-        self.bus.bank.value = 0
-        self.bus.ras_n.value = 1
-        self.bus.cas_n.value = 1
-        self.bus.we_n.value = 1
+        # ras_n/cas_n/we_n/bank already idle from init_idle / return
+        # path. Guarded: the spec scopes them to the DDR command
+        # families, so an LPDDR2/3 DUT may legitimately not wire them.
+        self._set("bank", 0)
+        self._set("ras_n", 1)
+        self._set("cas_n", 1)
+        self._set("we_n", 1)
         await RisingEdge(self.clock)
         self.bus.cs_n.value = 1
         self.bus.address.value = 0
@@ -380,16 +381,16 @@ class DFIMasterMC(BusDriver):
 
     def set_ctrlupd_req(self, value: int = 1) -> None:
         """Drive the MC-initiated update request signal."""
-        self.bus.ctrlupd_req.value = value
+        self._api_sig("ctrlupd_req").value = value
 
     def set_phyupd_ack(self, value: int = 1) -> None:
         """Drive the MC's grant of a PHY-initiated update."""
-        self.bus.phyupd_ack.value = value
+        self._api_sig("phyupd_ack").value = value
 
     def set_parity_in(self, value: int) -> None:
         """Drive the MC-computed CA parity bit (v2.1.1 DDR3 DIMM
         parity; DDR4 CA parity from v3.0)."""
-        self.bus.parity_in.value = value
+        self._api_sig("parity_in").value = value
 
     # ----- Status interface: init + frequency change -----
 
@@ -403,53 +404,53 @@ class DFIMasterMC(BusDriver):
         withdrawn. There is no dedicated freq-change wire in any DFI
         version.
         """
-        self.bus.init_start.value = value
+        self._api_sig("init_start").value = value
 
     def set_freq_ratio(self, ratio: int) -> None:
         """Drive dfi_freq_ratio: 'b00=1:1, 'b01=1:2, 'b10=1:4.
         Must only change while dfi_init_start is low (or at init)."""
-        self.bus.freq_ratio.value = ratio
+        self._api_sig("freq_ratio").value = ratio
 
     def set_frequency(self, code: int) -> None:
         """Drive the dfi_frequency indicator (v4.0+; up to 32 system-
         defined encodings, 64 from v5.x). Must be valid and stable
         while dfi_init_start is asserted."""
-        self.bus.frequency.value = code
+        self._api_sig("frequency").value = code
 
     def request_freq_change(self, frequency_code: int = 0,
                             freq_ratio: int = 0) -> None:
         """Convenience: drive the indicator wires then assert
         init_start (the spec's frequency-change request sequence)."""
-        self.bus.frequency.value = frequency_code
-        self.bus.freq_ratio.value = freq_ratio
-        self.bus.init_start.value = 1
+        self._api_sig("frequency").value = frequency_code
+        self._api_sig("freq_ratio").value = freq_ratio
+        self._api_sig("init_start").value = 1
 
     # ----- Training MC-side enables (v2.1-v4.0) -----
 
     def set_rdlvl_en(self, value: int = 1) -> None:
         """Enable read-leveling training (dfi_rdlvl_en)."""
-        self.bus.rdlvl_en.value = value
+        self._api_sig("rdlvl_en").value = value
 
     def set_rdlvl_gate_en(self, value: int = 1) -> None:
         """Enable gate training (dfi_rdlvl_gate_en)."""
-        self.bus.rdlvl_gate_en.value = value
+        self._api_sig("rdlvl_gate_en").value = value
 
     def set_wrlvl_en(self, value: int = 1) -> None:
         """Enable write-leveling training (dfi_wrlvl_en)."""
-        self.bus.wrlvl_en.value = value
+        self._api_sig("wrlvl_en").value = value
 
     # ----- Low power control -----
 
     def set_lp_ctrl_req(self, value: int = 1, wakeup: int = 0) -> None:
         """Offer a control-interface low-power window (v3.1+ split
         request); ``wakeup`` drives the shared dfi_lp_wakeup encoding."""
-        self.bus.lp_wakeup.value = wakeup
-        self.bus.lp_ctrl_req.value = value
+        self._api_sig("lp_wakeup").value = wakeup
+        self._api_sig("lp_ctrl_req").value = value
 
     def set_lp_data_req(self, value: int = 1, wakeup: int = 0) -> None:
         """Offer a data-interface low-power window (v3.1+)."""
-        self.bus.lp_wakeup.value = wakeup
-        self.bus.lp_data_req.value = value
+        self._api_sig("lp_wakeup").value = wakeup
+        self._api_sig("lp_data_req").value = value
 
     # ----- Disconnect / PHY-Master -----
 
@@ -457,9 +458,9 @@ class DFIMasterMC(BusDriver):
         """Drive dfi_disconnect_error (v4.0+): qualifies an in-flight
         handshake break as QOS (0) or error (1). The break itself is
         performed by de-asserting the handshake's request/ack wire."""
-        self.bus.disconnect_error.value = active
+        self._api_sig("disconnect_error").value = active
 
     def set_phymstr_ack(self, active: int) -> None:
         """Drive the MC's grant of PHY bus takeover (dfi_phymstr_ack;
         the wire is named dfi_phymngd_ack from v5.2)."""
-        self.bus.phymstr_ack.value = active
+        self._api_sig("phymstr_ack").value = active

@@ -53,20 +53,12 @@ from .behaviors.events import (
 )
 from .dfi_base import DFIBase
 from .dfi_monitor import (
-    _ALERT_SIGNALS,
-    _CA_PARITY_SIGNALS,
+    _AUX_SIGNALS,
     _CMD_DECODE,
-    _COMMAND_SIGNALS,
-    _DISCONNECT_SIGNALS,
-    _ERROR_SIGNALS,
-    _LOW_POWER_SIGNALS,
-    _PHY_MASTER_SIGNALS,
-    _READ_DATA_SIGNALS,
-    _STATUS_SIGNALS,
-    _TRAINING_SIGNALS,
-    _UPDATE_SIGNALS,
-    _WRITE_DATA_SIGNALS,
+    _CORE_SIGNALS,
+    _DFIBusAccessMixin,
     _v,
+    partition_wired_signals,
 )
 from .dfi_packet import DRAMCommand
 
@@ -241,7 +233,7 @@ class _PendingOp:
     decode_cycle: int = 0
 
 
-class DFISlavePHY(BusMonitor):
+class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
     """PHY-side DFI BFM with DRAM state model + memory backing.
 
     Args:
@@ -252,23 +244,19 @@ class DFISlavePHY(BusMonitor):
         memory:   The :class:`MemoryModel` backing this slave.
         side:     Currently only ``"phy"`` (the PHY drives the slave role).
         title:    Optional title for log messages.
+
+    Signal binding (issue #69): only the command/write/read core wires
+    that ``base``'s (dfi_version, memory_type) pair defines are
+    required. Every other wire the BFM knows how to touch is optional —
+    idled and acted on when the DUT carries it, skipped when it does
+    not, so a DFI v2.1 bus (no dfi_alert_n, no training wires) binds
+    cleanly.
     """
 
-    _signals = (
-        list(_COMMAND_SIGNALS)
-        + list(_WRITE_DATA_SIGNALS)
-        + list(_READ_DATA_SIGNALS)
-        + list(_ERROR_SIGNALS)
-        + list(_ALERT_SIGNALS)
-        + list(_UPDATE_SIGNALS)
-        + list(_TRAINING_SIGNALS)
-        + list(_CA_PARITY_SIGNALS)
-        + list(_STATUS_SIGNALS)
-        + list(_LOW_POWER_SIGNALS)
-        + list(_DISCONNECT_SIGNALS)
-        + list(_PHY_MASTER_SIGNALS)
-    )
-    _optional_signals: list = []
+    # Class-level defaults; instances refine from base.dfi_version /
+    # base.memory_type in __init__.
+    _signals = list(_CORE_SIGNALS)
+    _optional_signals: list = list(_AUX_SIGNALS)
 
     def __init__(
         self,
@@ -330,7 +318,16 @@ class DFISlavePHY(BusMonitor):
             policy=violation_policy,
         )
 
+        # Per-instance signal partition from the declared version/memory
+        # pair — shadows the class attributes before BusMonitor.__init__
+        # builds the Bus from them (issue #69).
+        self._declared_version = base.dfi_version
+        self._declared_memory = base.memory_type
+        self._signals, self._optional_signals = partition_wired_signals(
+            base.dfi_version, base.memory_type)
+
         BusMonitor.__init__(self, entity, f"{side}_dfi", clock, **kwargs)
+        self._check_required_bound()
         self.clock = clock
         # Default to the entity's logger, but let a testbench inject its
         # own the way the AXI BFMs take `log=`. Without this the slave's
@@ -530,32 +527,35 @@ class DFISlavePHY(BusMonitor):
         self.writes_committed = 0
         self.reads_served = 0
 
-        # Initialize PHY-driven outputs
+        # Initialize PHY-driven outputs. The read-data wires are core
+        # (guaranteed bound by _check_required_bound); every auxiliary
+        # wire is idled only if the DUT carries it (issue #69 — a v2.1
+        # bus has no dfi_alert_n to idle).
         self.bus.rddata.value = 0
         self.bus.rddata_valid.value = 0
-        self.bus.error.value = 0
-        self.bus.error_info.value = 0
-        self.bus.alert_n.value = 1     # ACTIVE LOW — idles high
-        self.bus.parity_error.value = 0  # v2.1 DDR3-DIMM parity wire
+        self._set("error", 0)
+        self._set("error_info", 0)
+        self._set("alert_n", 1)      # ACTIVE LOW — idles high
+        self._set("parity_error", 0)  # v2.1 DDR3-DIMM parity wire
         # PHY-driven update-interface signals
-        self.bus.ctrlupd_ack.value = 0
-        self.bus.phyupd_req.value = 0
-        self.bus.phyupd_type.value = 0
+        self._set("ctrlupd_ack", 0)
+        self._set("phyupd_req", 0)
+        self._set("phyupd_type", 0)
         # PHY-driven training responses/requests (v2.1-v4.0 wires)
-        self.bus.rdlvl_req.value = 0
-        self.bus.rdlvl_gate_req.value = 0
-        self.bus.rdlvl_resp.value = 0
-        self.bus.wrlvl_req.value = 0
-        self.bus.wrlvl_resp.value = 0
+        self._set("rdlvl_req", 0)
+        self._set("rdlvl_gate_req", 0)
+        self._set("rdlvl_resp", 0)
+        self._set("wrlvl_req", 0)
+        self._set("wrlvl_resp", 0)
         # PHY-driven status: init_complete asserts once the slave is
         # ready for DFI transactions (this construction-time BFM is
         # ready immediately); de-asserting it later acknowledges a
         # frequency-change request.
-        self.bus.init_complete.value = 1
+        self._set("init_complete", 1)
         # PHY-driven low-power ack
-        self.bus.lp_ack.value = 0
+        self._set("lp_ack", 0)
         # PHY-driven takeover request (dfi_phymngd_req from v5.2)
-        self.bus.phymstr_req.value = 0
+        self._set("phymstr_req", 0)
 
     # ----- Address helpers -----
 
@@ -1298,8 +1298,10 @@ class DFISlavePHY(BusMonitor):
             self._prev_cke = cke_now
 
             # Track the v4.0 pre-SRX ctrlupd handshake while in SR.
+            # (Update wires are optional — absent reads as 0.)
             if (self.dram.in_self_refresh
-                    and _v(self.bus.ctrlupd_req) and _v(self.bus.ctrlupd_ack)):
+                    and self._vopt("ctrlupd_req")
+                    and self._vopt("ctrlupd_ack")):
                 self._sr_ctrlupd_seen = True
 
             # Normal command dispatch only while CKE is high and we
@@ -1485,8 +1487,8 @@ class DFISlavePHY(BusMonitor):
         assert; ``slave.set_error(0)`` to deassert. The on-the-wire
         edge is what the behavior class samples.
         """
-        self.bus.error.value = active
-        self.bus.error_info.value = info
+        self._api_sig("error").value = active
+        self._api_sig("error_info").value = info
 
     def set_alert_n(self, active: int) -> None:
         """Drive dfi_alert_n (PHY→MC, v3.0+, ACTIVE LOW).
@@ -1495,43 +1497,43 @@ class DFISlavePHY(BusMonitor):
         returns it to its idle-high state. DDR4+ report both write-CRC
         and CA-parity errors on this wire.
         """
-        self.bus.alert_n.value = 0 if active else 1
+        self._api_sig("alert_n").value = 0 if active else 1
 
     def set_parity_error(self, active: int) -> None:
         """Drive dfi_parity_error (PHY→MC, v2.1.1 DDR3 registered-DIMM
         parity interface; renamed dfi_alert_n in v3.0)."""
-        self.bus.parity_error.value = active
+        self._api_sig("parity_error").value = active
 
     def set_phyupd_req(self, active: int, update_type: int = 0) -> None:
         """Drive the PHY-initiated update request (PHY→MC, v2.1
         baseline). ``update_type`` drives dfi_phyupd_type (selects the
         tphyupd_typeX duration class, 0-3)."""
-        self.bus.phyupd_type.value = update_type
-        self.bus.phyupd_req.value = active
+        self._api_sig("phyupd_type").value = update_type
+        self._api_sig("phyupd_req").value = active
 
     def set_ctrlupd_ack(self, active: int) -> None:
         """Drive the PHY's ack of an MC-initiated update."""
-        self.bus.ctrlupd_ack.value = active
+        self._api_sig("ctrlupd_ack").value = active
 
     def set_rdlvl_req(self, active: int) -> None:
         """Drive the PHY's read-leveling training request (v2.1-v4.0)."""
-        self.bus.rdlvl_req.value = active
+        self._api_sig("rdlvl_req").value = active
 
     def set_rdlvl_gate_req(self, active: int) -> None:
         """Drive the PHY's gate-training request (v2.1-v4.0)."""
-        self.bus.rdlvl_gate_req.value = active
+        self._api_sig("rdlvl_gate_req").value = active
 
     def set_wrlvl_req(self, active: int) -> None:
         """Drive the PHY's write-leveling training request (v2.1-v4.0)."""
-        self.bus.wrlvl_req.value = active
+        self._api_sig("wrlvl_req").value = active
 
     def set_rdlvl_resp(self, value: int) -> None:
         """Drive the read-leveling response bits (v2.1-v4.0)."""
-        self.bus.rdlvl_resp.value = value
+        self._api_sig("rdlvl_resp").value = value
 
     def set_wrlvl_resp(self, value: int) -> None:
         """Drive the write-leveling sample response (v2.1-v4.0)."""
-        self.bus.wrlvl_resp.value = value
+        self._api_sig("wrlvl_resp").value = value
 
     def set_init_complete(self, active: int) -> None:
         """Drive dfi_init_complete (PHY→MC).
@@ -1540,23 +1542,23 @@ class DFISlavePHY(BusMonitor):
         MC holds dfi_init_start high ACCEPTS a frequency-change
         request; re-assert after re-initializing at the new frequency.
         """
-        self.bus.init_complete.value = active
+        self._api_sig("init_complete").value = active
 
     def accept_freq_change(self) -> None:
         """Acknowledge a frequency-change request the spec way: de-
         assert dfi_init_complete (must happen within tinit_start
         cycles of the MC's init_start assertion)."""
-        self.bus.init_complete.value = 0
+        self._api_sig("init_complete").value = 0
 
     def set_lp_ack(self, active: int) -> None:
         """Drive the PHY's low-power acknowledge (dfi_lp_ack; split
         into ctrl/data acks from v5.1)."""
-        self.bus.lp_ack.value = active
+        self._api_sig("lp_ack").value = active
 
     def set_phymstr_req(self, active: int) -> None:
         """Drive the PHY Master takeover request (dfi_phymstr_req,
         v4.0; the wire is named dfi_phymngd_req from v5.2)."""
-        self.bus.phymstr_req.value = active
+        self._api_sig("phymstr_req").value = active
 
     # ----- Convenience -----
 

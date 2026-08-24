@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-08-24
+
 ### Added
 
 - **Consumer-supplied JEDEC timing profiles** ([#67]). `DFIBase` takes

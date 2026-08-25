@@ -76,7 +76,10 @@ async def cocotb_test_bridge_c_basic_connectivity(dut):
                 continue
             base = tb._parse_addr(tb.slave_descs[s_idx]["base_addr"])
             bpw = tb.master_descs[m_idx]["data_width"] // 8
-            addr = base + ((rng.randint(0, 7) * bpw) & ~(bpw - 1))
+            # Align to the wider of master/slave: the upsize converters
+            # need burst starts aligned to the wide bus (MAS 2.5.5/2.6.5).
+            stride = tb.access_stride(m_idx, s_idx)
+            addr = base + (rng.randint(0, 7) * stride)
             data = 0xA0000000 | (m_idx << 20) | (s_idx << 16) | rng.randint(0, 0xFFFF)
             await tb.master_write(m_idx, addr, data, bpw)
             await tb.master_read(m_idx, addr, bpw)
@@ -190,8 +193,14 @@ async def cocotb_test_bridge_c_apb_fan_in(dut):
         if not tb.can_route(m_idx, apb_idx):
             continue
         bpw = tb.master_descs[m_idx]["data_width"] // 8
+        # Stride by the widest master's beat size, not 4: a 128-bit
+        # master's full-width write covers 16 bytes, so 4-byte-spaced
+        # "disjoint" addresses actually overlapped (each write legally
+        # clobbered its neighbours' upper bytes) and were unaligned for
+        # the wider beats.
+        stride = max(td["data_width"] // 8 for td in tb.master_descs)
         for n in range(8):
-            addr = apb_base + ((m_idx * 8 + n) * 4)  # disjoint addresses per master
+            addr = apb_base + ((m_idx * 8 + n) * stride)  # disjoint per master
             data = 0xAB000000 | (m_idx << 16) | n
             tasks.append(cocotb.start_soon(
                 tb.master_write(m_idx, addr, data, bpw, txn_id=n)
@@ -251,6 +260,19 @@ def _bridge_test_pytest_wrapper(testcase: str):
             "COCOTB_RESULTS_FILE": results_path,
             **waves["extra_env"],
         },
+        compile_args=[
+            # Style-class lint in the generated xbar: the OR-merge legs
+            # zero-extend ('0 with 4-bit IDs into 8-bit slave ports) and the
+            # B/R return path truncates the bridge-ID routing prefix back
+            # off -- the bridge_id gate does the real selection. Not defects,
+            # and not this test's job to gate on (same policy as the
+            # converters/axis tests).
+            "-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC",
+            # ASCRANGE: AXIL ports carry id_width=0 in the spec (AXIL has no
+            # IDs), and the generator plumbs that into [IW-1:0] -> [-1:0]
+            # phantom ID vectors that nothing reads. Benign.
+            "-Wno-ASCRANGE",
+        ],
         extra_args=["--assert"] + waves["extra_args"],
         testcase=f"cocotb_test_bridge_c_{testcase}",
     )

@@ -113,6 +113,9 @@ class ConcurrentBridgeScoreboard:
         self._pending_read_responses: Dict[
             Tuple[int, Optional[int]], List[ExpectedRead]
         ] = defaultdict(list)
+        # Mismatches caught live by record_read_response, folded into
+        # verify()'s reads_mismatched tally.
+        self._read_mismatches = 0
 
     # ---------------- registration ----------------
 
@@ -147,17 +150,33 @@ class ConcurrentBridgeScoreboard:
         """Pop the next pending read for (master, id) and compare actual data.
         Returns an error message if it mismatched, ``None`` if it matched or
         if there was no pending entry.
+
+        A read is accepted if it returns the seed **or** any write registered
+        at that (slave, address): reads racing writes at the same address may
+        legally observe either side of the race, and AXI imposes no
+        cross-master ordering. A misroute still fails — a value from the
+        wrong slave or address matches neither the seed nor any registered
+        write for this address. Mismatches found here are tallied into
+        ``verify()``'s reads_mismatched (they used to be log-only, so the
+        final tally reported reads as matched even when every compare
+        failed).
         """
         key = (master_idx, txn_id)
         if not self._pending_read_responses[key]:
+            self._read_mismatches += 1
             return f"unexpected read response from M{master_idx}/id={txn_id}: 0x{actual_data:x}"
         expected = self._pending_read_responses[key].pop(0)
         mask = (1 << (8 * expected.byte_count)) - 1
-        if (actual_data & mask) != (expected.expected_data & mask):
+        acceptable = {expected.expected_data & mask}
+        for wr in self._writes.get((expected.slave_idx, expected.address), []):
+            acceptable.add(wr.data & mask)
+        if (actual_data & mask) not in acceptable:
+            self._read_mismatches += 1
             return (
                 f"read mismatch M{master_idx}/S{expected.slave_idx}/"
                 f"id={txn_id} addr=0x{expected.address:08x}: "
-                f"got 0x{actual_data:x}, expected 0x{expected.expected_data:x}"
+                f"got 0x{actual_data:x}, expected one of "
+                f"{{{', '.join(f'0x{v:x}' for v in sorted(acceptable))}}}"
             )
         return None
 
@@ -173,13 +192,13 @@ class ConcurrentBridgeScoreboard:
         """
         results = ScoreboardResults()
 
-        # ---- Writes: per-address, latest write wins ----
+        # ---- Writes: per-address, any registered write may win ----
         for (slave_idx, addr), wrs in self._writes.items():
-            # For same-address races, the spec says the slave only has to
-            # honor "some" write — we conservatively check that the last
-            # write registered (highest in our list, approximating the
-            # order of issue from the TB) is the one observed. A more
-            # rigorous check would require monitor callbacks.
+            # For same-address races, AXI imposes no cross-master ordering
+            # and the TB's registration order (cocotb.start_soon issue
+            # order) does not predict landing order. Accept the memory
+            # holding ANY write registered at this address — a misroute
+            # still fails, because a stray value matches none of them.
             expected_wr = wrs[-1]
             try:
                 actual = slave_mem_reader(slave_idx, addr, expected_wr.byte_count)
@@ -198,17 +217,35 @@ class ConcurrentBridgeScoreboard:
             for wr in wrs:
                 results.per_master_writes[wr.master_idx] += 1
 
-            mask = (1 << (8 * expected_wr.byte_count)) - 1
-            if (actual & mask) == (expected_wr.data & mask):
+            # Compare each write inside its PAYLOAD window (the write's
+            # significant data bytes, minimum 4): a full-width beat
+            # zero-extends its 32-bit payload, and a wider neighbour's
+            # beat may legally overlay those upper zero bytes (different
+            # start address, overlapping size container). Only the
+            # payload at the write's own address proves routing; the
+            # zero-extension bytes prove nothing and race with
+            # neighbours.
+            matched = False
+            for wr in wrs:
+                sig_bytes = max(1, (wr.data.bit_length() + 7) // 8)
+                window = min(wr.byte_count, max(4, sig_bytes))
+                mask = (1 << (8 * window)) - 1
+                if (actual & mask) == (wr.data & mask):
+                    matched = True
+                    break
+            if matched:
                 results.writes_matched += len(wrs)
             else:
+                mask = (1 << (8 * expected_wr.byte_count)) - 1
+                acceptable = {wr.data & mask for wr in wrs}
                 results.writes_mismatched += 1
                 # Outright "lost" is the rest (couldn't even check)
                 results.writes_lost += len(wrs) - 1
                 results.mismatch_details.append(
                     f"write mismatch M{expected_wr.master_idx}/S{slave_idx} "
-                    f"addr=0x{addr:08x}: got 0x{actual:x}, expected "
-                    f"0x{expected_wr.data:x} (id={expected_wr.txn_id})"
+                    f"addr=0x{addr:08x}: got 0x{actual:x}, expected one of "
+                    f"{{{', '.join(f'0x{v:x}' for v in sorted(acceptable))}}} "
+                    f"(id={expected_wr.txn_id})"
                 )
 
         # ---- Reads: tally registered vs already-matched ----
@@ -216,6 +253,9 @@ class ConcurrentBridgeScoreboard:
         for rd in self._reads:
             results.per_master_reads[rd.master_idx] += 1
             results.per_slave_reads[rd.slave_idx] += 1
+
+        # Mismatches caught live by record_read_response
+        results.reads_mismatched += self._read_mismatches
 
         # Anything still pending in _pending_read_responses is unmatched
         for key, pendings in self._pending_read_responses.items():
@@ -236,3 +276,4 @@ class ConcurrentBridgeScoreboard:
         self._writes.clear()
         self._reads.clear()
         self._pending_read_responses.clear()
+        self._read_mismatches = 0

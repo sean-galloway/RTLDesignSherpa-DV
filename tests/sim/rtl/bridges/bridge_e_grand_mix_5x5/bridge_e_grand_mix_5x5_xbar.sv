@@ -564,6 +564,50 @@ module bridge_e_grand_mix_5x5_xbar
     // Crossbar Routing
     // ================================================================
 
+    // W-follow declarations (assigned below)
+    logic cpu_32b_w_to_axil_periph0;
+    logic cpu_32b_w_sel_axil_periph0;
+    logic cpu_32b_w_to_axil_periph1;
+    logic cpu_32b_w_sel_axil_periph1;
+    logic cpu_32b_w_to_apb_periph0;
+    logic cpu_32b_w_sel_apb_periph0;
+    logic cpu_128b_w_to_scratch;
+    logic cpu_128b_w_sel_scratch;
+    logic cpu_256b_w_to_ddr0;
+    logic cpu_256b_w_sel_ddr0;
+    logic gpu_32b_w_to_axil_periph1;
+    logic gpu_32b_w_sel_axil_periph1;
+    logic gpu_128b_w_to_scratch;
+    logic gpu_128b_w_sel_scratch;
+    logic gpu_256b_w_to_ddr0;
+    logic gpu_256b_w_sel_ddr0;
+    logic dma_32b_w_to_axil_periph0;
+    logic dma_32b_w_sel_axil_periph0;
+    logic dma_32b_w_to_apb_periph0;
+    logic dma_32b_w_sel_apb_periph0;
+    logic dma_128b_w_to_scratch;
+    logic dma_128b_w_sel_scratch;
+    logic dma_256b_w_to_ddr0;
+    logic dma_256b_w_sel_ddr0;
+    logic host_axil_32b_w_to_axil_periph0;
+    logic host_axil_32b_w_sel_axil_periph0;
+    logic host_axil_32b_w_to_axil_periph1;
+    logic host_axil_32b_w_sel_axil_periph1;
+    logic host_axil_32b_w_to_apb_periph0;
+    logic host_axil_32b_w_sel_apb_periph0;
+    logic host_axil_128b_w_to_scratch;
+    logic host_axil_128b_w_sel_scratch;
+    logic host_axil_256b_w_to_ddr0;
+    logic host_axil_256b_w_sel_ddr0;
+    logic debug_axil_32b_w_to_axil_periph0;
+    logic debug_axil_32b_w_sel_axil_periph0;
+    logic debug_axil_32b_w_to_axil_periph1;
+    logic debug_axil_32b_w_sel_axil_periph1;
+    logic debug_axil_32b_w_to_apb_periph0;
+    logic debug_axil_32b_w_sel_apb_periph0;
+    logic debug_axil_256b_w_to_ddr0;
+    logic debug_axil_256b_w_sel_ddr0;
+
     // ================================================================
     // Slave 0: ddr0 (256b)
     // ================================================================
@@ -585,189 +629,124 @@ module bridge_e_grand_mix_5x5_xbar
     wire debug_axil_256b_aw_to_ddr0 = (debug_axil_256b_aw.addr <= 32'h3fffffff);
     wire debug_axil_256b_ar_to_ddr0 = (debug_axil_256b_ar.addr <= 32'h3fffffff);
 
-    // AW channel (OR-merged across writing masters)
-    assign ddr0_axi_awid = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_aw.id : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_aw.id : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_aw.id : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_aw.id : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_aw.id : '0);
-    assign ddr0_axi_awaddr = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_aw.addr : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_aw.addr : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_aw.addr : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_aw.addr : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_aw.addr : '0);
-    assign ddr0_axi_awlen = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_aw.len : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_aw.len : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_aw.len : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_aw.len : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_aw.len : '0);
-    assign ddr0_axi_awsize = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_aw.size : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_aw.size : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_aw.size : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_aw.size : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_aw.size : '0);
-    assign ddr0_axi_awburst = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_aw.burst : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_aw.burst : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_aw.burst : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_aw.burst : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_aw.burst : '0);
-    assign ddr0_axi_awlock = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_aw.lock : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_aw.lock : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_aw.lock : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_aw.lock : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_aw.lock : '0);
-    assign ddr0_axi_awcache = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_aw.cache : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_aw.cache : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_aw.cache : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_aw.cache : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_aw.cache : '0);
-    assign ddr0_axi_awprot = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_aw.prot : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_aw.prot : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_aw.prot : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_aw.prot : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_aw.prot : '0);
-    assign ddr0_axi_awvalid = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_256b_awvalid : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_256b_awvalid : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_256b_awvalid : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_256b_awvalid : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_256b_awvalid : '0);
-
-    // AW->W tracking FIFO: cpu -> ddr0
-    logic cpu_256b_w_to_ddr0;
-    logic [3:0] cpu_256b_aw_to_ddr0_w_wptr, cpu_256b_aw_to_ddr0_w_rptr;
-    logic cpu_256b_aw_to_ddr0_w_mem [16];
-    logic cpu_256b_aw_to_ddr0_w_push, cpu_256b_aw_to_ddr0_w_pop;
-    assign cpu_256b_aw_to_ddr0_w_push = cpu_256b_awvalid && cpu_256b_awready && cpu_256b_aw_to_ddr0;
-    assign cpu_256b_aw_to_ddr0_w_pop  = cpu_256b_wvalid && cpu_256b_wready && cpu_256b_w.last && cpu_256b_w_to_ddr0;
+    // ---- AW arbiter for ddr0: round-robin, lock until handshake ----
+    logic [4:0] ddr0_aw_arb_req;
+    assign ddr0_aw_arb_req = {debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid, host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid, dma_256b_aw_to_ddr0 && dma_256b_awvalid, gpu_256b_aw_to_ddr0 && gpu_256b_awvalid, cpu_256b_aw_to_ddr0 && cpu_256b_awvalid};
+    logic [2:0] ddr0_aw_arb_lock, ddr0_aw_arb_rr;
+    logic ddr0_aw_arb_locked;
+    wire [2:0] ddr0_aw_arb_pick = (ddr0_aw_arb_rr == 3'd0) ? (ddr0_aw_arb_req[0] ? 3'd0 : ddr0_aw_arb_req[1] ? 3'd1 : ddr0_aw_arb_req[2] ? 3'd2 : ddr0_aw_arb_req[3] ? 3'd3 : 3'd4) : 
+        (ddr0_aw_arb_rr == 3'd1) ? (ddr0_aw_arb_req[1] ? 3'd1 : ddr0_aw_arb_req[2] ? 3'd2 : ddr0_aw_arb_req[3] ? 3'd3 : ddr0_aw_arb_req[4] ? 3'd4 : 3'd0) : 
+        (ddr0_aw_arb_rr == 3'd2) ? (ddr0_aw_arb_req[2] ? 3'd2 : ddr0_aw_arb_req[3] ? 3'd3 : ddr0_aw_arb_req[4] ? 3'd4 : ddr0_aw_arb_req[0] ? 3'd0 : 3'd1) : 
+        (ddr0_aw_arb_rr == 3'd3) ? (ddr0_aw_arb_req[3] ? 3'd3 : ddr0_aw_arb_req[4] ? 3'd4 : ddr0_aw_arb_req[0] ? 3'd0 : ddr0_aw_arb_req[1] ? 3'd1 : 3'd2) : 
+        ddr0_aw_arb_req[4] ? 3'd4 : ddr0_aw_arb_req[0] ? 3'd0 : ddr0_aw_arb_req[1] ? 3'd1 : ddr0_aw_arb_req[2] ? 3'd2 : 3'd3;
+    wire ddr0_aw_arb_gnt_valid = ddr0_aw_arb_locked || (|ddr0_aw_arb_req);
+    wire [2:0] ddr0_aw_arb_gnt = ddr0_aw_arb_locked ? ddr0_aw_arb_lock : ddr0_aw_arb_pick;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            cpu_256b_aw_to_ddr0_w_wptr <= '0;
-            cpu_256b_aw_to_ddr0_w_rptr <= '0;
+            ddr0_aw_arb_lock   <= '0;
+            ddr0_aw_arb_rr     <= '0;
+            ddr0_aw_arb_locked <= 1'b0;
         end else begin
-            if (cpu_256b_aw_to_ddr0_w_push) begin
-                cpu_256b_aw_to_ddr0_w_mem[cpu_256b_aw_to_ddr0_w_wptr] <= 1'b1;
-                cpu_256b_aw_to_ddr0_w_wptr <= cpu_256b_aw_to_ddr0_w_wptr + 1'b1;
-            end
-            if (cpu_256b_aw_to_ddr0_w_pop) begin
-                cpu_256b_aw_to_ddr0_w_rptr <= cpu_256b_aw_to_ddr0_w_rptr + 1'b1;
+            if (ddr0_axi_awvalid && ddr0_axi_awready) begin
+                ddr0_aw_arb_locked <= 1'b0;
+                ddr0_aw_arb_rr <= (ddr0_aw_arb_gnt == 3'd4) ? 3'd0 : ddr0_aw_arb_gnt + 1'b1;
+            end else if (ddr0_axi_awvalid) begin
+                ddr0_aw_arb_lock   <= ddr0_aw_arb_gnt;
+                ddr0_aw_arb_locked <= 1'b1;
             end
         end
     end
-    assign cpu_256b_w_to_ddr0 = (cpu_256b_aw_to_ddr0_w_wptr != cpu_256b_aw_to_ddr0_w_rptr) ? cpu_256b_aw_to_ddr0_w_mem[cpu_256b_aw_to_ddr0_w_rptr] : 1'b0;
+    wire cpu_256b_aw_gnt_ddr0 = ddr0_aw_arb_gnt_valid && (ddr0_aw_arb_gnt == 3'd0) && ddr0_aw_arb_req[0];
+    wire gpu_256b_aw_gnt_ddr0 = ddr0_aw_arb_gnt_valid && (ddr0_aw_arb_gnt == 3'd1) && ddr0_aw_arb_req[1];
+    wire dma_256b_aw_gnt_ddr0 = ddr0_aw_arb_gnt_valid && (ddr0_aw_arb_gnt == 3'd2) && ddr0_aw_arb_req[2];
+    wire host_axil_256b_aw_gnt_ddr0 = ddr0_aw_arb_gnt_valid && (ddr0_aw_arb_gnt == 3'd3) && ddr0_aw_arb_req[3];
+    wire debug_axil_256b_aw_gnt_ddr0 = ddr0_aw_arb_gnt_valid && (ddr0_aw_arb_gnt == 3'd4) && ddr0_aw_arb_req[4];
 
-    // AW->W tracking FIFO: gpu -> ddr0
-    logic gpu_256b_w_to_ddr0;
-    logic [3:0] gpu_256b_aw_to_ddr0_w_wptr, gpu_256b_aw_to_ddr0_w_rptr;
-    logic gpu_256b_aw_to_ddr0_w_mem [16];
-    logic gpu_256b_aw_to_ddr0_w_push, gpu_256b_aw_to_ddr0_w_pop;
-    assign gpu_256b_aw_to_ddr0_w_push = gpu_256b_awvalid && gpu_256b_awready && gpu_256b_aw_to_ddr0;
-    assign gpu_256b_aw_to_ddr0_w_pop  = gpu_256b_wvalid && gpu_256b_wready && gpu_256b_w.last && gpu_256b_w_to_ddr0;
+    // AW channel (arbitrated mux across writing masters)
+    assign ddr0_axi_awid = (cpu_256b_aw_gnt_ddr0 ? cpu_256b_aw.id : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_256b_aw.id : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_256b_aw.id : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_256b_aw.id : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_256b_aw.id : '0);
+    assign ddr0_axi_awaddr = (cpu_256b_aw_gnt_ddr0 ? cpu_256b_aw.addr : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_256b_aw.addr : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_256b_aw.addr : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_256b_aw.addr : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_256b_aw.addr : '0);
+    assign ddr0_axi_awlen = (cpu_256b_aw_gnt_ddr0 ? cpu_256b_aw.len : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_256b_aw.len : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_256b_aw.len : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_256b_aw.len : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_256b_aw.len : '0);
+    assign ddr0_axi_awsize = (cpu_256b_aw_gnt_ddr0 ? cpu_256b_aw.size : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_256b_aw.size : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_256b_aw.size : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_256b_aw.size : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_256b_aw.size : '0);
+    assign ddr0_axi_awburst = (cpu_256b_aw_gnt_ddr0 ? cpu_256b_aw.burst : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_256b_aw.burst : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_256b_aw.burst : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_256b_aw.burst : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_256b_aw.burst : '0);
+    assign ddr0_axi_awlock = (cpu_256b_aw_gnt_ddr0 ? cpu_256b_aw.lock : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_256b_aw.lock : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_256b_aw.lock : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_256b_aw.lock : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_256b_aw.lock : '0);
+    assign ddr0_axi_awcache = (cpu_256b_aw_gnt_ddr0 ? cpu_256b_aw.cache : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_256b_aw.cache : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_256b_aw.cache : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_256b_aw.cache : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_256b_aw.cache : '0);
+    assign ddr0_axi_awprot = (cpu_256b_aw_gnt_ddr0 ? cpu_256b_aw.prot : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_256b_aw.prot : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_256b_aw.prot : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_256b_aw.prot : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_256b_aw.prot : '0);
+    assign ddr0_axi_awvalid = cpu_256b_aw_gnt_ddr0 || gpu_256b_aw_gnt_ddr0 || dma_256b_aw_gnt_ddr0 || host_axil_256b_aw_gnt_ddr0 || debug_axil_256b_aw_gnt_ddr0;
+
+    // W owner FIFO: slave-side AW accept order owns the W channel
+    logic [2:0] ddr0_wowner_mem [16];
+    logic [4:0] ddr0_wowner_wptr, ddr0_wowner_rptr;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            gpu_256b_aw_to_ddr0_w_wptr <= '0;
-            gpu_256b_aw_to_ddr0_w_rptr <= '0;
+            ddr0_wowner_wptr <= '0;
+            ddr0_wowner_rptr <= '0;
         end else begin
-            if (gpu_256b_aw_to_ddr0_w_push) begin
-                gpu_256b_aw_to_ddr0_w_mem[gpu_256b_aw_to_ddr0_w_wptr] <= 1'b1;
-                gpu_256b_aw_to_ddr0_w_wptr <= gpu_256b_aw_to_ddr0_w_wptr + 1'b1;
+            if (ddr0_axi_awvalid && ddr0_axi_awready) begin
+                ddr0_wowner_mem[ddr0_wowner_wptr[3:0]] <= ddr0_aw_arb_gnt;
+                ddr0_wowner_wptr <= ddr0_wowner_wptr + 1'b1;
             end
-            if (gpu_256b_aw_to_ddr0_w_pop) begin
-                gpu_256b_aw_to_ddr0_w_rptr <= gpu_256b_aw_to_ddr0_w_rptr + 1'b1;
+            if (ddr0_axi_wvalid && ddr0_axi_wready && ddr0_axi_wlast) begin
+                ddr0_wowner_rptr <= ddr0_wowner_rptr + 1'b1;
             end
         end
     end
-    assign gpu_256b_w_to_ddr0 = (gpu_256b_aw_to_ddr0_w_wptr != gpu_256b_aw_to_ddr0_w_rptr) ? gpu_256b_aw_to_ddr0_w_mem[gpu_256b_aw_to_ddr0_w_rptr] : 1'b0;
+    wire ddr0_wowner_valid = (ddr0_wowner_wptr != ddr0_wowner_rptr);
+    wire [2:0] ddr0_wowner_head = ddr0_wowner_mem[ddr0_wowner_rptr[3:0]];
+    assign cpu_256b_w_sel_ddr0 = ddr0_wowner_valid && (ddr0_wowner_head == 3'd0) && cpu_256b_w_to_ddr0;
+    assign gpu_256b_w_sel_ddr0 = ddr0_wowner_valid && (ddr0_wowner_head == 3'd1) && gpu_256b_w_to_ddr0;
+    assign dma_256b_w_sel_ddr0 = ddr0_wowner_valid && (ddr0_wowner_head == 3'd2) && dma_256b_w_to_ddr0;
+    assign host_axil_256b_w_sel_ddr0 = ddr0_wowner_valid && (ddr0_wowner_head == 3'd3) && host_axil_256b_w_to_ddr0;
+    assign debug_axil_256b_w_sel_ddr0 = ddr0_wowner_valid && (ddr0_wowner_head == 3'd4) && debug_axil_256b_w_to_ddr0;
 
-    // AW->W tracking FIFO: dma -> ddr0
-    logic dma_256b_w_to_ddr0;
-    logic [3:0] dma_256b_aw_to_ddr0_w_wptr, dma_256b_aw_to_ddr0_w_rptr;
-    logic dma_256b_aw_to_ddr0_w_mem [16];
-    logic dma_256b_aw_to_ddr0_w_push, dma_256b_aw_to_ddr0_w_pop;
-    assign dma_256b_aw_to_ddr0_w_push = dma_256b_awvalid && dma_256b_awready && dma_256b_aw_to_ddr0;
-    assign dma_256b_aw_to_ddr0_w_pop  = dma_256b_wvalid && dma_256b_wready && dma_256b_w.last && dma_256b_w_to_ddr0;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            dma_256b_aw_to_ddr0_w_wptr <= '0;
-            dma_256b_aw_to_ddr0_w_rptr <= '0;
-        end else begin
-            if (dma_256b_aw_to_ddr0_w_push) begin
-                dma_256b_aw_to_ddr0_w_mem[dma_256b_aw_to_ddr0_w_wptr] <= 1'b1;
-                dma_256b_aw_to_ddr0_w_wptr <= dma_256b_aw_to_ddr0_w_wptr + 1'b1;
-            end
-            if (dma_256b_aw_to_ddr0_w_pop) begin
-                dma_256b_aw_to_ddr0_w_rptr <= dma_256b_aw_to_ddr0_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign dma_256b_w_to_ddr0 = (dma_256b_aw_to_ddr0_w_wptr != dma_256b_aw_to_ddr0_w_rptr) ? dma_256b_aw_to_ddr0_w_mem[dma_256b_aw_to_ddr0_w_rptr] : 1'b0;
-
-    // AW->W tracking FIFO: host_axil -> ddr0
-    logic host_axil_256b_w_to_ddr0;
-    logic [3:0] host_axil_256b_aw_to_ddr0_w_wptr, host_axil_256b_aw_to_ddr0_w_rptr;
-    logic host_axil_256b_aw_to_ddr0_w_mem [16];
-    logic host_axil_256b_aw_to_ddr0_w_push, host_axil_256b_aw_to_ddr0_w_pop;
-    assign host_axil_256b_aw_to_ddr0_w_push = host_axil_256b_awvalid && host_axil_256b_awready && host_axil_256b_aw_to_ddr0;
-    assign host_axil_256b_aw_to_ddr0_w_pop  = host_axil_256b_wvalid && host_axil_256b_wready && host_axil_256b_w.last && host_axil_256b_w_to_ddr0;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            host_axil_256b_aw_to_ddr0_w_wptr <= '0;
-            host_axil_256b_aw_to_ddr0_w_rptr <= '0;
-        end else begin
-            if (host_axil_256b_aw_to_ddr0_w_push) begin
-                host_axil_256b_aw_to_ddr0_w_mem[host_axil_256b_aw_to_ddr0_w_wptr] <= 1'b1;
-                host_axil_256b_aw_to_ddr0_w_wptr <= host_axil_256b_aw_to_ddr0_w_wptr + 1'b1;
-            end
-            if (host_axil_256b_aw_to_ddr0_w_pop) begin
-                host_axil_256b_aw_to_ddr0_w_rptr <= host_axil_256b_aw_to_ddr0_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign host_axil_256b_w_to_ddr0 = (host_axil_256b_aw_to_ddr0_w_wptr != host_axil_256b_aw_to_ddr0_w_rptr) ? host_axil_256b_aw_to_ddr0_w_mem[host_axil_256b_aw_to_ddr0_w_rptr] : 1'b0;
-
-    // AW->W tracking FIFO: debug_axil -> ddr0
-    logic debug_axil_256b_w_to_ddr0;
-    logic [3:0] debug_axil_256b_aw_to_ddr0_w_wptr, debug_axil_256b_aw_to_ddr0_w_rptr;
-    logic debug_axil_256b_aw_to_ddr0_w_mem [16];
-    logic debug_axil_256b_aw_to_ddr0_w_push, debug_axil_256b_aw_to_ddr0_w_pop;
-    assign debug_axil_256b_aw_to_ddr0_w_push = debug_axil_256b_awvalid && debug_axil_256b_awready && debug_axil_256b_aw_to_ddr0;
-    assign debug_axil_256b_aw_to_ddr0_w_pop  = debug_axil_256b_wvalid && debug_axil_256b_wready && debug_axil_256b_w.last && debug_axil_256b_w_to_ddr0;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            debug_axil_256b_aw_to_ddr0_w_wptr <= '0;
-            debug_axil_256b_aw_to_ddr0_w_rptr <= '0;
-        end else begin
-            if (debug_axil_256b_aw_to_ddr0_w_push) begin
-                debug_axil_256b_aw_to_ddr0_w_mem[debug_axil_256b_aw_to_ddr0_w_wptr] <= 1'b1;
-                debug_axil_256b_aw_to_ddr0_w_wptr <= debug_axil_256b_aw_to_ddr0_w_wptr + 1'b1;
-            end
-            if (debug_axil_256b_aw_to_ddr0_w_pop) begin
-                debug_axil_256b_aw_to_ddr0_w_rptr <= debug_axil_256b_aw_to_ddr0_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign debug_axil_256b_w_to_ddr0 = (debug_axil_256b_aw_to_ddr0_w_wptr != debug_axil_256b_aw_to_ddr0_w_rptr) ? debug_axil_256b_aw_to_ddr0_w_mem[debug_axil_256b_aw_to_ddr0_w_rptr] : 1'b0;
-
-    // W channel (OR-merged across writing masters, gated by w_to_<slave> FIFO)
-    assign ddr0_axi_wdata = ((cpu_256b_w_to_ddr0 && cpu_256b_wvalid) ? cpu_256b_w.data : '0) |
-        ((gpu_256b_w_to_ddr0 && gpu_256b_wvalid) ? gpu_256b_w.data : '0) |
-        ((dma_256b_w_to_ddr0 && dma_256b_wvalid) ? dma_256b_w.data : '0) |
-        ((host_axil_256b_w_to_ddr0 && host_axil_256b_wvalid) ? host_axil_256b_w.data : '0) |
-        ((debug_axil_256b_w_to_ddr0 && debug_axil_256b_wvalid) ? debug_axil_256b_w.data : '0);
-    assign ddr0_axi_wstrb = ((cpu_256b_w_to_ddr0 && cpu_256b_wvalid) ? cpu_256b_w.strb : '0) |
-        ((gpu_256b_w_to_ddr0 && gpu_256b_wvalid) ? gpu_256b_w.strb : '0) |
-        ((dma_256b_w_to_ddr0 && dma_256b_wvalid) ? dma_256b_w.strb : '0) |
-        ((host_axil_256b_w_to_ddr0 && host_axil_256b_wvalid) ? host_axil_256b_w.strb : '0) |
-        ((debug_axil_256b_w_to_ddr0 && debug_axil_256b_wvalid) ? debug_axil_256b_w.strb : '0);
-    assign ddr0_axi_wlast = ((cpu_256b_w_to_ddr0 && cpu_256b_wvalid) ? cpu_256b_w.last : '0) |
-        ((gpu_256b_w_to_ddr0 && gpu_256b_wvalid) ? gpu_256b_w.last : '0) |
-        ((dma_256b_w_to_ddr0 && dma_256b_wvalid) ? dma_256b_w.last : '0) |
-        ((host_axil_256b_w_to_ddr0 && host_axil_256b_wvalid) ? host_axil_256b_w.last : '0) |
-        ((debug_axil_256b_w_to_ddr0 && debug_axil_256b_wvalid) ? debug_axil_256b_w.last : '0);
-    assign ddr0_axi_wvalid = ((cpu_256b_w_to_ddr0 && cpu_256b_wvalid) ? cpu_256b_wvalid : '0) |
-        ((gpu_256b_w_to_ddr0 && gpu_256b_wvalid) ? gpu_256b_wvalid : '0) |
-        ((dma_256b_w_to_ddr0 && dma_256b_wvalid) ? dma_256b_wvalid : '0) |
-        ((host_axil_256b_w_to_ddr0 && host_axil_256b_wvalid) ? host_axil_256b_wvalid : '0) |
-        ((debug_axil_256b_w_to_ddr0 && debug_axil_256b_wvalid) ? debug_axil_256b_wvalid : '0);
+    // W channel (owner-gated mux across writing masters)
+    assign ddr0_axi_wdata = ((cpu_256b_w_sel_ddr0 && cpu_256b_wvalid) ? cpu_256b_w.data : '0) |
+        ((gpu_256b_w_sel_ddr0 && gpu_256b_wvalid) ? gpu_256b_w.data : '0) |
+        ((dma_256b_w_sel_ddr0 && dma_256b_wvalid) ? dma_256b_w.data : '0) |
+        ((host_axil_256b_w_sel_ddr0 && host_axil_256b_wvalid) ? host_axil_256b_w.data : '0) |
+        ((debug_axil_256b_w_sel_ddr0 && debug_axil_256b_wvalid) ? debug_axil_256b_w.data : '0);
+    assign ddr0_axi_wstrb = ((cpu_256b_w_sel_ddr0 && cpu_256b_wvalid) ? cpu_256b_w.strb : '0) |
+        ((gpu_256b_w_sel_ddr0 && gpu_256b_wvalid) ? gpu_256b_w.strb : '0) |
+        ((dma_256b_w_sel_ddr0 && dma_256b_wvalid) ? dma_256b_w.strb : '0) |
+        ((host_axil_256b_w_sel_ddr0 && host_axil_256b_wvalid) ? host_axil_256b_w.strb : '0) |
+        ((debug_axil_256b_w_sel_ddr0 && debug_axil_256b_wvalid) ? debug_axil_256b_w.strb : '0);
+    assign ddr0_axi_wlast = ((cpu_256b_w_sel_ddr0 && cpu_256b_wvalid) ? cpu_256b_w.last : '0) |
+        ((gpu_256b_w_sel_ddr0 && gpu_256b_wvalid) ? gpu_256b_w.last : '0) |
+        ((dma_256b_w_sel_ddr0 && dma_256b_wvalid) ? dma_256b_w.last : '0) |
+        ((host_axil_256b_w_sel_ddr0 && host_axil_256b_wvalid) ? host_axil_256b_w.last : '0) |
+        ((debug_axil_256b_w_sel_ddr0 && debug_axil_256b_wvalid) ? debug_axil_256b_w.last : '0);
+    assign ddr0_axi_wvalid = (cpu_256b_w_sel_ddr0 && cpu_256b_wvalid) || (gpu_256b_w_sel_ddr0 && gpu_256b_wvalid) || (dma_256b_w_sel_ddr0 && dma_256b_wvalid) || (host_axil_256b_w_sel_ddr0 && host_axil_256b_wvalid) || (debug_axil_256b_w_sel_ddr0 && debug_axil_256b_wvalid);
 
     // Bready (slave → owning master, by bid_bridge_id)
     assign ddr0_axi_bready = ((ddr0_axi_bid_bridge_id == 0) && ddr0_axi_bid_valid ? cpu_256b_bready : '0) |
@@ -776,59 +755,88 @@ module bridge_e_grand_mix_5x5_xbar
         ((ddr0_axi_bid_bridge_id == 3) && ddr0_axi_bid_valid ? host_axil_256b_bready : '0) |
         ((ddr0_axi_bid_bridge_id == 4) && ddr0_axi_bid_valid ? debug_axil_256b_bready : '0);
 
-    // Bridge ID (writes) — picks the originating master's id
-    assign ddr0_axi_bridge_id_aw = ((cpu_256b_aw_to_ddr0 && cpu_256b_awvalid) ? cpu_bridge_id_aw : '0) |
-        ((gpu_256b_aw_to_ddr0 && gpu_256b_awvalid) ? gpu_bridge_id_aw : '0) |
-        ((dma_256b_aw_to_ddr0 && dma_256b_awvalid) ? dma_bridge_id_aw : '0) |
-        ((host_axil_256b_aw_to_ddr0 && host_axil_256b_awvalid) ? host_axil_bridge_id_aw : '0) |
-        ((debug_axil_256b_aw_to_ddr0 && debug_axil_256b_awvalid) ? debug_axil_bridge_id_aw : '0);
+    // Bridge ID (writes) — the granted master's id
+    assign ddr0_axi_bridge_id_aw = (cpu_256b_aw_gnt_ddr0 ? cpu_bridge_id_aw : '0) |
+        (gpu_256b_aw_gnt_ddr0 ? gpu_bridge_id_aw : '0) |
+        (dma_256b_aw_gnt_ddr0 ? dma_bridge_id_aw : '0) |
+        (host_axil_256b_aw_gnt_ddr0 ? host_axil_bridge_id_aw : '0) |
+        (debug_axil_256b_aw_gnt_ddr0 ? debug_axil_bridge_id_aw : '0);
 
-    // AR channel (OR-merged across reading masters)
-    assign ddr0_axi_arid = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_ar.id : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_ar.id : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_ar.id : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_ar.id : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_ar.id : '0);
-    assign ddr0_axi_araddr = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_ar.addr : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_ar.addr : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_ar.addr : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_ar.addr : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_ar.addr : '0);
-    assign ddr0_axi_arlen = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_ar.len : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_ar.len : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_ar.len : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_ar.len : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_ar.len : '0);
-    assign ddr0_axi_arsize = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_ar.size : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_ar.size : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_ar.size : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_ar.size : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_ar.size : '0);
-    assign ddr0_axi_arburst = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_ar.burst : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_ar.burst : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_ar.burst : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_ar.burst : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_ar.burst : '0);
-    assign ddr0_axi_arlock = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_ar.lock : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_ar.lock : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_ar.lock : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_ar.lock : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_ar.lock : '0);
-    assign ddr0_axi_arcache = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_ar.cache : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_ar.cache : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_ar.cache : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_ar.cache : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_ar.cache : '0);
-    assign ddr0_axi_arprot = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_ar.prot : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_ar.prot : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_ar.prot : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_ar.prot : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_ar.prot : '0);
-    assign ddr0_axi_arvalid = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_256b_arvalid : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_256b_arvalid : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_256b_arvalid : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_256b_arvalid : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_256b_arvalid : '0);
+    // ---- AR arbiter for ddr0: round-robin, lock until handshake ----
+    logic [4:0] ddr0_ar_arb_req;
+    assign ddr0_ar_arb_req = {debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid, host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid, dma_256b_ar_to_ddr0 && dma_256b_arvalid, gpu_256b_ar_to_ddr0 && gpu_256b_arvalid, cpu_256b_ar_to_ddr0 && cpu_256b_arvalid};
+    logic [2:0] ddr0_ar_arb_lock, ddr0_ar_arb_rr;
+    logic ddr0_ar_arb_locked;
+    wire [2:0] ddr0_ar_arb_pick = (ddr0_ar_arb_rr == 3'd0) ? (ddr0_ar_arb_req[0] ? 3'd0 : ddr0_ar_arb_req[1] ? 3'd1 : ddr0_ar_arb_req[2] ? 3'd2 : ddr0_ar_arb_req[3] ? 3'd3 : 3'd4) : 
+        (ddr0_ar_arb_rr == 3'd1) ? (ddr0_ar_arb_req[1] ? 3'd1 : ddr0_ar_arb_req[2] ? 3'd2 : ddr0_ar_arb_req[3] ? 3'd3 : ddr0_ar_arb_req[4] ? 3'd4 : 3'd0) : 
+        (ddr0_ar_arb_rr == 3'd2) ? (ddr0_ar_arb_req[2] ? 3'd2 : ddr0_ar_arb_req[3] ? 3'd3 : ddr0_ar_arb_req[4] ? 3'd4 : ddr0_ar_arb_req[0] ? 3'd0 : 3'd1) : 
+        (ddr0_ar_arb_rr == 3'd3) ? (ddr0_ar_arb_req[3] ? 3'd3 : ddr0_ar_arb_req[4] ? 3'd4 : ddr0_ar_arb_req[0] ? 3'd0 : ddr0_ar_arb_req[1] ? 3'd1 : 3'd2) : 
+        ddr0_ar_arb_req[4] ? 3'd4 : ddr0_ar_arb_req[0] ? 3'd0 : ddr0_ar_arb_req[1] ? 3'd1 : ddr0_ar_arb_req[2] ? 3'd2 : 3'd3;
+    wire ddr0_ar_arb_gnt_valid = ddr0_ar_arb_locked || (|ddr0_ar_arb_req);
+    wire [2:0] ddr0_ar_arb_gnt = ddr0_ar_arb_locked ? ddr0_ar_arb_lock : ddr0_ar_arb_pick;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            ddr0_ar_arb_lock   <= '0;
+            ddr0_ar_arb_rr     <= '0;
+            ddr0_ar_arb_locked <= 1'b0;
+        end else begin
+            if (ddr0_axi_arvalid && ddr0_axi_arready) begin
+                ddr0_ar_arb_locked <= 1'b0;
+                ddr0_ar_arb_rr <= (ddr0_ar_arb_gnt == 3'd4) ? 3'd0 : ddr0_ar_arb_gnt + 1'b1;
+            end else if (ddr0_axi_arvalid) begin
+                ddr0_ar_arb_lock   <= ddr0_ar_arb_gnt;
+                ddr0_ar_arb_locked <= 1'b1;
+            end
+        end
+    end
+    wire cpu_256b_ar_gnt_ddr0 = ddr0_ar_arb_gnt_valid && (ddr0_ar_arb_gnt == 3'd0) && ddr0_ar_arb_req[0];
+    wire gpu_256b_ar_gnt_ddr0 = ddr0_ar_arb_gnt_valid && (ddr0_ar_arb_gnt == 3'd1) && ddr0_ar_arb_req[1];
+    wire dma_256b_ar_gnt_ddr0 = ddr0_ar_arb_gnt_valid && (ddr0_ar_arb_gnt == 3'd2) && ddr0_ar_arb_req[2];
+    wire host_axil_256b_ar_gnt_ddr0 = ddr0_ar_arb_gnt_valid && (ddr0_ar_arb_gnt == 3'd3) && ddr0_ar_arb_req[3];
+    wire debug_axil_256b_ar_gnt_ddr0 = ddr0_ar_arb_gnt_valid && (ddr0_ar_arb_gnt == 3'd4) && ddr0_ar_arb_req[4];
+
+    // AR channel (arbitrated mux across reading masters)
+    assign ddr0_axi_arid = (cpu_256b_ar_gnt_ddr0 ? cpu_256b_ar.id : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_256b_ar.id : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_256b_ar.id : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_256b_ar.id : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_256b_ar.id : '0);
+    assign ddr0_axi_araddr = (cpu_256b_ar_gnt_ddr0 ? cpu_256b_ar.addr : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_256b_ar.addr : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_256b_ar.addr : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_256b_ar.addr : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_256b_ar.addr : '0);
+    assign ddr0_axi_arlen = (cpu_256b_ar_gnt_ddr0 ? cpu_256b_ar.len : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_256b_ar.len : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_256b_ar.len : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_256b_ar.len : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_256b_ar.len : '0);
+    assign ddr0_axi_arsize = (cpu_256b_ar_gnt_ddr0 ? cpu_256b_ar.size : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_256b_ar.size : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_256b_ar.size : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_256b_ar.size : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_256b_ar.size : '0);
+    assign ddr0_axi_arburst = (cpu_256b_ar_gnt_ddr0 ? cpu_256b_ar.burst : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_256b_ar.burst : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_256b_ar.burst : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_256b_ar.burst : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_256b_ar.burst : '0);
+    assign ddr0_axi_arlock = (cpu_256b_ar_gnt_ddr0 ? cpu_256b_ar.lock : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_256b_ar.lock : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_256b_ar.lock : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_256b_ar.lock : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_256b_ar.lock : '0);
+    assign ddr0_axi_arcache = (cpu_256b_ar_gnt_ddr0 ? cpu_256b_ar.cache : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_256b_ar.cache : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_256b_ar.cache : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_256b_ar.cache : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_256b_ar.cache : '0);
+    assign ddr0_axi_arprot = (cpu_256b_ar_gnt_ddr0 ? cpu_256b_ar.prot : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_256b_ar.prot : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_256b_ar.prot : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_256b_ar.prot : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_256b_ar.prot : '0);
+    assign ddr0_axi_arvalid = cpu_256b_ar_gnt_ddr0 || gpu_256b_ar_gnt_ddr0 || dma_256b_ar_gnt_ddr0 || host_axil_256b_ar_gnt_ddr0 || debug_axil_256b_ar_gnt_ddr0;
 
     // Rready (slave → owning master, by rid_bridge_id)
     assign ddr0_axi_rready = ((ddr0_axi_rid_bridge_id == 0) && ddr0_axi_rid_valid ? cpu_256b_rready : '0) |
@@ -837,12 +845,12 @@ module bridge_e_grand_mix_5x5_xbar
         ((ddr0_axi_rid_bridge_id == 3) && ddr0_axi_rid_valid ? host_axil_256b_rready : '0) |
         ((ddr0_axi_rid_bridge_id == 4) && ddr0_axi_rid_valid ? debug_axil_256b_rready : '0);
 
-    // Bridge ID (reads) — picks the originating master's id
-    assign ddr0_axi_bridge_id_ar = ((cpu_256b_ar_to_ddr0 && cpu_256b_arvalid) ? cpu_bridge_id_ar : '0) |
-        ((gpu_256b_ar_to_ddr0 && gpu_256b_arvalid) ? gpu_bridge_id_ar : '0) |
-        ((dma_256b_ar_to_ddr0 && dma_256b_arvalid) ? dma_bridge_id_ar : '0) |
-        ((host_axil_256b_ar_to_ddr0 && host_axil_256b_arvalid) ? host_axil_bridge_id_ar : '0) |
-        ((debug_axil_256b_ar_to_ddr0 && debug_axil_256b_arvalid) ? debug_axil_bridge_id_ar : '0);
+    // Bridge ID (reads) — the granted master's id
+    assign ddr0_axi_bridge_id_ar = (cpu_256b_ar_gnt_ddr0 ? cpu_bridge_id_ar : '0) |
+        (gpu_256b_ar_gnt_ddr0 ? gpu_bridge_id_ar : '0) |
+        (dma_256b_ar_gnt_ddr0 ? dma_bridge_id_ar : '0) |
+        (host_axil_256b_ar_gnt_ddr0 ? host_axil_bridge_id_ar : '0) |
+        (debug_axil_256b_ar_gnt_ddr0 ? debug_axil_bridge_id_ar : '0);
 
 
     // ================================================================
@@ -863,153 +871,110 @@ module bridge_e_grand_mix_5x5_xbar
     wire host_axil_128b_aw_to_scratch = ((host_axil_128b_aw.addr >= 32'h81000000) && (host_axil_128b_aw.addr <= 32'h81ffffff));
     wire host_axil_128b_ar_to_scratch = ((host_axil_128b_ar.addr >= 32'h81000000) && (host_axil_128b_ar.addr <= 32'h81ffffff));
 
-    // AW channel (OR-merged across writing masters)
-    assign scratch_axi_awid = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_aw.id : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_aw.id : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_aw.id : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_aw.id : '0);
-    assign scratch_axi_awaddr = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_aw.addr : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_aw.addr : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_aw.addr : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_aw.addr : '0);
-    assign scratch_axi_awlen = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_aw.len : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_aw.len : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_aw.len : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_aw.len : '0);
-    assign scratch_axi_awsize = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_aw.size : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_aw.size : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_aw.size : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_aw.size : '0);
-    assign scratch_axi_awburst = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_aw.burst : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_aw.burst : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_aw.burst : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_aw.burst : '0);
-    assign scratch_axi_awlock = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_aw.lock : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_aw.lock : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_aw.lock : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_aw.lock : '0);
-    assign scratch_axi_awcache = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_aw.cache : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_aw.cache : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_aw.cache : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_aw.cache : '0);
-    assign scratch_axi_awprot = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_aw.prot : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_aw.prot : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_aw.prot : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_aw.prot : '0);
-    assign scratch_axi_awvalid = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_128b_awvalid : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_128b_awvalid : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_128b_awvalid : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_128b_awvalid : '0);
-
-    // AW->W tracking FIFO: cpu -> scratch
-    logic cpu_128b_w_to_scratch;
-    logic [3:0] cpu_128b_aw_to_scratch_w_wptr, cpu_128b_aw_to_scratch_w_rptr;
-    logic cpu_128b_aw_to_scratch_w_mem [16];
-    logic cpu_128b_aw_to_scratch_w_push, cpu_128b_aw_to_scratch_w_pop;
-    assign cpu_128b_aw_to_scratch_w_push = cpu_128b_awvalid && cpu_128b_awready && cpu_128b_aw_to_scratch;
-    assign cpu_128b_aw_to_scratch_w_pop  = cpu_128b_wvalid && cpu_128b_wready && cpu_128b_w.last && cpu_128b_w_to_scratch;
+    // ---- AW arbiter for scratch: round-robin, lock until handshake ----
+    logic [3:0] scratch_aw_arb_req;
+    assign scratch_aw_arb_req = {host_axil_128b_aw_to_scratch && host_axil_128b_awvalid, dma_128b_aw_to_scratch && dma_128b_awvalid, gpu_128b_aw_to_scratch && gpu_128b_awvalid, cpu_128b_aw_to_scratch && cpu_128b_awvalid};
+    logic [1:0] scratch_aw_arb_lock, scratch_aw_arb_rr;
+    logic scratch_aw_arb_locked;
+    wire [1:0] scratch_aw_arb_pick = (scratch_aw_arb_rr == 2'd0) ? (scratch_aw_arb_req[0] ? 2'd0 : scratch_aw_arb_req[1] ? 2'd1 : scratch_aw_arb_req[2] ? 2'd2 : 2'd3) : 
+        (scratch_aw_arb_rr == 2'd1) ? (scratch_aw_arb_req[1] ? 2'd1 : scratch_aw_arb_req[2] ? 2'd2 : scratch_aw_arb_req[3] ? 2'd3 : 2'd0) : 
+        (scratch_aw_arb_rr == 2'd2) ? (scratch_aw_arb_req[2] ? 2'd2 : scratch_aw_arb_req[3] ? 2'd3 : scratch_aw_arb_req[0] ? 2'd0 : 2'd1) : 
+        scratch_aw_arb_req[3] ? 2'd3 : scratch_aw_arb_req[0] ? 2'd0 : scratch_aw_arb_req[1] ? 2'd1 : 2'd2;
+    wire scratch_aw_arb_gnt_valid = scratch_aw_arb_locked || (|scratch_aw_arb_req);
+    wire [1:0] scratch_aw_arb_gnt = scratch_aw_arb_locked ? scratch_aw_arb_lock : scratch_aw_arb_pick;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            cpu_128b_aw_to_scratch_w_wptr <= '0;
-            cpu_128b_aw_to_scratch_w_rptr <= '0;
+            scratch_aw_arb_lock   <= '0;
+            scratch_aw_arb_rr     <= '0;
+            scratch_aw_arb_locked <= 1'b0;
         end else begin
-            if (cpu_128b_aw_to_scratch_w_push) begin
-                cpu_128b_aw_to_scratch_w_mem[cpu_128b_aw_to_scratch_w_wptr] <= 1'b1;
-                cpu_128b_aw_to_scratch_w_wptr <= cpu_128b_aw_to_scratch_w_wptr + 1'b1;
-            end
-            if (cpu_128b_aw_to_scratch_w_pop) begin
-                cpu_128b_aw_to_scratch_w_rptr <= cpu_128b_aw_to_scratch_w_rptr + 1'b1;
+            if (scratch_axi_awvalid && scratch_axi_awready) begin
+                scratch_aw_arb_locked <= 1'b0;
+                scratch_aw_arb_rr <= (scratch_aw_arb_gnt == 2'd3) ? 2'd0 : scratch_aw_arb_gnt + 1'b1;
+            end else if (scratch_axi_awvalid) begin
+                scratch_aw_arb_lock   <= scratch_aw_arb_gnt;
+                scratch_aw_arb_locked <= 1'b1;
             end
         end
     end
-    assign cpu_128b_w_to_scratch = (cpu_128b_aw_to_scratch_w_wptr != cpu_128b_aw_to_scratch_w_rptr) ? cpu_128b_aw_to_scratch_w_mem[cpu_128b_aw_to_scratch_w_rptr] : 1'b0;
+    wire cpu_128b_aw_gnt_scratch = scratch_aw_arb_gnt_valid && (scratch_aw_arb_gnt == 2'd0) && scratch_aw_arb_req[0];
+    wire gpu_128b_aw_gnt_scratch = scratch_aw_arb_gnt_valid && (scratch_aw_arb_gnt == 2'd1) && scratch_aw_arb_req[1];
+    wire dma_128b_aw_gnt_scratch = scratch_aw_arb_gnt_valid && (scratch_aw_arb_gnt == 2'd2) && scratch_aw_arb_req[2];
+    wire host_axil_128b_aw_gnt_scratch = scratch_aw_arb_gnt_valid && (scratch_aw_arb_gnt == 2'd3) && scratch_aw_arb_req[3];
 
-    // AW->W tracking FIFO: gpu -> scratch
-    logic gpu_128b_w_to_scratch;
-    logic [3:0] gpu_128b_aw_to_scratch_w_wptr, gpu_128b_aw_to_scratch_w_rptr;
-    logic gpu_128b_aw_to_scratch_w_mem [16];
-    logic gpu_128b_aw_to_scratch_w_push, gpu_128b_aw_to_scratch_w_pop;
-    assign gpu_128b_aw_to_scratch_w_push = gpu_128b_awvalid && gpu_128b_awready && gpu_128b_aw_to_scratch;
-    assign gpu_128b_aw_to_scratch_w_pop  = gpu_128b_wvalid && gpu_128b_wready && gpu_128b_w.last && gpu_128b_w_to_scratch;
+    // AW channel (arbitrated mux across writing masters)
+    assign scratch_axi_awid = (cpu_128b_aw_gnt_scratch ? cpu_128b_aw.id : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_128b_aw.id : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_128b_aw.id : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_128b_aw.id : '0);
+    assign scratch_axi_awaddr = (cpu_128b_aw_gnt_scratch ? cpu_128b_aw.addr : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_128b_aw.addr : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_128b_aw.addr : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_128b_aw.addr : '0);
+    assign scratch_axi_awlen = (cpu_128b_aw_gnt_scratch ? cpu_128b_aw.len : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_128b_aw.len : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_128b_aw.len : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_128b_aw.len : '0);
+    assign scratch_axi_awsize = (cpu_128b_aw_gnt_scratch ? cpu_128b_aw.size : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_128b_aw.size : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_128b_aw.size : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_128b_aw.size : '0);
+    assign scratch_axi_awburst = (cpu_128b_aw_gnt_scratch ? cpu_128b_aw.burst : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_128b_aw.burst : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_128b_aw.burst : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_128b_aw.burst : '0);
+    assign scratch_axi_awlock = (cpu_128b_aw_gnt_scratch ? cpu_128b_aw.lock : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_128b_aw.lock : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_128b_aw.lock : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_128b_aw.lock : '0);
+    assign scratch_axi_awcache = (cpu_128b_aw_gnt_scratch ? cpu_128b_aw.cache : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_128b_aw.cache : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_128b_aw.cache : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_128b_aw.cache : '0);
+    assign scratch_axi_awprot = (cpu_128b_aw_gnt_scratch ? cpu_128b_aw.prot : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_128b_aw.prot : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_128b_aw.prot : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_128b_aw.prot : '0);
+    assign scratch_axi_awvalid = cpu_128b_aw_gnt_scratch || gpu_128b_aw_gnt_scratch || dma_128b_aw_gnt_scratch || host_axil_128b_aw_gnt_scratch;
+
+    // W owner FIFO: slave-side AW accept order owns the W channel
+    logic [1:0] scratch_wowner_mem [16];
+    logic [4:0] scratch_wowner_wptr, scratch_wowner_rptr;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            gpu_128b_aw_to_scratch_w_wptr <= '0;
-            gpu_128b_aw_to_scratch_w_rptr <= '0;
+            scratch_wowner_wptr <= '0;
+            scratch_wowner_rptr <= '0;
         end else begin
-            if (gpu_128b_aw_to_scratch_w_push) begin
-                gpu_128b_aw_to_scratch_w_mem[gpu_128b_aw_to_scratch_w_wptr] <= 1'b1;
-                gpu_128b_aw_to_scratch_w_wptr <= gpu_128b_aw_to_scratch_w_wptr + 1'b1;
+            if (scratch_axi_awvalid && scratch_axi_awready) begin
+                scratch_wowner_mem[scratch_wowner_wptr[3:0]] <= scratch_aw_arb_gnt;
+                scratch_wowner_wptr <= scratch_wowner_wptr + 1'b1;
             end
-            if (gpu_128b_aw_to_scratch_w_pop) begin
-                gpu_128b_aw_to_scratch_w_rptr <= gpu_128b_aw_to_scratch_w_rptr + 1'b1;
+            if (scratch_axi_wvalid && scratch_axi_wready && scratch_axi_wlast) begin
+                scratch_wowner_rptr <= scratch_wowner_rptr + 1'b1;
             end
         end
     end
-    assign gpu_128b_w_to_scratch = (gpu_128b_aw_to_scratch_w_wptr != gpu_128b_aw_to_scratch_w_rptr) ? gpu_128b_aw_to_scratch_w_mem[gpu_128b_aw_to_scratch_w_rptr] : 1'b0;
+    wire scratch_wowner_valid = (scratch_wowner_wptr != scratch_wowner_rptr);
+    wire [1:0] scratch_wowner_head = scratch_wowner_mem[scratch_wowner_rptr[3:0]];
+    assign cpu_128b_w_sel_scratch = scratch_wowner_valid && (scratch_wowner_head == 2'd0) && cpu_128b_w_to_scratch;
+    assign gpu_128b_w_sel_scratch = scratch_wowner_valid && (scratch_wowner_head == 2'd1) && gpu_128b_w_to_scratch;
+    assign dma_128b_w_sel_scratch = scratch_wowner_valid && (scratch_wowner_head == 2'd2) && dma_128b_w_to_scratch;
+    assign host_axil_128b_w_sel_scratch = scratch_wowner_valid && (scratch_wowner_head == 2'd3) && host_axil_128b_w_to_scratch;
 
-    // AW->W tracking FIFO: dma -> scratch
-    logic dma_128b_w_to_scratch;
-    logic [3:0] dma_128b_aw_to_scratch_w_wptr, dma_128b_aw_to_scratch_w_rptr;
-    logic dma_128b_aw_to_scratch_w_mem [16];
-    logic dma_128b_aw_to_scratch_w_push, dma_128b_aw_to_scratch_w_pop;
-    assign dma_128b_aw_to_scratch_w_push = dma_128b_awvalid && dma_128b_awready && dma_128b_aw_to_scratch;
-    assign dma_128b_aw_to_scratch_w_pop  = dma_128b_wvalid && dma_128b_wready && dma_128b_w.last && dma_128b_w_to_scratch;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            dma_128b_aw_to_scratch_w_wptr <= '0;
-            dma_128b_aw_to_scratch_w_rptr <= '0;
-        end else begin
-            if (dma_128b_aw_to_scratch_w_push) begin
-                dma_128b_aw_to_scratch_w_mem[dma_128b_aw_to_scratch_w_wptr] <= 1'b1;
-                dma_128b_aw_to_scratch_w_wptr <= dma_128b_aw_to_scratch_w_wptr + 1'b1;
-            end
-            if (dma_128b_aw_to_scratch_w_pop) begin
-                dma_128b_aw_to_scratch_w_rptr <= dma_128b_aw_to_scratch_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign dma_128b_w_to_scratch = (dma_128b_aw_to_scratch_w_wptr != dma_128b_aw_to_scratch_w_rptr) ? dma_128b_aw_to_scratch_w_mem[dma_128b_aw_to_scratch_w_rptr] : 1'b0;
-
-    // AW->W tracking FIFO: host_axil -> scratch
-    logic host_axil_128b_w_to_scratch;
-    logic [3:0] host_axil_128b_aw_to_scratch_w_wptr, host_axil_128b_aw_to_scratch_w_rptr;
-    logic host_axil_128b_aw_to_scratch_w_mem [16];
-    logic host_axil_128b_aw_to_scratch_w_push, host_axil_128b_aw_to_scratch_w_pop;
-    assign host_axil_128b_aw_to_scratch_w_push = host_axil_128b_awvalid && host_axil_128b_awready && host_axil_128b_aw_to_scratch;
-    assign host_axil_128b_aw_to_scratch_w_pop  = host_axil_128b_wvalid && host_axil_128b_wready && host_axil_128b_w.last && host_axil_128b_w_to_scratch;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            host_axil_128b_aw_to_scratch_w_wptr <= '0;
-            host_axil_128b_aw_to_scratch_w_rptr <= '0;
-        end else begin
-            if (host_axil_128b_aw_to_scratch_w_push) begin
-                host_axil_128b_aw_to_scratch_w_mem[host_axil_128b_aw_to_scratch_w_wptr] <= 1'b1;
-                host_axil_128b_aw_to_scratch_w_wptr <= host_axil_128b_aw_to_scratch_w_wptr + 1'b1;
-            end
-            if (host_axil_128b_aw_to_scratch_w_pop) begin
-                host_axil_128b_aw_to_scratch_w_rptr <= host_axil_128b_aw_to_scratch_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign host_axil_128b_w_to_scratch = (host_axil_128b_aw_to_scratch_w_wptr != host_axil_128b_aw_to_scratch_w_rptr) ? host_axil_128b_aw_to_scratch_w_mem[host_axil_128b_aw_to_scratch_w_rptr] : 1'b0;
-
-    // W channel (OR-merged across writing masters, gated by w_to_<slave> FIFO)
-    assign scratch_axi_wdata = ((cpu_128b_w_to_scratch && cpu_128b_wvalid) ? cpu_128b_w.data : '0) |
-        ((gpu_128b_w_to_scratch && gpu_128b_wvalid) ? gpu_128b_w.data : '0) |
-        ((dma_128b_w_to_scratch && dma_128b_wvalid) ? dma_128b_w.data : '0) |
-        ((host_axil_128b_w_to_scratch && host_axil_128b_wvalid) ? host_axil_128b_w.data : '0);
-    assign scratch_axi_wstrb = ((cpu_128b_w_to_scratch && cpu_128b_wvalid) ? cpu_128b_w.strb : '0) |
-        ((gpu_128b_w_to_scratch && gpu_128b_wvalid) ? gpu_128b_w.strb : '0) |
-        ((dma_128b_w_to_scratch && dma_128b_wvalid) ? dma_128b_w.strb : '0) |
-        ((host_axil_128b_w_to_scratch && host_axil_128b_wvalid) ? host_axil_128b_w.strb : '0);
-    assign scratch_axi_wlast = ((cpu_128b_w_to_scratch && cpu_128b_wvalid) ? cpu_128b_w.last : '0) |
-        ((gpu_128b_w_to_scratch && gpu_128b_wvalid) ? gpu_128b_w.last : '0) |
-        ((dma_128b_w_to_scratch && dma_128b_wvalid) ? dma_128b_w.last : '0) |
-        ((host_axil_128b_w_to_scratch && host_axil_128b_wvalid) ? host_axil_128b_w.last : '0);
-    assign scratch_axi_wvalid = ((cpu_128b_w_to_scratch && cpu_128b_wvalid) ? cpu_128b_wvalid : '0) |
-        ((gpu_128b_w_to_scratch && gpu_128b_wvalid) ? gpu_128b_wvalid : '0) |
-        ((dma_128b_w_to_scratch && dma_128b_wvalid) ? dma_128b_wvalid : '0) |
-        ((host_axil_128b_w_to_scratch && host_axil_128b_wvalid) ? host_axil_128b_wvalid : '0);
+    // W channel (owner-gated mux across writing masters)
+    assign scratch_axi_wdata = ((cpu_128b_w_sel_scratch && cpu_128b_wvalid) ? cpu_128b_w.data : '0) |
+        ((gpu_128b_w_sel_scratch && gpu_128b_wvalid) ? gpu_128b_w.data : '0) |
+        ((dma_128b_w_sel_scratch && dma_128b_wvalid) ? dma_128b_w.data : '0) |
+        ((host_axil_128b_w_sel_scratch && host_axil_128b_wvalid) ? host_axil_128b_w.data : '0);
+    assign scratch_axi_wstrb = ((cpu_128b_w_sel_scratch && cpu_128b_wvalid) ? cpu_128b_w.strb : '0) |
+        ((gpu_128b_w_sel_scratch && gpu_128b_wvalid) ? gpu_128b_w.strb : '0) |
+        ((dma_128b_w_sel_scratch && dma_128b_wvalid) ? dma_128b_w.strb : '0) |
+        ((host_axil_128b_w_sel_scratch && host_axil_128b_wvalid) ? host_axil_128b_w.strb : '0);
+    assign scratch_axi_wlast = ((cpu_128b_w_sel_scratch && cpu_128b_wvalid) ? cpu_128b_w.last : '0) |
+        ((gpu_128b_w_sel_scratch && gpu_128b_wvalid) ? gpu_128b_w.last : '0) |
+        ((dma_128b_w_sel_scratch && dma_128b_wvalid) ? dma_128b_w.last : '0) |
+        ((host_axil_128b_w_sel_scratch && host_axil_128b_wvalid) ? host_axil_128b_w.last : '0);
+    assign scratch_axi_wvalid = (cpu_128b_w_sel_scratch && cpu_128b_wvalid) || (gpu_128b_w_sel_scratch && gpu_128b_wvalid) || (dma_128b_w_sel_scratch && dma_128b_wvalid) || (host_axil_128b_w_sel_scratch && host_axil_128b_wvalid);
 
     // Bready (slave → owning master, by bid_bridge_id)
     assign scratch_axi_bready = ((scratch_axi_bid_bridge_id == 0) && scratch_axi_bid_valid ? cpu_128b_bready : '0) |
@@ -1017,49 +982,77 @@ module bridge_e_grand_mix_5x5_xbar
         ((scratch_axi_bid_bridge_id == 2) && scratch_axi_bid_valid ? dma_128b_bready : '0) |
         ((scratch_axi_bid_bridge_id == 3) && scratch_axi_bid_valid ? host_axil_128b_bready : '0);
 
-    // Bridge ID (writes) — picks the originating master's id
-    assign scratch_axi_bridge_id_aw = ((cpu_128b_aw_to_scratch && cpu_128b_awvalid) ? cpu_bridge_id_aw : '0) |
-        ((gpu_128b_aw_to_scratch && gpu_128b_awvalid) ? gpu_bridge_id_aw : '0) |
-        ((dma_128b_aw_to_scratch && dma_128b_awvalid) ? dma_bridge_id_aw : '0) |
-        ((host_axil_128b_aw_to_scratch && host_axil_128b_awvalid) ? host_axil_bridge_id_aw : '0);
+    // Bridge ID (writes) — the granted master's id
+    assign scratch_axi_bridge_id_aw = (cpu_128b_aw_gnt_scratch ? cpu_bridge_id_aw : '0) |
+        (gpu_128b_aw_gnt_scratch ? gpu_bridge_id_aw : '0) |
+        (dma_128b_aw_gnt_scratch ? dma_bridge_id_aw : '0) |
+        (host_axil_128b_aw_gnt_scratch ? host_axil_bridge_id_aw : '0);
 
-    // AR channel (OR-merged across reading masters)
-    assign scratch_axi_arid = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_ar.id : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_ar.id : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_ar.id : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_ar.id : '0);
-    assign scratch_axi_araddr = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_ar.addr : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_ar.addr : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_ar.addr : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_ar.addr : '0);
-    assign scratch_axi_arlen = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_ar.len : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_ar.len : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_ar.len : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_ar.len : '0);
-    assign scratch_axi_arsize = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_ar.size : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_ar.size : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_ar.size : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_ar.size : '0);
-    assign scratch_axi_arburst = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_ar.burst : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_ar.burst : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_ar.burst : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_ar.burst : '0);
-    assign scratch_axi_arlock = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_ar.lock : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_ar.lock : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_ar.lock : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_ar.lock : '0);
-    assign scratch_axi_arcache = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_ar.cache : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_ar.cache : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_ar.cache : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_ar.cache : '0);
-    assign scratch_axi_arprot = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_ar.prot : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_ar.prot : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_ar.prot : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_ar.prot : '0);
-    assign scratch_axi_arvalid = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_128b_arvalid : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_128b_arvalid : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_128b_arvalid : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_128b_arvalid : '0);
+    // ---- AR arbiter for scratch: round-robin, lock until handshake ----
+    logic [3:0] scratch_ar_arb_req;
+    assign scratch_ar_arb_req = {host_axil_128b_ar_to_scratch && host_axil_128b_arvalid, dma_128b_ar_to_scratch && dma_128b_arvalid, gpu_128b_ar_to_scratch && gpu_128b_arvalid, cpu_128b_ar_to_scratch && cpu_128b_arvalid};
+    logic [1:0] scratch_ar_arb_lock, scratch_ar_arb_rr;
+    logic scratch_ar_arb_locked;
+    wire [1:0] scratch_ar_arb_pick = (scratch_ar_arb_rr == 2'd0) ? (scratch_ar_arb_req[0] ? 2'd0 : scratch_ar_arb_req[1] ? 2'd1 : scratch_ar_arb_req[2] ? 2'd2 : 2'd3) : 
+        (scratch_ar_arb_rr == 2'd1) ? (scratch_ar_arb_req[1] ? 2'd1 : scratch_ar_arb_req[2] ? 2'd2 : scratch_ar_arb_req[3] ? 2'd3 : 2'd0) : 
+        (scratch_ar_arb_rr == 2'd2) ? (scratch_ar_arb_req[2] ? 2'd2 : scratch_ar_arb_req[3] ? 2'd3 : scratch_ar_arb_req[0] ? 2'd0 : 2'd1) : 
+        scratch_ar_arb_req[3] ? 2'd3 : scratch_ar_arb_req[0] ? 2'd0 : scratch_ar_arb_req[1] ? 2'd1 : 2'd2;
+    wire scratch_ar_arb_gnt_valid = scratch_ar_arb_locked || (|scratch_ar_arb_req);
+    wire [1:0] scratch_ar_arb_gnt = scratch_ar_arb_locked ? scratch_ar_arb_lock : scratch_ar_arb_pick;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            scratch_ar_arb_lock   <= '0;
+            scratch_ar_arb_rr     <= '0;
+            scratch_ar_arb_locked <= 1'b0;
+        end else begin
+            if (scratch_axi_arvalid && scratch_axi_arready) begin
+                scratch_ar_arb_locked <= 1'b0;
+                scratch_ar_arb_rr <= (scratch_ar_arb_gnt == 2'd3) ? 2'd0 : scratch_ar_arb_gnt + 1'b1;
+            end else if (scratch_axi_arvalid) begin
+                scratch_ar_arb_lock   <= scratch_ar_arb_gnt;
+                scratch_ar_arb_locked <= 1'b1;
+            end
+        end
+    end
+    wire cpu_128b_ar_gnt_scratch = scratch_ar_arb_gnt_valid && (scratch_ar_arb_gnt == 2'd0) && scratch_ar_arb_req[0];
+    wire gpu_128b_ar_gnt_scratch = scratch_ar_arb_gnt_valid && (scratch_ar_arb_gnt == 2'd1) && scratch_ar_arb_req[1];
+    wire dma_128b_ar_gnt_scratch = scratch_ar_arb_gnt_valid && (scratch_ar_arb_gnt == 2'd2) && scratch_ar_arb_req[2];
+    wire host_axil_128b_ar_gnt_scratch = scratch_ar_arb_gnt_valid && (scratch_ar_arb_gnt == 2'd3) && scratch_ar_arb_req[3];
+
+    // AR channel (arbitrated mux across reading masters)
+    assign scratch_axi_arid = (cpu_128b_ar_gnt_scratch ? cpu_128b_ar.id : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_128b_ar.id : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_128b_ar.id : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_128b_ar.id : '0);
+    assign scratch_axi_araddr = (cpu_128b_ar_gnt_scratch ? cpu_128b_ar.addr : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_128b_ar.addr : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_128b_ar.addr : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_128b_ar.addr : '0);
+    assign scratch_axi_arlen = (cpu_128b_ar_gnt_scratch ? cpu_128b_ar.len : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_128b_ar.len : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_128b_ar.len : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_128b_ar.len : '0);
+    assign scratch_axi_arsize = (cpu_128b_ar_gnt_scratch ? cpu_128b_ar.size : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_128b_ar.size : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_128b_ar.size : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_128b_ar.size : '0);
+    assign scratch_axi_arburst = (cpu_128b_ar_gnt_scratch ? cpu_128b_ar.burst : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_128b_ar.burst : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_128b_ar.burst : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_128b_ar.burst : '0);
+    assign scratch_axi_arlock = (cpu_128b_ar_gnt_scratch ? cpu_128b_ar.lock : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_128b_ar.lock : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_128b_ar.lock : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_128b_ar.lock : '0);
+    assign scratch_axi_arcache = (cpu_128b_ar_gnt_scratch ? cpu_128b_ar.cache : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_128b_ar.cache : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_128b_ar.cache : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_128b_ar.cache : '0);
+    assign scratch_axi_arprot = (cpu_128b_ar_gnt_scratch ? cpu_128b_ar.prot : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_128b_ar.prot : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_128b_ar.prot : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_128b_ar.prot : '0);
+    assign scratch_axi_arvalid = cpu_128b_ar_gnt_scratch || gpu_128b_ar_gnt_scratch || dma_128b_ar_gnt_scratch || host_axil_128b_ar_gnt_scratch;
 
     // Rready (slave → owning master, by rid_bridge_id)
     assign scratch_axi_rready = ((scratch_axi_rid_bridge_id == 0) && scratch_axi_rid_valid ? cpu_128b_rready : '0) |
@@ -1067,11 +1060,11 @@ module bridge_e_grand_mix_5x5_xbar
         ((scratch_axi_rid_bridge_id == 2) && scratch_axi_rid_valid ? dma_128b_rready : '0) |
         ((scratch_axi_rid_bridge_id == 3) && scratch_axi_rid_valid ? host_axil_128b_rready : '0);
 
-    // Bridge ID (reads) — picks the originating master's id
-    assign scratch_axi_bridge_id_ar = ((cpu_128b_ar_to_scratch && cpu_128b_arvalid) ? cpu_bridge_id_ar : '0) |
-        ((gpu_128b_ar_to_scratch && gpu_128b_arvalid) ? gpu_bridge_id_ar : '0) |
-        ((dma_128b_ar_to_scratch && dma_128b_arvalid) ? dma_bridge_id_ar : '0) |
-        ((host_axil_128b_ar_to_scratch && host_axil_128b_arvalid) ? host_axil_bridge_id_ar : '0);
+    // Bridge ID (reads) — the granted master's id
+    assign scratch_axi_bridge_id_ar = (cpu_128b_ar_gnt_scratch ? cpu_bridge_id_ar : '0) |
+        (gpu_128b_ar_gnt_scratch ? gpu_bridge_id_ar : '0) |
+        (dma_128b_ar_gnt_scratch ? dma_bridge_id_ar : '0) |
+        (host_axil_128b_ar_gnt_scratch ? host_axil_bridge_id_ar : '0);
 
 
     // ================================================================
@@ -1092,153 +1085,110 @@ module bridge_e_grand_mix_5x5_xbar
     wire debug_axil_32b_aw_to_axil_periph0 = ((debug_axil_32b_aw.addr >= 32'h90000000) && (debug_axil_32b_aw.addr <= 32'h9000ffff));
     wire debug_axil_32b_ar_to_axil_periph0 = ((debug_axil_32b_ar.addr >= 32'h90000000) && (debug_axil_32b_ar.addr <= 32'h9000ffff));
 
-    // AW channel (OR-merged across writing masters)
-    assign axil_periph0_axi_awid = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.id : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_aw.id : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.id : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.id : '0);
-    assign axil_periph0_axi_awaddr = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.addr : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_aw.addr : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.addr : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.addr : '0);
-    assign axil_periph0_axi_awlen = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.len : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_aw.len : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.len : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.len : '0);
-    assign axil_periph0_axi_awsize = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.size : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_aw.size : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.size : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.size : '0);
-    assign axil_periph0_axi_awburst = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.burst : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_aw.burst : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.burst : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.burst : '0);
-    assign axil_periph0_axi_awlock = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.lock : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_aw.lock : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.lock : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.lock : '0);
-    assign axil_periph0_axi_awcache = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.cache : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_aw.cache : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.cache : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.cache : '0);
-    assign axil_periph0_axi_awprot = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.prot : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_aw.prot : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.prot : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.prot : '0);
-    assign axil_periph0_axi_awvalid = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_32b_awvalid : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_32b_awvalid : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_32b_awvalid : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_awvalid : '0);
-
-    // AW->W tracking FIFO: cpu -> axil_periph0
-    logic cpu_32b_w_to_axil_periph0;
-    logic [3:0] cpu_32b_aw_to_axil_periph0_w_wptr, cpu_32b_aw_to_axil_periph0_w_rptr;
-    logic cpu_32b_aw_to_axil_periph0_w_mem [16];
-    logic cpu_32b_aw_to_axil_periph0_w_push, cpu_32b_aw_to_axil_periph0_w_pop;
-    assign cpu_32b_aw_to_axil_periph0_w_push = cpu_32b_awvalid && cpu_32b_awready && cpu_32b_aw_to_axil_periph0;
-    assign cpu_32b_aw_to_axil_periph0_w_pop  = cpu_32b_wvalid && cpu_32b_wready && cpu_32b_w.last && cpu_32b_w_to_axil_periph0;
+    // ---- AW arbiter for axil_periph0: round-robin, lock until handshake ----
+    logic [3:0] axil_periph0_aw_arb_req;
+    assign axil_periph0_aw_arb_req = {debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid, host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid, dma_32b_aw_to_axil_periph0 && dma_32b_awvalid, cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid};
+    logic [1:0] axil_periph0_aw_arb_lock, axil_periph0_aw_arb_rr;
+    logic axil_periph0_aw_arb_locked;
+    wire [1:0] axil_periph0_aw_arb_pick = (axil_periph0_aw_arb_rr == 2'd0) ? (axil_periph0_aw_arb_req[0] ? 2'd0 : axil_periph0_aw_arb_req[1] ? 2'd1 : axil_periph0_aw_arb_req[2] ? 2'd2 : 2'd3) : 
+        (axil_periph0_aw_arb_rr == 2'd1) ? (axil_periph0_aw_arb_req[1] ? 2'd1 : axil_periph0_aw_arb_req[2] ? 2'd2 : axil_periph0_aw_arb_req[3] ? 2'd3 : 2'd0) : 
+        (axil_periph0_aw_arb_rr == 2'd2) ? (axil_periph0_aw_arb_req[2] ? 2'd2 : axil_periph0_aw_arb_req[3] ? 2'd3 : axil_periph0_aw_arb_req[0] ? 2'd0 : 2'd1) : 
+        axil_periph0_aw_arb_req[3] ? 2'd3 : axil_periph0_aw_arb_req[0] ? 2'd0 : axil_periph0_aw_arb_req[1] ? 2'd1 : 2'd2;
+    wire axil_periph0_aw_arb_gnt_valid = axil_periph0_aw_arb_locked || (|axil_periph0_aw_arb_req);
+    wire [1:0] axil_periph0_aw_arb_gnt = axil_periph0_aw_arb_locked ? axil_periph0_aw_arb_lock : axil_periph0_aw_arb_pick;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            cpu_32b_aw_to_axil_periph0_w_wptr <= '0;
-            cpu_32b_aw_to_axil_periph0_w_rptr <= '0;
+            axil_periph0_aw_arb_lock   <= '0;
+            axil_periph0_aw_arb_rr     <= '0;
+            axil_periph0_aw_arb_locked <= 1'b0;
         end else begin
-            if (cpu_32b_aw_to_axil_periph0_w_push) begin
-                cpu_32b_aw_to_axil_periph0_w_mem[cpu_32b_aw_to_axil_periph0_w_wptr] <= 1'b1;
-                cpu_32b_aw_to_axil_periph0_w_wptr <= cpu_32b_aw_to_axil_periph0_w_wptr + 1'b1;
-            end
-            if (cpu_32b_aw_to_axil_periph0_w_pop) begin
-                cpu_32b_aw_to_axil_periph0_w_rptr <= cpu_32b_aw_to_axil_periph0_w_rptr + 1'b1;
+            if (axil_periph0_axi_awvalid && axil_periph0_axi_awready) begin
+                axil_periph0_aw_arb_locked <= 1'b0;
+                axil_periph0_aw_arb_rr <= (axil_periph0_aw_arb_gnt == 2'd3) ? 2'd0 : axil_periph0_aw_arb_gnt + 1'b1;
+            end else if (axil_periph0_axi_awvalid) begin
+                axil_periph0_aw_arb_lock   <= axil_periph0_aw_arb_gnt;
+                axil_periph0_aw_arb_locked <= 1'b1;
             end
         end
     end
-    assign cpu_32b_w_to_axil_periph0 = (cpu_32b_aw_to_axil_periph0_w_wptr != cpu_32b_aw_to_axil_periph0_w_rptr) ? cpu_32b_aw_to_axil_periph0_w_mem[cpu_32b_aw_to_axil_periph0_w_rptr] : 1'b0;
+    wire cpu_32b_aw_gnt_axil_periph0 = axil_periph0_aw_arb_gnt_valid && (axil_periph0_aw_arb_gnt == 2'd0) && axil_periph0_aw_arb_req[0];
+    wire dma_32b_aw_gnt_axil_periph0 = axil_periph0_aw_arb_gnt_valid && (axil_periph0_aw_arb_gnt == 2'd1) && axil_periph0_aw_arb_req[1];
+    wire host_axil_32b_aw_gnt_axil_periph0 = axil_periph0_aw_arb_gnt_valid && (axil_periph0_aw_arb_gnt == 2'd2) && axil_periph0_aw_arb_req[2];
+    wire debug_axil_32b_aw_gnt_axil_periph0 = axil_periph0_aw_arb_gnt_valid && (axil_periph0_aw_arb_gnt == 2'd3) && axil_periph0_aw_arb_req[3];
 
-    // AW->W tracking FIFO: dma -> axil_periph0
-    logic dma_32b_w_to_axil_periph0;
-    logic [3:0] dma_32b_aw_to_axil_periph0_w_wptr, dma_32b_aw_to_axil_periph0_w_rptr;
-    logic dma_32b_aw_to_axil_periph0_w_mem [16];
-    logic dma_32b_aw_to_axil_periph0_w_push, dma_32b_aw_to_axil_periph0_w_pop;
-    assign dma_32b_aw_to_axil_periph0_w_push = dma_32b_awvalid && dma_32b_awready && dma_32b_aw_to_axil_periph0;
-    assign dma_32b_aw_to_axil_periph0_w_pop  = dma_32b_wvalid && dma_32b_wready && dma_32b_w.last && dma_32b_w_to_axil_periph0;
+    // AW channel (arbitrated mux across writing masters)
+    assign axil_periph0_axi_awid = (cpu_32b_aw_gnt_axil_periph0 ? cpu_32b_aw.id : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_32b_aw.id : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_32b_aw.id : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_32b_aw.id : '0);
+    assign axil_periph0_axi_awaddr = (cpu_32b_aw_gnt_axil_periph0 ? cpu_32b_aw.addr : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_32b_aw.addr : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_32b_aw.addr : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_32b_aw.addr : '0);
+    assign axil_periph0_axi_awlen = (cpu_32b_aw_gnt_axil_periph0 ? cpu_32b_aw.len : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_32b_aw.len : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_32b_aw.len : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_32b_aw.len : '0);
+    assign axil_periph0_axi_awsize = (cpu_32b_aw_gnt_axil_periph0 ? cpu_32b_aw.size : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_32b_aw.size : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_32b_aw.size : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_32b_aw.size : '0);
+    assign axil_periph0_axi_awburst = (cpu_32b_aw_gnt_axil_periph0 ? cpu_32b_aw.burst : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_32b_aw.burst : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_32b_aw.burst : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_32b_aw.burst : '0);
+    assign axil_periph0_axi_awlock = (cpu_32b_aw_gnt_axil_periph0 ? cpu_32b_aw.lock : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_32b_aw.lock : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_32b_aw.lock : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_32b_aw.lock : '0);
+    assign axil_periph0_axi_awcache = (cpu_32b_aw_gnt_axil_periph0 ? cpu_32b_aw.cache : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_32b_aw.cache : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_32b_aw.cache : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_32b_aw.cache : '0);
+    assign axil_periph0_axi_awprot = (cpu_32b_aw_gnt_axil_periph0 ? cpu_32b_aw.prot : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_32b_aw.prot : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_32b_aw.prot : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_32b_aw.prot : '0);
+    assign axil_periph0_axi_awvalid = cpu_32b_aw_gnt_axil_periph0 || dma_32b_aw_gnt_axil_periph0 || host_axil_32b_aw_gnt_axil_periph0 || debug_axil_32b_aw_gnt_axil_periph0;
+
+    // W owner FIFO: slave-side AW accept order owns the W channel
+    logic [1:0] axil_periph0_wowner_mem [16];
+    logic [4:0] axil_periph0_wowner_wptr, axil_periph0_wowner_rptr;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            dma_32b_aw_to_axil_periph0_w_wptr <= '0;
-            dma_32b_aw_to_axil_periph0_w_rptr <= '0;
+            axil_periph0_wowner_wptr <= '0;
+            axil_periph0_wowner_rptr <= '0;
         end else begin
-            if (dma_32b_aw_to_axil_periph0_w_push) begin
-                dma_32b_aw_to_axil_periph0_w_mem[dma_32b_aw_to_axil_periph0_w_wptr] <= 1'b1;
-                dma_32b_aw_to_axil_periph0_w_wptr <= dma_32b_aw_to_axil_periph0_w_wptr + 1'b1;
+            if (axil_periph0_axi_awvalid && axil_periph0_axi_awready) begin
+                axil_periph0_wowner_mem[axil_periph0_wowner_wptr[3:0]] <= axil_periph0_aw_arb_gnt;
+                axil_periph0_wowner_wptr <= axil_periph0_wowner_wptr + 1'b1;
             end
-            if (dma_32b_aw_to_axil_periph0_w_pop) begin
-                dma_32b_aw_to_axil_periph0_w_rptr <= dma_32b_aw_to_axil_periph0_w_rptr + 1'b1;
+            if (axil_periph0_axi_wvalid && axil_periph0_axi_wready && axil_periph0_axi_wlast) begin
+                axil_periph0_wowner_rptr <= axil_periph0_wowner_rptr + 1'b1;
             end
         end
     end
-    assign dma_32b_w_to_axil_periph0 = (dma_32b_aw_to_axil_periph0_w_wptr != dma_32b_aw_to_axil_periph0_w_rptr) ? dma_32b_aw_to_axil_periph0_w_mem[dma_32b_aw_to_axil_periph0_w_rptr] : 1'b0;
+    wire axil_periph0_wowner_valid = (axil_periph0_wowner_wptr != axil_periph0_wowner_rptr);
+    wire [1:0] axil_periph0_wowner_head = axil_periph0_wowner_mem[axil_periph0_wowner_rptr[3:0]];
+    assign cpu_32b_w_sel_axil_periph0 = axil_periph0_wowner_valid && (axil_periph0_wowner_head == 2'd0) && cpu_32b_w_to_axil_periph0;
+    assign dma_32b_w_sel_axil_periph0 = axil_periph0_wowner_valid && (axil_periph0_wowner_head == 2'd1) && dma_32b_w_to_axil_periph0;
+    assign host_axil_32b_w_sel_axil_periph0 = axil_periph0_wowner_valid && (axil_periph0_wowner_head == 2'd2) && host_axil_32b_w_to_axil_periph0;
+    assign debug_axil_32b_w_sel_axil_periph0 = axil_periph0_wowner_valid && (axil_periph0_wowner_head == 2'd3) && debug_axil_32b_w_to_axil_periph0;
 
-    // AW->W tracking FIFO: host_axil -> axil_periph0
-    logic host_axil_32b_w_to_axil_periph0;
-    logic [3:0] host_axil_32b_aw_to_axil_periph0_w_wptr, host_axil_32b_aw_to_axil_periph0_w_rptr;
-    logic host_axil_32b_aw_to_axil_periph0_w_mem [16];
-    logic host_axil_32b_aw_to_axil_periph0_w_push, host_axil_32b_aw_to_axil_periph0_w_pop;
-    assign host_axil_32b_aw_to_axil_periph0_w_push = host_axil_32b_awvalid && host_axil_32b_awready && host_axil_32b_aw_to_axil_periph0;
-    assign host_axil_32b_aw_to_axil_periph0_w_pop  = host_axil_32b_wvalid && host_axil_32b_wready && host_axil_32b_w.last && host_axil_32b_w_to_axil_periph0;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            host_axil_32b_aw_to_axil_periph0_w_wptr <= '0;
-            host_axil_32b_aw_to_axil_periph0_w_rptr <= '0;
-        end else begin
-            if (host_axil_32b_aw_to_axil_periph0_w_push) begin
-                host_axil_32b_aw_to_axil_periph0_w_mem[host_axil_32b_aw_to_axil_periph0_w_wptr] <= 1'b1;
-                host_axil_32b_aw_to_axil_periph0_w_wptr <= host_axil_32b_aw_to_axil_periph0_w_wptr + 1'b1;
-            end
-            if (host_axil_32b_aw_to_axil_periph0_w_pop) begin
-                host_axil_32b_aw_to_axil_periph0_w_rptr <= host_axil_32b_aw_to_axil_periph0_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign host_axil_32b_w_to_axil_periph0 = (host_axil_32b_aw_to_axil_periph0_w_wptr != host_axil_32b_aw_to_axil_periph0_w_rptr) ? host_axil_32b_aw_to_axil_periph0_w_mem[host_axil_32b_aw_to_axil_periph0_w_rptr] : 1'b0;
-
-    // AW->W tracking FIFO: debug_axil -> axil_periph0
-    logic debug_axil_32b_w_to_axil_periph0;
-    logic [3:0] debug_axil_32b_aw_to_axil_periph0_w_wptr, debug_axil_32b_aw_to_axil_periph0_w_rptr;
-    logic debug_axil_32b_aw_to_axil_periph0_w_mem [16];
-    logic debug_axil_32b_aw_to_axil_periph0_w_push, debug_axil_32b_aw_to_axil_periph0_w_pop;
-    assign debug_axil_32b_aw_to_axil_periph0_w_push = debug_axil_32b_awvalid && debug_axil_32b_awready && debug_axil_32b_aw_to_axil_periph0;
-    assign debug_axil_32b_aw_to_axil_periph0_w_pop  = debug_axil_32b_wvalid && debug_axil_32b_wready && debug_axil_32b_w.last && debug_axil_32b_w_to_axil_periph0;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            debug_axil_32b_aw_to_axil_periph0_w_wptr <= '0;
-            debug_axil_32b_aw_to_axil_periph0_w_rptr <= '0;
-        end else begin
-            if (debug_axil_32b_aw_to_axil_periph0_w_push) begin
-                debug_axil_32b_aw_to_axil_periph0_w_mem[debug_axil_32b_aw_to_axil_periph0_w_wptr] <= 1'b1;
-                debug_axil_32b_aw_to_axil_periph0_w_wptr <= debug_axil_32b_aw_to_axil_periph0_w_wptr + 1'b1;
-            end
-            if (debug_axil_32b_aw_to_axil_periph0_w_pop) begin
-                debug_axil_32b_aw_to_axil_periph0_w_rptr <= debug_axil_32b_aw_to_axil_periph0_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign debug_axil_32b_w_to_axil_periph0 = (debug_axil_32b_aw_to_axil_periph0_w_wptr != debug_axil_32b_aw_to_axil_periph0_w_rptr) ? debug_axil_32b_aw_to_axil_periph0_w_mem[debug_axil_32b_aw_to_axil_periph0_w_rptr] : 1'b0;
-
-    // W channel (OR-merged across writing masters, gated by w_to_<slave> FIFO)
-    assign axil_periph0_axi_wdata = ((cpu_32b_w_to_axil_periph0 && cpu_32b_wvalid) ? cpu_32b_w.data : '0) |
-        ((dma_32b_w_to_axil_periph0 && dma_32b_wvalid) ? dma_32b_w.data : '0) |
-        ((host_axil_32b_w_to_axil_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.data : '0) |
-        ((debug_axil_32b_w_to_axil_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.data : '0);
-    assign axil_periph0_axi_wstrb = ((cpu_32b_w_to_axil_periph0 && cpu_32b_wvalid) ? cpu_32b_w.strb : '0) |
-        ((dma_32b_w_to_axil_periph0 && dma_32b_wvalid) ? dma_32b_w.strb : '0) |
-        ((host_axil_32b_w_to_axil_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.strb : '0) |
-        ((debug_axil_32b_w_to_axil_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.strb : '0);
-    assign axil_periph0_axi_wlast = ((cpu_32b_w_to_axil_periph0 && cpu_32b_wvalid) ? cpu_32b_w.last : '0) |
-        ((dma_32b_w_to_axil_periph0 && dma_32b_wvalid) ? dma_32b_w.last : '0) |
-        ((host_axil_32b_w_to_axil_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.last : '0) |
-        ((debug_axil_32b_w_to_axil_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.last : '0);
-    assign axil_periph0_axi_wvalid = ((cpu_32b_w_to_axil_periph0 && cpu_32b_wvalid) ? cpu_32b_wvalid : '0) |
-        ((dma_32b_w_to_axil_periph0 && dma_32b_wvalid) ? dma_32b_wvalid : '0) |
-        ((host_axil_32b_w_to_axil_periph0 && host_axil_32b_wvalid) ? host_axil_32b_wvalid : '0) |
-        ((debug_axil_32b_w_to_axil_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_wvalid : '0);
+    // W channel (owner-gated mux across writing masters)
+    assign axil_periph0_axi_wdata = ((cpu_32b_w_sel_axil_periph0 && cpu_32b_wvalid) ? cpu_32b_w.data : '0) |
+        ((dma_32b_w_sel_axil_periph0 && dma_32b_wvalid) ? dma_32b_w.data : '0) |
+        ((host_axil_32b_w_sel_axil_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.data : '0) |
+        ((debug_axil_32b_w_sel_axil_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.data : '0);
+    assign axil_periph0_axi_wstrb = ((cpu_32b_w_sel_axil_periph0 && cpu_32b_wvalid) ? cpu_32b_w.strb : '0) |
+        ((dma_32b_w_sel_axil_periph0 && dma_32b_wvalid) ? dma_32b_w.strb : '0) |
+        ((host_axil_32b_w_sel_axil_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.strb : '0) |
+        ((debug_axil_32b_w_sel_axil_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.strb : '0);
+    assign axil_periph0_axi_wlast = ((cpu_32b_w_sel_axil_periph0 && cpu_32b_wvalid) ? cpu_32b_w.last : '0) |
+        ((dma_32b_w_sel_axil_periph0 && dma_32b_wvalid) ? dma_32b_w.last : '0) |
+        ((host_axil_32b_w_sel_axil_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.last : '0) |
+        ((debug_axil_32b_w_sel_axil_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.last : '0);
+    assign axil_periph0_axi_wvalid = (cpu_32b_w_sel_axil_periph0 && cpu_32b_wvalid) || (dma_32b_w_sel_axil_periph0 && dma_32b_wvalid) || (host_axil_32b_w_sel_axil_periph0 && host_axil_32b_wvalid) || (debug_axil_32b_w_sel_axil_periph0 && debug_axil_32b_wvalid);
 
     // Bready (slave → owning master, by bid_bridge_id)
     assign axil_periph0_axi_bready = ((axil_periph0_axi_bid_bridge_id == 0) && axil_periph0_axi_bid_valid ? cpu_32b_bready : '0) |
@@ -1246,49 +1196,77 @@ module bridge_e_grand_mix_5x5_xbar
         ((axil_periph0_axi_bid_bridge_id == 3) && axil_periph0_axi_bid_valid ? host_axil_32b_bready : '0) |
         ((axil_periph0_axi_bid_bridge_id == 4) && axil_periph0_axi_bid_valid ? debug_axil_32b_bready : '0);
 
-    // Bridge ID (writes) — picks the originating master's id
-    assign axil_periph0_axi_bridge_id_aw = ((cpu_32b_aw_to_axil_periph0 && cpu_32b_awvalid) ? cpu_bridge_id_aw : '0) |
-        ((dma_32b_aw_to_axil_periph0 && dma_32b_awvalid) ? dma_bridge_id_aw : '0) |
-        ((host_axil_32b_aw_to_axil_periph0 && host_axil_32b_awvalid) ? host_axil_bridge_id_aw : '0) |
-        ((debug_axil_32b_aw_to_axil_periph0 && debug_axil_32b_awvalid) ? debug_axil_bridge_id_aw : '0);
+    // Bridge ID (writes) — the granted master's id
+    assign axil_periph0_axi_bridge_id_aw = (cpu_32b_aw_gnt_axil_periph0 ? cpu_bridge_id_aw : '0) |
+        (dma_32b_aw_gnt_axil_periph0 ? dma_bridge_id_aw : '0) |
+        (host_axil_32b_aw_gnt_axil_periph0 ? host_axil_bridge_id_aw : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph0 ? debug_axil_bridge_id_aw : '0);
 
-    // AR channel (OR-merged across reading masters)
-    assign axil_periph0_axi_arid = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.id : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_ar.id : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.id : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.id : '0);
-    assign axil_periph0_axi_araddr = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.addr : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_ar.addr : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.addr : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.addr : '0);
-    assign axil_periph0_axi_arlen = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.len : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_ar.len : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.len : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.len : '0);
-    assign axil_periph0_axi_arsize = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.size : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_ar.size : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.size : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.size : '0);
-    assign axil_periph0_axi_arburst = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.burst : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_ar.burst : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.burst : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.burst : '0);
-    assign axil_periph0_axi_arlock = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.lock : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_ar.lock : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.lock : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.lock : '0);
-    assign axil_periph0_axi_arcache = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.cache : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_ar.cache : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.cache : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.cache : '0);
-    assign axil_periph0_axi_arprot = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.prot : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_ar.prot : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.prot : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.prot : '0);
-    assign axil_periph0_axi_arvalid = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_32b_arvalid : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_32b_arvalid : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_32b_arvalid : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_arvalid : '0);
+    // ---- AR arbiter for axil_periph0: round-robin, lock until handshake ----
+    logic [3:0] axil_periph0_ar_arb_req;
+    assign axil_periph0_ar_arb_req = {debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid, host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid, dma_32b_ar_to_axil_periph0 && dma_32b_arvalid, cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid};
+    logic [1:0] axil_periph0_ar_arb_lock, axil_periph0_ar_arb_rr;
+    logic axil_periph0_ar_arb_locked;
+    wire [1:0] axil_periph0_ar_arb_pick = (axil_periph0_ar_arb_rr == 2'd0) ? (axil_periph0_ar_arb_req[0] ? 2'd0 : axil_periph0_ar_arb_req[1] ? 2'd1 : axil_periph0_ar_arb_req[2] ? 2'd2 : 2'd3) : 
+        (axil_periph0_ar_arb_rr == 2'd1) ? (axil_periph0_ar_arb_req[1] ? 2'd1 : axil_periph0_ar_arb_req[2] ? 2'd2 : axil_periph0_ar_arb_req[3] ? 2'd3 : 2'd0) : 
+        (axil_periph0_ar_arb_rr == 2'd2) ? (axil_periph0_ar_arb_req[2] ? 2'd2 : axil_periph0_ar_arb_req[3] ? 2'd3 : axil_periph0_ar_arb_req[0] ? 2'd0 : 2'd1) : 
+        axil_periph0_ar_arb_req[3] ? 2'd3 : axil_periph0_ar_arb_req[0] ? 2'd0 : axil_periph0_ar_arb_req[1] ? 2'd1 : 2'd2;
+    wire axil_periph0_ar_arb_gnt_valid = axil_periph0_ar_arb_locked || (|axil_periph0_ar_arb_req);
+    wire [1:0] axil_periph0_ar_arb_gnt = axil_periph0_ar_arb_locked ? axil_periph0_ar_arb_lock : axil_periph0_ar_arb_pick;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            axil_periph0_ar_arb_lock   <= '0;
+            axil_periph0_ar_arb_rr     <= '0;
+            axil_periph0_ar_arb_locked <= 1'b0;
+        end else begin
+            if (axil_periph0_axi_arvalid && axil_periph0_axi_arready) begin
+                axil_periph0_ar_arb_locked <= 1'b0;
+                axil_periph0_ar_arb_rr <= (axil_periph0_ar_arb_gnt == 2'd3) ? 2'd0 : axil_periph0_ar_arb_gnt + 1'b1;
+            end else if (axil_periph0_axi_arvalid) begin
+                axil_periph0_ar_arb_lock   <= axil_periph0_ar_arb_gnt;
+                axil_periph0_ar_arb_locked <= 1'b1;
+            end
+        end
+    end
+    wire cpu_32b_ar_gnt_axil_periph0 = axil_periph0_ar_arb_gnt_valid && (axil_periph0_ar_arb_gnt == 2'd0) && axil_periph0_ar_arb_req[0];
+    wire dma_32b_ar_gnt_axil_periph0 = axil_periph0_ar_arb_gnt_valid && (axil_periph0_ar_arb_gnt == 2'd1) && axil_periph0_ar_arb_req[1];
+    wire host_axil_32b_ar_gnt_axil_periph0 = axil_periph0_ar_arb_gnt_valid && (axil_periph0_ar_arb_gnt == 2'd2) && axil_periph0_ar_arb_req[2];
+    wire debug_axil_32b_ar_gnt_axil_periph0 = axil_periph0_ar_arb_gnt_valid && (axil_periph0_ar_arb_gnt == 2'd3) && axil_periph0_ar_arb_req[3];
+
+    // AR channel (arbitrated mux across reading masters)
+    assign axil_periph0_axi_arid = (cpu_32b_ar_gnt_axil_periph0 ? cpu_32b_ar.id : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_32b_ar.id : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_32b_ar.id : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_32b_ar.id : '0);
+    assign axil_periph0_axi_araddr = (cpu_32b_ar_gnt_axil_periph0 ? cpu_32b_ar.addr : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_32b_ar.addr : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_32b_ar.addr : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_32b_ar.addr : '0);
+    assign axil_periph0_axi_arlen = (cpu_32b_ar_gnt_axil_periph0 ? cpu_32b_ar.len : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_32b_ar.len : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_32b_ar.len : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_32b_ar.len : '0);
+    assign axil_periph0_axi_arsize = (cpu_32b_ar_gnt_axil_periph0 ? cpu_32b_ar.size : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_32b_ar.size : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_32b_ar.size : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_32b_ar.size : '0);
+    assign axil_periph0_axi_arburst = (cpu_32b_ar_gnt_axil_periph0 ? cpu_32b_ar.burst : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_32b_ar.burst : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_32b_ar.burst : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_32b_ar.burst : '0);
+    assign axil_periph0_axi_arlock = (cpu_32b_ar_gnt_axil_periph0 ? cpu_32b_ar.lock : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_32b_ar.lock : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_32b_ar.lock : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_32b_ar.lock : '0);
+    assign axil_periph0_axi_arcache = (cpu_32b_ar_gnt_axil_periph0 ? cpu_32b_ar.cache : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_32b_ar.cache : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_32b_ar.cache : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_32b_ar.cache : '0);
+    assign axil_periph0_axi_arprot = (cpu_32b_ar_gnt_axil_periph0 ? cpu_32b_ar.prot : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_32b_ar.prot : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_32b_ar.prot : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_32b_ar.prot : '0);
+    assign axil_periph0_axi_arvalid = cpu_32b_ar_gnt_axil_periph0 || dma_32b_ar_gnt_axil_periph0 || host_axil_32b_ar_gnt_axil_periph0 || debug_axil_32b_ar_gnt_axil_periph0;
 
     // Rready (slave → owning master, by rid_bridge_id)
     assign axil_periph0_axi_rready = ((axil_periph0_axi_rid_bridge_id == 0) && axil_periph0_axi_rid_valid ? cpu_32b_rready : '0) |
@@ -1296,11 +1274,11 @@ module bridge_e_grand_mix_5x5_xbar
         ((axil_periph0_axi_rid_bridge_id == 3) && axil_periph0_axi_rid_valid ? host_axil_32b_rready : '0) |
         ((axil_periph0_axi_rid_bridge_id == 4) && axil_periph0_axi_rid_valid ? debug_axil_32b_rready : '0);
 
-    // Bridge ID (reads) — picks the originating master's id
-    assign axil_periph0_axi_bridge_id_ar = ((cpu_32b_ar_to_axil_periph0 && cpu_32b_arvalid) ? cpu_bridge_id_ar : '0) |
-        ((dma_32b_ar_to_axil_periph0 && dma_32b_arvalid) ? dma_bridge_id_ar : '0) |
-        ((host_axil_32b_ar_to_axil_periph0 && host_axil_32b_arvalid) ? host_axil_bridge_id_ar : '0) |
-        ((debug_axil_32b_ar_to_axil_periph0 && debug_axil_32b_arvalid) ? debug_axil_bridge_id_ar : '0);
+    // Bridge ID (reads) — the granted master's id
+    assign axil_periph0_axi_bridge_id_ar = (cpu_32b_ar_gnt_axil_periph0 ? cpu_bridge_id_ar : '0) |
+        (dma_32b_ar_gnt_axil_periph0 ? dma_bridge_id_ar : '0) |
+        (host_axil_32b_ar_gnt_axil_periph0 ? host_axil_bridge_id_ar : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph0 ? debug_axil_bridge_id_ar : '0);
 
 
     // ================================================================
@@ -1321,153 +1299,110 @@ module bridge_e_grand_mix_5x5_xbar
     wire debug_axil_32b_aw_to_axil_periph1 = ((debug_axil_32b_aw.addr >= 32'h90010000) && (debug_axil_32b_aw.addr <= 32'h9001ffff));
     wire debug_axil_32b_ar_to_axil_periph1 = ((debug_axil_32b_ar.addr >= 32'h90010000) && (debug_axil_32b_ar.addr <= 32'h9001ffff));
 
-    // AW channel (OR-merged across writing masters)
-    assign axil_periph1_axi_awid = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_aw.id : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_aw.id : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_aw.id : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.id : '0);
-    assign axil_periph1_axi_awaddr = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_aw.addr : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_aw.addr : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_aw.addr : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.addr : '0);
-    assign axil_periph1_axi_awlen = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_aw.len : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_aw.len : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_aw.len : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.len : '0);
-    assign axil_periph1_axi_awsize = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_aw.size : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_aw.size : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_aw.size : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.size : '0);
-    assign axil_periph1_axi_awburst = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_aw.burst : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_aw.burst : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_aw.burst : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.burst : '0);
-    assign axil_periph1_axi_awlock = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_aw.lock : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_aw.lock : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_aw.lock : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.lock : '0);
-    assign axil_periph1_axi_awcache = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_aw.cache : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_aw.cache : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_aw.cache : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.cache : '0);
-    assign axil_periph1_axi_awprot = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_aw.prot : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_aw.prot : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_aw.prot : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.prot : '0);
-    assign axil_periph1_axi_awvalid = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_32b_awvalid : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_32b_awvalid : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_32b_awvalid : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_32b_awvalid : '0);
-
-    // AW->W tracking FIFO: cpu -> axil_periph1
-    logic cpu_32b_w_to_axil_periph1;
-    logic [3:0] cpu_32b_aw_to_axil_periph1_w_wptr, cpu_32b_aw_to_axil_periph1_w_rptr;
-    logic cpu_32b_aw_to_axil_periph1_w_mem [16];
-    logic cpu_32b_aw_to_axil_periph1_w_push, cpu_32b_aw_to_axil_periph1_w_pop;
-    assign cpu_32b_aw_to_axil_periph1_w_push = cpu_32b_awvalid && cpu_32b_awready && cpu_32b_aw_to_axil_periph1;
-    assign cpu_32b_aw_to_axil_periph1_w_pop  = cpu_32b_wvalid && cpu_32b_wready && cpu_32b_w.last && cpu_32b_w_to_axil_periph1;
+    // ---- AW arbiter for axil_periph1: round-robin, lock until handshake ----
+    logic [3:0] axil_periph1_aw_arb_req;
+    assign axil_periph1_aw_arb_req = {debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid, host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid, gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid, cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid};
+    logic [1:0] axil_periph1_aw_arb_lock, axil_periph1_aw_arb_rr;
+    logic axil_periph1_aw_arb_locked;
+    wire [1:0] axil_periph1_aw_arb_pick = (axil_periph1_aw_arb_rr == 2'd0) ? (axil_periph1_aw_arb_req[0] ? 2'd0 : axil_periph1_aw_arb_req[1] ? 2'd1 : axil_periph1_aw_arb_req[2] ? 2'd2 : 2'd3) : 
+        (axil_periph1_aw_arb_rr == 2'd1) ? (axil_periph1_aw_arb_req[1] ? 2'd1 : axil_periph1_aw_arb_req[2] ? 2'd2 : axil_periph1_aw_arb_req[3] ? 2'd3 : 2'd0) : 
+        (axil_periph1_aw_arb_rr == 2'd2) ? (axil_periph1_aw_arb_req[2] ? 2'd2 : axil_periph1_aw_arb_req[3] ? 2'd3 : axil_periph1_aw_arb_req[0] ? 2'd0 : 2'd1) : 
+        axil_periph1_aw_arb_req[3] ? 2'd3 : axil_periph1_aw_arb_req[0] ? 2'd0 : axil_periph1_aw_arb_req[1] ? 2'd1 : 2'd2;
+    wire axil_periph1_aw_arb_gnt_valid = axil_periph1_aw_arb_locked || (|axil_periph1_aw_arb_req);
+    wire [1:0] axil_periph1_aw_arb_gnt = axil_periph1_aw_arb_locked ? axil_periph1_aw_arb_lock : axil_periph1_aw_arb_pick;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            cpu_32b_aw_to_axil_periph1_w_wptr <= '0;
-            cpu_32b_aw_to_axil_periph1_w_rptr <= '0;
+            axil_periph1_aw_arb_lock   <= '0;
+            axil_periph1_aw_arb_rr     <= '0;
+            axil_periph1_aw_arb_locked <= 1'b0;
         end else begin
-            if (cpu_32b_aw_to_axil_periph1_w_push) begin
-                cpu_32b_aw_to_axil_periph1_w_mem[cpu_32b_aw_to_axil_periph1_w_wptr] <= 1'b1;
-                cpu_32b_aw_to_axil_periph1_w_wptr <= cpu_32b_aw_to_axil_periph1_w_wptr + 1'b1;
-            end
-            if (cpu_32b_aw_to_axil_periph1_w_pop) begin
-                cpu_32b_aw_to_axil_periph1_w_rptr <= cpu_32b_aw_to_axil_periph1_w_rptr + 1'b1;
+            if (axil_periph1_axi_awvalid && axil_periph1_axi_awready) begin
+                axil_periph1_aw_arb_locked <= 1'b0;
+                axil_periph1_aw_arb_rr <= (axil_periph1_aw_arb_gnt == 2'd3) ? 2'd0 : axil_periph1_aw_arb_gnt + 1'b1;
+            end else if (axil_periph1_axi_awvalid) begin
+                axil_periph1_aw_arb_lock   <= axil_periph1_aw_arb_gnt;
+                axil_periph1_aw_arb_locked <= 1'b1;
             end
         end
     end
-    assign cpu_32b_w_to_axil_periph1 = (cpu_32b_aw_to_axil_periph1_w_wptr != cpu_32b_aw_to_axil_periph1_w_rptr) ? cpu_32b_aw_to_axil_periph1_w_mem[cpu_32b_aw_to_axil_periph1_w_rptr] : 1'b0;
+    wire cpu_32b_aw_gnt_axil_periph1 = axil_periph1_aw_arb_gnt_valid && (axil_periph1_aw_arb_gnt == 2'd0) && axil_periph1_aw_arb_req[0];
+    wire gpu_32b_aw_gnt_axil_periph1 = axil_periph1_aw_arb_gnt_valid && (axil_periph1_aw_arb_gnt == 2'd1) && axil_periph1_aw_arb_req[1];
+    wire host_axil_32b_aw_gnt_axil_periph1 = axil_periph1_aw_arb_gnt_valid && (axil_periph1_aw_arb_gnt == 2'd2) && axil_periph1_aw_arb_req[2];
+    wire debug_axil_32b_aw_gnt_axil_periph1 = axil_periph1_aw_arb_gnt_valid && (axil_periph1_aw_arb_gnt == 2'd3) && axil_periph1_aw_arb_req[3];
 
-    // AW->W tracking FIFO: gpu -> axil_periph1
-    logic gpu_32b_w_to_axil_periph1;
-    logic [3:0] gpu_32b_aw_to_axil_periph1_w_wptr, gpu_32b_aw_to_axil_periph1_w_rptr;
-    logic gpu_32b_aw_to_axil_periph1_w_mem [16];
-    logic gpu_32b_aw_to_axil_periph1_w_push, gpu_32b_aw_to_axil_periph1_w_pop;
-    assign gpu_32b_aw_to_axil_periph1_w_push = gpu_32b_awvalid && gpu_32b_awready && gpu_32b_aw_to_axil_periph1;
-    assign gpu_32b_aw_to_axil_periph1_w_pop  = gpu_32b_wvalid && gpu_32b_wready && gpu_32b_w.last && gpu_32b_w_to_axil_periph1;
+    // AW channel (arbitrated mux across writing masters)
+    assign axil_periph1_axi_awid = (cpu_32b_aw_gnt_axil_periph1 ? cpu_32b_aw.id : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_32b_aw.id : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_32b_aw.id : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_32b_aw.id : '0);
+    assign axil_periph1_axi_awaddr = (cpu_32b_aw_gnt_axil_periph1 ? cpu_32b_aw.addr : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_32b_aw.addr : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_32b_aw.addr : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_32b_aw.addr : '0);
+    assign axil_periph1_axi_awlen = (cpu_32b_aw_gnt_axil_periph1 ? cpu_32b_aw.len : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_32b_aw.len : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_32b_aw.len : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_32b_aw.len : '0);
+    assign axil_periph1_axi_awsize = (cpu_32b_aw_gnt_axil_periph1 ? cpu_32b_aw.size : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_32b_aw.size : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_32b_aw.size : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_32b_aw.size : '0);
+    assign axil_periph1_axi_awburst = (cpu_32b_aw_gnt_axil_periph1 ? cpu_32b_aw.burst : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_32b_aw.burst : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_32b_aw.burst : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_32b_aw.burst : '0);
+    assign axil_periph1_axi_awlock = (cpu_32b_aw_gnt_axil_periph1 ? cpu_32b_aw.lock : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_32b_aw.lock : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_32b_aw.lock : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_32b_aw.lock : '0);
+    assign axil_periph1_axi_awcache = (cpu_32b_aw_gnt_axil_periph1 ? cpu_32b_aw.cache : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_32b_aw.cache : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_32b_aw.cache : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_32b_aw.cache : '0);
+    assign axil_periph1_axi_awprot = (cpu_32b_aw_gnt_axil_periph1 ? cpu_32b_aw.prot : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_32b_aw.prot : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_32b_aw.prot : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_32b_aw.prot : '0);
+    assign axil_periph1_axi_awvalid = cpu_32b_aw_gnt_axil_periph1 || gpu_32b_aw_gnt_axil_periph1 || host_axil_32b_aw_gnt_axil_periph1 || debug_axil_32b_aw_gnt_axil_periph1;
+
+    // W owner FIFO: slave-side AW accept order owns the W channel
+    logic [1:0] axil_periph1_wowner_mem [16];
+    logic [4:0] axil_periph1_wowner_wptr, axil_periph1_wowner_rptr;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            gpu_32b_aw_to_axil_periph1_w_wptr <= '0;
-            gpu_32b_aw_to_axil_periph1_w_rptr <= '0;
+            axil_periph1_wowner_wptr <= '0;
+            axil_periph1_wowner_rptr <= '0;
         end else begin
-            if (gpu_32b_aw_to_axil_periph1_w_push) begin
-                gpu_32b_aw_to_axil_periph1_w_mem[gpu_32b_aw_to_axil_periph1_w_wptr] <= 1'b1;
-                gpu_32b_aw_to_axil_periph1_w_wptr <= gpu_32b_aw_to_axil_periph1_w_wptr + 1'b1;
+            if (axil_periph1_axi_awvalid && axil_periph1_axi_awready) begin
+                axil_periph1_wowner_mem[axil_periph1_wowner_wptr[3:0]] <= axil_periph1_aw_arb_gnt;
+                axil_periph1_wowner_wptr <= axil_periph1_wowner_wptr + 1'b1;
             end
-            if (gpu_32b_aw_to_axil_periph1_w_pop) begin
-                gpu_32b_aw_to_axil_periph1_w_rptr <= gpu_32b_aw_to_axil_periph1_w_rptr + 1'b1;
+            if (axil_periph1_axi_wvalid && axil_periph1_axi_wready && axil_periph1_axi_wlast) begin
+                axil_periph1_wowner_rptr <= axil_periph1_wowner_rptr + 1'b1;
             end
         end
     end
-    assign gpu_32b_w_to_axil_periph1 = (gpu_32b_aw_to_axil_periph1_w_wptr != gpu_32b_aw_to_axil_periph1_w_rptr) ? gpu_32b_aw_to_axil_periph1_w_mem[gpu_32b_aw_to_axil_periph1_w_rptr] : 1'b0;
+    wire axil_periph1_wowner_valid = (axil_periph1_wowner_wptr != axil_periph1_wowner_rptr);
+    wire [1:0] axil_periph1_wowner_head = axil_periph1_wowner_mem[axil_periph1_wowner_rptr[3:0]];
+    assign cpu_32b_w_sel_axil_periph1 = axil_periph1_wowner_valid && (axil_periph1_wowner_head == 2'd0) && cpu_32b_w_to_axil_periph1;
+    assign gpu_32b_w_sel_axil_periph1 = axil_periph1_wowner_valid && (axil_periph1_wowner_head == 2'd1) && gpu_32b_w_to_axil_periph1;
+    assign host_axil_32b_w_sel_axil_periph1 = axil_periph1_wowner_valid && (axil_periph1_wowner_head == 2'd2) && host_axil_32b_w_to_axil_periph1;
+    assign debug_axil_32b_w_sel_axil_periph1 = axil_periph1_wowner_valid && (axil_periph1_wowner_head == 2'd3) && debug_axil_32b_w_to_axil_periph1;
 
-    // AW->W tracking FIFO: host_axil -> axil_periph1
-    logic host_axil_32b_w_to_axil_periph1;
-    logic [3:0] host_axil_32b_aw_to_axil_periph1_w_wptr, host_axil_32b_aw_to_axil_periph1_w_rptr;
-    logic host_axil_32b_aw_to_axil_periph1_w_mem [16];
-    logic host_axil_32b_aw_to_axil_periph1_w_push, host_axil_32b_aw_to_axil_periph1_w_pop;
-    assign host_axil_32b_aw_to_axil_periph1_w_push = host_axil_32b_awvalid && host_axil_32b_awready && host_axil_32b_aw_to_axil_periph1;
-    assign host_axil_32b_aw_to_axil_periph1_w_pop  = host_axil_32b_wvalid && host_axil_32b_wready && host_axil_32b_w.last && host_axil_32b_w_to_axil_periph1;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            host_axil_32b_aw_to_axil_periph1_w_wptr <= '0;
-            host_axil_32b_aw_to_axil_periph1_w_rptr <= '0;
-        end else begin
-            if (host_axil_32b_aw_to_axil_periph1_w_push) begin
-                host_axil_32b_aw_to_axil_periph1_w_mem[host_axil_32b_aw_to_axil_periph1_w_wptr] <= 1'b1;
-                host_axil_32b_aw_to_axil_periph1_w_wptr <= host_axil_32b_aw_to_axil_periph1_w_wptr + 1'b1;
-            end
-            if (host_axil_32b_aw_to_axil_periph1_w_pop) begin
-                host_axil_32b_aw_to_axil_periph1_w_rptr <= host_axil_32b_aw_to_axil_periph1_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign host_axil_32b_w_to_axil_periph1 = (host_axil_32b_aw_to_axil_periph1_w_wptr != host_axil_32b_aw_to_axil_periph1_w_rptr) ? host_axil_32b_aw_to_axil_periph1_w_mem[host_axil_32b_aw_to_axil_periph1_w_rptr] : 1'b0;
-
-    // AW->W tracking FIFO: debug_axil -> axil_periph1
-    logic debug_axil_32b_w_to_axil_periph1;
-    logic [3:0] debug_axil_32b_aw_to_axil_periph1_w_wptr, debug_axil_32b_aw_to_axil_periph1_w_rptr;
-    logic debug_axil_32b_aw_to_axil_periph1_w_mem [16];
-    logic debug_axil_32b_aw_to_axil_periph1_w_push, debug_axil_32b_aw_to_axil_periph1_w_pop;
-    assign debug_axil_32b_aw_to_axil_periph1_w_push = debug_axil_32b_awvalid && debug_axil_32b_awready && debug_axil_32b_aw_to_axil_periph1;
-    assign debug_axil_32b_aw_to_axil_periph1_w_pop  = debug_axil_32b_wvalid && debug_axil_32b_wready && debug_axil_32b_w.last && debug_axil_32b_w_to_axil_periph1;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            debug_axil_32b_aw_to_axil_periph1_w_wptr <= '0;
-            debug_axil_32b_aw_to_axil_periph1_w_rptr <= '0;
-        end else begin
-            if (debug_axil_32b_aw_to_axil_periph1_w_push) begin
-                debug_axil_32b_aw_to_axil_periph1_w_mem[debug_axil_32b_aw_to_axil_periph1_w_wptr] <= 1'b1;
-                debug_axil_32b_aw_to_axil_periph1_w_wptr <= debug_axil_32b_aw_to_axil_periph1_w_wptr + 1'b1;
-            end
-            if (debug_axil_32b_aw_to_axil_periph1_w_pop) begin
-                debug_axil_32b_aw_to_axil_periph1_w_rptr <= debug_axil_32b_aw_to_axil_periph1_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign debug_axil_32b_w_to_axil_periph1 = (debug_axil_32b_aw_to_axil_periph1_w_wptr != debug_axil_32b_aw_to_axil_periph1_w_rptr) ? debug_axil_32b_aw_to_axil_periph1_w_mem[debug_axil_32b_aw_to_axil_periph1_w_rptr] : 1'b0;
-
-    // W channel (OR-merged across writing masters, gated by w_to_<slave> FIFO)
-    assign axil_periph1_axi_wdata = ((cpu_32b_w_to_axil_periph1 && cpu_32b_wvalid) ? cpu_32b_w.data : '0) |
-        ((gpu_32b_w_to_axil_periph1 && gpu_32b_wvalid) ? gpu_32b_w.data : '0) |
-        ((host_axil_32b_w_to_axil_periph1 && host_axil_32b_wvalid) ? host_axil_32b_w.data : '0) |
-        ((debug_axil_32b_w_to_axil_periph1 && debug_axil_32b_wvalid) ? debug_axil_32b_w.data : '0);
-    assign axil_periph1_axi_wstrb = ((cpu_32b_w_to_axil_periph1 && cpu_32b_wvalid) ? cpu_32b_w.strb : '0) |
-        ((gpu_32b_w_to_axil_periph1 && gpu_32b_wvalid) ? gpu_32b_w.strb : '0) |
-        ((host_axil_32b_w_to_axil_periph1 && host_axil_32b_wvalid) ? host_axil_32b_w.strb : '0) |
-        ((debug_axil_32b_w_to_axil_periph1 && debug_axil_32b_wvalid) ? debug_axil_32b_w.strb : '0);
-    assign axil_periph1_axi_wlast = ((cpu_32b_w_to_axil_periph1 && cpu_32b_wvalid) ? cpu_32b_w.last : '0) |
-        ((gpu_32b_w_to_axil_periph1 && gpu_32b_wvalid) ? gpu_32b_w.last : '0) |
-        ((host_axil_32b_w_to_axil_periph1 && host_axil_32b_wvalid) ? host_axil_32b_w.last : '0) |
-        ((debug_axil_32b_w_to_axil_periph1 && debug_axil_32b_wvalid) ? debug_axil_32b_w.last : '0);
-    assign axil_periph1_axi_wvalid = ((cpu_32b_w_to_axil_periph1 && cpu_32b_wvalid) ? cpu_32b_wvalid : '0) |
-        ((gpu_32b_w_to_axil_periph1 && gpu_32b_wvalid) ? gpu_32b_wvalid : '0) |
-        ((host_axil_32b_w_to_axil_periph1 && host_axil_32b_wvalid) ? host_axil_32b_wvalid : '0) |
-        ((debug_axil_32b_w_to_axil_periph1 && debug_axil_32b_wvalid) ? debug_axil_32b_wvalid : '0);
+    // W channel (owner-gated mux across writing masters)
+    assign axil_periph1_axi_wdata = ((cpu_32b_w_sel_axil_periph1 && cpu_32b_wvalid) ? cpu_32b_w.data : '0) |
+        ((gpu_32b_w_sel_axil_periph1 && gpu_32b_wvalid) ? gpu_32b_w.data : '0) |
+        ((host_axil_32b_w_sel_axil_periph1 && host_axil_32b_wvalid) ? host_axil_32b_w.data : '0) |
+        ((debug_axil_32b_w_sel_axil_periph1 && debug_axil_32b_wvalid) ? debug_axil_32b_w.data : '0);
+    assign axil_periph1_axi_wstrb = ((cpu_32b_w_sel_axil_periph1 && cpu_32b_wvalid) ? cpu_32b_w.strb : '0) |
+        ((gpu_32b_w_sel_axil_periph1 && gpu_32b_wvalid) ? gpu_32b_w.strb : '0) |
+        ((host_axil_32b_w_sel_axil_periph1 && host_axil_32b_wvalid) ? host_axil_32b_w.strb : '0) |
+        ((debug_axil_32b_w_sel_axil_periph1 && debug_axil_32b_wvalid) ? debug_axil_32b_w.strb : '0);
+    assign axil_periph1_axi_wlast = ((cpu_32b_w_sel_axil_periph1 && cpu_32b_wvalid) ? cpu_32b_w.last : '0) |
+        ((gpu_32b_w_sel_axil_periph1 && gpu_32b_wvalid) ? gpu_32b_w.last : '0) |
+        ((host_axil_32b_w_sel_axil_periph1 && host_axil_32b_wvalid) ? host_axil_32b_w.last : '0) |
+        ((debug_axil_32b_w_sel_axil_periph1 && debug_axil_32b_wvalid) ? debug_axil_32b_w.last : '0);
+    assign axil_periph1_axi_wvalid = (cpu_32b_w_sel_axil_periph1 && cpu_32b_wvalid) || (gpu_32b_w_sel_axil_periph1 && gpu_32b_wvalid) || (host_axil_32b_w_sel_axil_periph1 && host_axil_32b_wvalid) || (debug_axil_32b_w_sel_axil_periph1 && debug_axil_32b_wvalid);
 
     // Bready (slave → owning master, by bid_bridge_id)
     assign axil_periph1_axi_bready = ((axil_periph1_axi_bid_bridge_id == 0) && axil_periph1_axi_bid_valid ? cpu_32b_bready : '0) |
@@ -1475,49 +1410,77 @@ module bridge_e_grand_mix_5x5_xbar
         ((axil_periph1_axi_bid_bridge_id == 3) && axil_periph1_axi_bid_valid ? host_axil_32b_bready : '0) |
         ((axil_periph1_axi_bid_bridge_id == 4) && axil_periph1_axi_bid_valid ? debug_axil_32b_bready : '0);
 
-    // Bridge ID (writes) — picks the originating master's id
-    assign axil_periph1_axi_bridge_id_aw = ((cpu_32b_aw_to_axil_periph1 && cpu_32b_awvalid) ? cpu_bridge_id_aw : '0) |
-        ((gpu_32b_aw_to_axil_periph1 && gpu_32b_awvalid) ? gpu_bridge_id_aw : '0) |
-        ((host_axil_32b_aw_to_axil_periph1 && host_axil_32b_awvalid) ? host_axil_bridge_id_aw : '0) |
-        ((debug_axil_32b_aw_to_axil_periph1 && debug_axil_32b_awvalid) ? debug_axil_bridge_id_aw : '0);
+    // Bridge ID (writes) — the granted master's id
+    assign axil_periph1_axi_bridge_id_aw = (cpu_32b_aw_gnt_axil_periph1 ? cpu_bridge_id_aw : '0) |
+        (gpu_32b_aw_gnt_axil_periph1 ? gpu_bridge_id_aw : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? host_axil_bridge_id_aw : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? debug_axil_bridge_id_aw : '0);
 
-    // AR channel (OR-merged across reading masters)
-    assign axil_periph1_axi_arid = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_ar.id : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_ar.id : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_ar.id : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.id : '0);
-    assign axil_periph1_axi_araddr = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_ar.addr : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_ar.addr : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_ar.addr : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.addr : '0);
-    assign axil_periph1_axi_arlen = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_ar.len : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_ar.len : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_ar.len : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.len : '0);
-    assign axil_periph1_axi_arsize = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_ar.size : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_ar.size : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_ar.size : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.size : '0);
-    assign axil_periph1_axi_arburst = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_ar.burst : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_ar.burst : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_ar.burst : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.burst : '0);
-    assign axil_periph1_axi_arlock = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_ar.lock : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_ar.lock : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_ar.lock : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.lock : '0);
-    assign axil_periph1_axi_arcache = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_ar.cache : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_ar.cache : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_ar.cache : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.cache : '0);
-    assign axil_periph1_axi_arprot = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_ar.prot : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_ar.prot : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_ar.prot : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.prot : '0);
-    assign axil_periph1_axi_arvalid = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_32b_arvalid : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_32b_arvalid : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_32b_arvalid : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_32b_arvalid : '0);
+    // ---- AR arbiter for axil_periph1: round-robin, lock until handshake ----
+    logic [3:0] axil_periph1_ar_arb_req;
+    assign axil_periph1_ar_arb_req = {debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid, host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid, gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid, cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid};
+    logic [1:0] axil_periph1_ar_arb_lock, axil_periph1_ar_arb_rr;
+    logic axil_periph1_ar_arb_locked;
+    wire [1:0] axil_periph1_ar_arb_pick = (axil_periph1_ar_arb_rr == 2'd0) ? (axil_periph1_ar_arb_req[0] ? 2'd0 : axil_periph1_ar_arb_req[1] ? 2'd1 : axil_periph1_ar_arb_req[2] ? 2'd2 : 2'd3) : 
+        (axil_periph1_ar_arb_rr == 2'd1) ? (axil_periph1_ar_arb_req[1] ? 2'd1 : axil_periph1_ar_arb_req[2] ? 2'd2 : axil_periph1_ar_arb_req[3] ? 2'd3 : 2'd0) : 
+        (axil_periph1_ar_arb_rr == 2'd2) ? (axil_periph1_ar_arb_req[2] ? 2'd2 : axil_periph1_ar_arb_req[3] ? 2'd3 : axil_periph1_ar_arb_req[0] ? 2'd0 : 2'd1) : 
+        axil_periph1_ar_arb_req[3] ? 2'd3 : axil_periph1_ar_arb_req[0] ? 2'd0 : axil_periph1_ar_arb_req[1] ? 2'd1 : 2'd2;
+    wire axil_periph1_ar_arb_gnt_valid = axil_periph1_ar_arb_locked || (|axil_periph1_ar_arb_req);
+    wire [1:0] axil_periph1_ar_arb_gnt = axil_periph1_ar_arb_locked ? axil_periph1_ar_arb_lock : axil_periph1_ar_arb_pick;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            axil_periph1_ar_arb_lock   <= '0;
+            axil_periph1_ar_arb_rr     <= '0;
+            axil_periph1_ar_arb_locked <= 1'b0;
+        end else begin
+            if (axil_periph1_axi_arvalid && axil_periph1_axi_arready) begin
+                axil_periph1_ar_arb_locked <= 1'b0;
+                axil_periph1_ar_arb_rr <= (axil_periph1_ar_arb_gnt == 2'd3) ? 2'd0 : axil_periph1_ar_arb_gnt + 1'b1;
+            end else if (axil_periph1_axi_arvalid) begin
+                axil_periph1_ar_arb_lock   <= axil_periph1_ar_arb_gnt;
+                axil_periph1_ar_arb_locked <= 1'b1;
+            end
+        end
+    end
+    wire cpu_32b_ar_gnt_axil_periph1 = axil_periph1_ar_arb_gnt_valid && (axil_periph1_ar_arb_gnt == 2'd0) && axil_periph1_ar_arb_req[0];
+    wire gpu_32b_ar_gnt_axil_periph1 = axil_periph1_ar_arb_gnt_valid && (axil_periph1_ar_arb_gnt == 2'd1) && axil_periph1_ar_arb_req[1];
+    wire host_axil_32b_ar_gnt_axil_periph1 = axil_periph1_ar_arb_gnt_valid && (axil_periph1_ar_arb_gnt == 2'd2) && axil_periph1_ar_arb_req[2];
+    wire debug_axil_32b_ar_gnt_axil_periph1 = axil_periph1_ar_arb_gnt_valid && (axil_periph1_ar_arb_gnt == 2'd3) && axil_periph1_ar_arb_req[3];
+
+    // AR channel (arbitrated mux across reading masters)
+    assign axil_periph1_axi_arid = (cpu_32b_ar_gnt_axil_periph1 ? cpu_32b_ar.id : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_32b_ar.id : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_32b_ar.id : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_32b_ar.id : '0);
+    assign axil_periph1_axi_araddr = (cpu_32b_ar_gnt_axil_periph1 ? cpu_32b_ar.addr : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_32b_ar.addr : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_32b_ar.addr : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_32b_ar.addr : '0);
+    assign axil_periph1_axi_arlen = (cpu_32b_ar_gnt_axil_periph1 ? cpu_32b_ar.len : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_32b_ar.len : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_32b_ar.len : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_32b_ar.len : '0);
+    assign axil_periph1_axi_arsize = (cpu_32b_ar_gnt_axil_periph1 ? cpu_32b_ar.size : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_32b_ar.size : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_32b_ar.size : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_32b_ar.size : '0);
+    assign axil_periph1_axi_arburst = (cpu_32b_ar_gnt_axil_periph1 ? cpu_32b_ar.burst : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_32b_ar.burst : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_32b_ar.burst : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_32b_ar.burst : '0);
+    assign axil_periph1_axi_arlock = (cpu_32b_ar_gnt_axil_periph1 ? cpu_32b_ar.lock : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_32b_ar.lock : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_32b_ar.lock : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_32b_ar.lock : '0);
+    assign axil_periph1_axi_arcache = (cpu_32b_ar_gnt_axil_periph1 ? cpu_32b_ar.cache : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_32b_ar.cache : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_32b_ar.cache : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_32b_ar.cache : '0);
+    assign axil_periph1_axi_arprot = (cpu_32b_ar_gnt_axil_periph1 ? cpu_32b_ar.prot : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_32b_ar.prot : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_32b_ar.prot : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_32b_ar.prot : '0);
+    assign axil_periph1_axi_arvalid = cpu_32b_ar_gnt_axil_periph1 || gpu_32b_ar_gnt_axil_periph1 || host_axil_32b_ar_gnt_axil_periph1 || debug_axil_32b_ar_gnt_axil_periph1;
 
     // Rready (slave → owning master, by rid_bridge_id)
     assign axil_periph1_axi_rready = ((axil_periph1_axi_rid_bridge_id == 0) && axil_periph1_axi_rid_valid ? cpu_32b_rready : '0) |
@@ -1525,11 +1488,11 @@ module bridge_e_grand_mix_5x5_xbar
         ((axil_periph1_axi_rid_bridge_id == 3) && axil_periph1_axi_rid_valid ? host_axil_32b_rready : '0) |
         ((axil_periph1_axi_rid_bridge_id == 4) && axil_periph1_axi_rid_valid ? debug_axil_32b_rready : '0);
 
-    // Bridge ID (reads) — picks the originating master's id
-    assign axil_periph1_axi_bridge_id_ar = ((cpu_32b_ar_to_axil_periph1 && cpu_32b_arvalid) ? cpu_bridge_id_ar : '0) |
-        ((gpu_32b_ar_to_axil_periph1 && gpu_32b_arvalid) ? gpu_bridge_id_ar : '0) |
-        ((host_axil_32b_ar_to_axil_periph1 && host_axil_32b_arvalid) ? host_axil_bridge_id_ar : '0) |
-        ((debug_axil_32b_ar_to_axil_periph1 && debug_axil_32b_arvalid) ? debug_axil_bridge_id_ar : '0);
+    // Bridge ID (reads) — the granted master's id
+    assign axil_periph1_axi_bridge_id_ar = (cpu_32b_ar_gnt_axil_periph1 ? cpu_bridge_id_ar : '0) |
+        (gpu_32b_ar_gnt_axil_periph1 ? gpu_bridge_id_ar : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? host_axil_bridge_id_ar : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? debug_axil_bridge_id_ar : '0);
 
 
     // ================================================================
@@ -1550,153 +1513,110 @@ module bridge_e_grand_mix_5x5_xbar
     wire debug_axil_32b_aw_to_apb_periph0 = ((debug_axil_32b_aw.addr >= 32'ha0000000) && (debug_axil_32b_aw.addr <= 32'ha000ffff));
     wire debug_axil_32b_ar_to_apb_periph0 = ((debug_axil_32b_ar.addr >= 32'ha0000000) && (debug_axil_32b_ar.addr <= 32'ha000ffff));
 
-    // AW channel (OR-merged across writing masters)
-    assign apb_periph0_axi_awid = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.id : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_aw.id : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.id : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.id : '0);
-    assign apb_periph0_axi_awaddr = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.addr : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_aw.addr : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.addr : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.addr : '0);
-    assign apb_periph0_axi_awlen = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.len : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_aw.len : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.len : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.len : '0);
-    assign apb_periph0_axi_awsize = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.size : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_aw.size : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.size : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.size : '0);
-    assign apb_periph0_axi_awburst = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.burst : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_aw.burst : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.burst : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.burst : '0);
-    assign apb_periph0_axi_awlock = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.lock : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_aw.lock : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.lock : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.lock : '0);
-    assign apb_periph0_axi_awcache = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.cache : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_aw.cache : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.cache : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.cache : '0);
-    assign apb_periph0_axi_awprot = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_aw.prot : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_aw.prot : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_aw.prot : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_aw.prot : '0);
-    assign apb_periph0_axi_awvalid = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_32b_awvalid : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_32b_awvalid : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_32b_awvalid : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_32b_awvalid : '0);
-
-    // AW->W tracking FIFO: cpu -> apb_periph0
-    logic cpu_32b_w_to_apb_periph0;
-    logic [3:0] cpu_32b_aw_to_apb_periph0_w_wptr, cpu_32b_aw_to_apb_periph0_w_rptr;
-    logic cpu_32b_aw_to_apb_periph0_w_mem [16];
-    logic cpu_32b_aw_to_apb_periph0_w_push, cpu_32b_aw_to_apb_periph0_w_pop;
-    assign cpu_32b_aw_to_apb_periph0_w_push = cpu_32b_awvalid && cpu_32b_awready && cpu_32b_aw_to_apb_periph0;
-    assign cpu_32b_aw_to_apb_periph0_w_pop  = cpu_32b_wvalid && cpu_32b_wready && cpu_32b_w.last && cpu_32b_w_to_apb_periph0;
+    // ---- AW arbiter for apb_periph0: round-robin, lock until handshake ----
+    logic [3:0] apb_periph0_aw_arb_req;
+    assign apb_periph0_aw_arb_req = {debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid, host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid, dma_32b_aw_to_apb_periph0 && dma_32b_awvalid, cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid};
+    logic [1:0] apb_periph0_aw_arb_lock, apb_periph0_aw_arb_rr;
+    logic apb_periph0_aw_arb_locked;
+    wire [1:0] apb_periph0_aw_arb_pick = (apb_periph0_aw_arb_rr == 2'd0) ? (apb_periph0_aw_arb_req[0] ? 2'd0 : apb_periph0_aw_arb_req[1] ? 2'd1 : apb_periph0_aw_arb_req[2] ? 2'd2 : 2'd3) : 
+        (apb_periph0_aw_arb_rr == 2'd1) ? (apb_periph0_aw_arb_req[1] ? 2'd1 : apb_periph0_aw_arb_req[2] ? 2'd2 : apb_periph0_aw_arb_req[3] ? 2'd3 : 2'd0) : 
+        (apb_periph0_aw_arb_rr == 2'd2) ? (apb_periph0_aw_arb_req[2] ? 2'd2 : apb_periph0_aw_arb_req[3] ? 2'd3 : apb_periph0_aw_arb_req[0] ? 2'd0 : 2'd1) : 
+        apb_periph0_aw_arb_req[3] ? 2'd3 : apb_periph0_aw_arb_req[0] ? 2'd0 : apb_periph0_aw_arb_req[1] ? 2'd1 : 2'd2;
+    wire apb_periph0_aw_arb_gnt_valid = apb_periph0_aw_arb_locked || (|apb_periph0_aw_arb_req);
+    wire [1:0] apb_periph0_aw_arb_gnt = apb_periph0_aw_arb_locked ? apb_periph0_aw_arb_lock : apb_periph0_aw_arb_pick;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            cpu_32b_aw_to_apb_periph0_w_wptr <= '0;
-            cpu_32b_aw_to_apb_periph0_w_rptr <= '0;
+            apb_periph0_aw_arb_lock   <= '0;
+            apb_periph0_aw_arb_rr     <= '0;
+            apb_periph0_aw_arb_locked <= 1'b0;
         end else begin
-            if (cpu_32b_aw_to_apb_periph0_w_push) begin
-                cpu_32b_aw_to_apb_periph0_w_mem[cpu_32b_aw_to_apb_periph0_w_wptr] <= 1'b1;
-                cpu_32b_aw_to_apb_periph0_w_wptr <= cpu_32b_aw_to_apb_periph0_w_wptr + 1'b1;
-            end
-            if (cpu_32b_aw_to_apb_periph0_w_pop) begin
-                cpu_32b_aw_to_apb_periph0_w_rptr <= cpu_32b_aw_to_apb_periph0_w_rptr + 1'b1;
+            if (apb_periph0_axi_awvalid && apb_periph0_axi_awready) begin
+                apb_periph0_aw_arb_locked <= 1'b0;
+                apb_periph0_aw_arb_rr <= (apb_periph0_aw_arb_gnt == 2'd3) ? 2'd0 : apb_periph0_aw_arb_gnt + 1'b1;
+            end else if (apb_periph0_axi_awvalid) begin
+                apb_periph0_aw_arb_lock   <= apb_periph0_aw_arb_gnt;
+                apb_periph0_aw_arb_locked <= 1'b1;
             end
         end
     end
-    assign cpu_32b_w_to_apb_periph0 = (cpu_32b_aw_to_apb_periph0_w_wptr != cpu_32b_aw_to_apb_periph0_w_rptr) ? cpu_32b_aw_to_apb_periph0_w_mem[cpu_32b_aw_to_apb_periph0_w_rptr] : 1'b0;
+    wire cpu_32b_aw_gnt_apb_periph0 = apb_periph0_aw_arb_gnt_valid && (apb_periph0_aw_arb_gnt == 2'd0) && apb_periph0_aw_arb_req[0];
+    wire dma_32b_aw_gnt_apb_periph0 = apb_periph0_aw_arb_gnt_valid && (apb_periph0_aw_arb_gnt == 2'd1) && apb_periph0_aw_arb_req[1];
+    wire host_axil_32b_aw_gnt_apb_periph0 = apb_periph0_aw_arb_gnt_valid && (apb_periph0_aw_arb_gnt == 2'd2) && apb_periph0_aw_arb_req[2];
+    wire debug_axil_32b_aw_gnt_apb_periph0 = apb_periph0_aw_arb_gnt_valid && (apb_periph0_aw_arb_gnt == 2'd3) && apb_periph0_aw_arb_req[3];
 
-    // AW->W tracking FIFO: dma -> apb_periph0
-    logic dma_32b_w_to_apb_periph0;
-    logic [3:0] dma_32b_aw_to_apb_periph0_w_wptr, dma_32b_aw_to_apb_periph0_w_rptr;
-    logic dma_32b_aw_to_apb_periph0_w_mem [16];
-    logic dma_32b_aw_to_apb_periph0_w_push, dma_32b_aw_to_apb_periph0_w_pop;
-    assign dma_32b_aw_to_apb_periph0_w_push = dma_32b_awvalid && dma_32b_awready && dma_32b_aw_to_apb_periph0;
-    assign dma_32b_aw_to_apb_periph0_w_pop  = dma_32b_wvalid && dma_32b_wready && dma_32b_w.last && dma_32b_w_to_apb_periph0;
+    // AW channel (arbitrated mux across writing masters)
+    assign apb_periph0_axi_awid = (cpu_32b_aw_gnt_apb_periph0 ? cpu_32b_aw.id : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_32b_aw.id : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_32b_aw.id : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_32b_aw.id : '0);
+    assign apb_periph0_axi_awaddr = (cpu_32b_aw_gnt_apb_periph0 ? cpu_32b_aw.addr : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_32b_aw.addr : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_32b_aw.addr : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_32b_aw.addr : '0);
+    assign apb_periph0_axi_awlen = (cpu_32b_aw_gnt_apb_periph0 ? cpu_32b_aw.len : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_32b_aw.len : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_32b_aw.len : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_32b_aw.len : '0);
+    assign apb_periph0_axi_awsize = (cpu_32b_aw_gnt_apb_periph0 ? cpu_32b_aw.size : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_32b_aw.size : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_32b_aw.size : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_32b_aw.size : '0);
+    assign apb_periph0_axi_awburst = (cpu_32b_aw_gnt_apb_periph0 ? cpu_32b_aw.burst : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_32b_aw.burst : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_32b_aw.burst : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_32b_aw.burst : '0);
+    assign apb_periph0_axi_awlock = (cpu_32b_aw_gnt_apb_periph0 ? cpu_32b_aw.lock : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_32b_aw.lock : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_32b_aw.lock : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_32b_aw.lock : '0);
+    assign apb_periph0_axi_awcache = (cpu_32b_aw_gnt_apb_periph0 ? cpu_32b_aw.cache : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_32b_aw.cache : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_32b_aw.cache : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_32b_aw.cache : '0);
+    assign apb_periph0_axi_awprot = (cpu_32b_aw_gnt_apb_periph0 ? cpu_32b_aw.prot : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_32b_aw.prot : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_32b_aw.prot : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_32b_aw.prot : '0);
+    assign apb_periph0_axi_awvalid = cpu_32b_aw_gnt_apb_periph0 || dma_32b_aw_gnt_apb_periph0 || host_axil_32b_aw_gnt_apb_periph0 || debug_axil_32b_aw_gnt_apb_periph0;
+
+    // W owner FIFO: slave-side AW accept order owns the W channel
+    logic [1:0] apb_periph0_wowner_mem [16];
+    logic [4:0] apb_periph0_wowner_wptr, apb_periph0_wowner_rptr;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            dma_32b_aw_to_apb_periph0_w_wptr <= '0;
-            dma_32b_aw_to_apb_periph0_w_rptr <= '0;
+            apb_periph0_wowner_wptr <= '0;
+            apb_periph0_wowner_rptr <= '0;
         end else begin
-            if (dma_32b_aw_to_apb_periph0_w_push) begin
-                dma_32b_aw_to_apb_periph0_w_mem[dma_32b_aw_to_apb_periph0_w_wptr] <= 1'b1;
-                dma_32b_aw_to_apb_periph0_w_wptr <= dma_32b_aw_to_apb_periph0_w_wptr + 1'b1;
+            if (apb_periph0_axi_awvalid && apb_periph0_axi_awready) begin
+                apb_periph0_wowner_mem[apb_periph0_wowner_wptr[3:0]] <= apb_periph0_aw_arb_gnt;
+                apb_periph0_wowner_wptr <= apb_periph0_wowner_wptr + 1'b1;
             end
-            if (dma_32b_aw_to_apb_periph0_w_pop) begin
-                dma_32b_aw_to_apb_periph0_w_rptr <= dma_32b_aw_to_apb_periph0_w_rptr + 1'b1;
+            if (apb_periph0_axi_wvalid && apb_periph0_axi_wready && apb_periph0_axi_wlast) begin
+                apb_periph0_wowner_rptr <= apb_periph0_wowner_rptr + 1'b1;
             end
         end
     end
-    assign dma_32b_w_to_apb_periph0 = (dma_32b_aw_to_apb_periph0_w_wptr != dma_32b_aw_to_apb_periph0_w_rptr) ? dma_32b_aw_to_apb_periph0_w_mem[dma_32b_aw_to_apb_periph0_w_rptr] : 1'b0;
+    wire apb_periph0_wowner_valid = (apb_periph0_wowner_wptr != apb_periph0_wowner_rptr);
+    wire [1:0] apb_periph0_wowner_head = apb_periph0_wowner_mem[apb_periph0_wowner_rptr[3:0]];
+    assign cpu_32b_w_sel_apb_periph0 = apb_periph0_wowner_valid && (apb_periph0_wowner_head == 2'd0) && cpu_32b_w_to_apb_periph0;
+    assign dma_32b_w_sel_apb_periph0 = apb_periph0_wowner_valid && (apb_periph0_wowner_head == 2'd1) && dma_32b_w_to_apb_periph0;
+    assign host_axil_32b_w_sel_apb_periph0 = apb_periph0_wowner_valid && (apb_periph0_wowner_head == 2'd2) && host_axil_32b_w_to_apb_periph0;
+    assign debug_axil_32b_w_sel_apb_periph0 = apb_periph0_wowner_valid && (apb_periph0_wowner_head == 2'd3) && debug_axil_32b_w_to_apb_periph0;
 
-    // AW->W tracking FIFO: host_axil -> apb_periph0
-    logic host_axil_32b_w_to_apb_periph0;
-    logic [3:0] host_axil_32b_aw_to_apb_periph0_w_wptr, host_axil_32b_aw_to_apb_periph0_w_rptr;
-    logic host_axil_32b_aw_to_apb_periph0_w_mem [16];
-    logic host_axil_32b_aw_to_apb_periph0_w_push, host_axil_32b_aw_to_apb_periph0_w_pop;
-    assign host_axil_32b_aw_to_apb_periph0_w_push = host_axil_32b_awvalid && host_axil_32b_awready && host_axil_32b_aw_to_apb_periph0;
-    assign host_axil_32b_aw_to_apb_periph0_w_pop  = host_axil_32b_wvalid && host_axil_32b_wready && host_axil_32b_w.last && host_axil_32b_w_to_apb_periph0;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            host_axil_32b_aw_to_apb_periph0_w_wptr <= '0;
-            host_axil_32b_aw_to_apb_periph0_w_rptr <= '0;
-        end else begin
-            if (host_axil_32b_aw_to_apb_periph0_w_push) begin
-                host_axil_32b_aw_to_apb_periph0_w_mem[host_axil_32b_aw_to_apb_periph0_w_wptr] <= 1'b1;
-                host_axil_32b_aw_to_apb_periph0_w_wptr <= host_axil_32b_aw_to_apb_periph0_w_wptr + 1'b1;
-            end
-            if (host_axil_32b_aw_to_apb_periph0_w_pop) begin
-                host_axil_32b_aw_to_apb_periph0_w_rptr <= host_axil_32b_aw_to_apb_periph0_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign host_axil_32b_w_to_apb_periph0 = (host_axil_32b_aw_to_apb_periph0_w_wptr != host_axil_32b_aw_to_apb_periph0_w_rptr) ? host_axil_32b_aw_to_apb_periph0_w_mem[host_axil_32b_aw_to_apb_periph0_w_rptr] : 1'b0;
-
-    // AW->W tracking FIFO: debug_axil -> apb_periph0
-    logic debug_axil_32b_w_to_apb_periph0;
-    logic [3:0] debug_axil_32b_aw_to_apb_periph0_w_wptr, debug_axil_32b_aw_to_apb_periph0_w_rptr;
-    logic debug_axil_32b_aw_to_apb_periph0_w_mem [16];
-    logic debug_axil_32b_aw_to_apb_periph0_w_push, debug_axil_32b_aw_to_apb_periph0_w_pop;
-    assign debug_axil_32b_aw_to_apb_periph0_w_push = debug_axil_32b_awvalid && debug_axil_32b_awready && debug_axil_32b_aw_to_apb_periph0;
-    assign debug_axil_32b_aw_to_apb_periph0_w_pop  = debug_axil_32b_wvalid && debug_axil_32b_wready && debug_axil_32b_w.last && debug_axil_32b_w_to_apb_periph0;
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            debug_axil_32b_aw_to_apb_periph0_w_wptr <= '0;
-            debug_axil_32b_aw_to_apb_periph0_w_rptr <= '0;
-        end else begin
-            if (debug_axil_32b_aw_to_apb_periph0_w_push) begin
-                debug_axil_32b_aw_to_apb_periph0_w_mem[debug_axil_32b_aw_to_apb_periph0_w_wptr] <= 1'b1;
-                debug_axil_32b_aw_to_apb_periph0_w_wptr <= debug_axil_32b_aw_to_apb_periph0_w_wptr + 1'b1;
-            end
-            if (debug_axil_32b_aw_to_apb_periph0_w_pop) begin
-                debug_axil_32b_aw_to_apb_periph0_w_rptr <= debug_axil_32b_aw_to_apb_periph0_w_rptr + 1'b1;
-            end
-        end
-    end
-    assign debug_axil_32b_w_to_apb_periph0 = (debug_axil_32b_aw_to_apb_periph0_w_wptr != debug_axil_32b_aw_to_apb_periph0_w_rptr) ? debug_axil_32b_aw_to_apb_periph0_w_mem[debug_axil_32b_aw_to_apb_periph0_w_rptr] : 1'b0;
-
-    // W channel (OR-merged across writing masters, gated by w_to_<slave> FIFO)
-    assign apb_periph0_axi_wdata = ((cpu_32b_w_to_apb_periph0 && cpu_32b_wvalid) ? cpu_32b_w.data : '0) |
-        ((dma_32b_w_to_apb_periph0 && dma_32b_wvalid) ? dma_32b_w.data : '0) |
-        ((host_axil_32b_w_to_apb_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.data : '0) |
-        ((debug_axil_32b_w_to_apb_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.data : '0);
-    assign apb_periph0_axi_wstrb = ((cpu_32b_w_to_apb_periph0 && cpu_32b_wvalid) ? cpu_32b_w.strb : '0) |
-        ((dma_32b_w_to_apb_periph0 && dma_32b_wvalid) ? dma_32b_w.strb : '0) |
-        ((host_axil_32b_w_to_apb_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.strb : '0) |
-        ((debug_axil_32b_w_to_apb_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.strb : '0);
-    assign apb_periph0_axi_wlast = ((cpu_32b_w_to_apb_periph0 && cpu_32b_wvalid) ? cpu_32b_w.last : '0) |
-        ((dma_32b_w_to_apb_periph0 && dma_32b_wvalid) ? dma_32b_w.last : '0) |
-        ((host_axil_32b_w_to_apb_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.last : '0) |
-        ((debug_axil_32b_w_to_apb_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.last : '0);
-    assign apb_periph0_axi_wvalid = ((cpu_32b_w_to_apb_periph0 && cpu_32b_wvalid) ? cpu_32b_wvalid : '0) |
-        ((dma_32b_w_to_apb_periph0 && dma_32b_wvalid) ? dma_32b_wvalid : '0) |
-        ((host_axil_32b_w_to_apb_periph0 && host_axil_32b_wvalid) ? host_axil_32b_wvalid : '0) |
-        ((debug_axil_32b_w_to_apb_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_wvalid : '0);
+    // W channel (owner-gated mux across writing masters)
+    assign apb_periph0_axi_wdata = ((cpu_32b_w_sel_apb_periph0 && cpu_32b_wvalid) ? cpu_32b_w.data : '0) |
+        ((dma_32b_w_sel_apb_periph0 && dma_32b_wvalid) ? dma_32b_w.data : '0) |
+        ((host_axil_32b_w_sel_apb_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.data : '0) |
+        ((debug_axil_32b_w_sel_apb_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.data : '0);
+    assign apb_periph0_axi_wstrb = ((cpu_32b_w_sel_apb_periph0 && cpu_32b_wvalid) ? cpu_32b_w.strb : '0) |
+        ((dma_32b_w_sel_apb_periph0 && dma_32b_wvalid) ? dma_32b_w.strb : '0) |
+        ((host_axil_32b_w_sel_apb_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.strb : '0) |
+        ((debug_axil_32b_w_sel_apb_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.strb : '0);
+    assign apb_periph0_axi_wlast = ((cpu_32b_w_sel_apb_periph0 && cpu_32b_wvalid) ? cpu_32b_w.last : '0) |
+        ((dma_32b_w_sel_apb_periph0 && dma_32b_wvalid) ? dma_32b_w.last : '0) |
+        ((host_axil_32b_w_sel_apb_periph0 && host_axil_32b_wvalid) ? host_axil_32b_w.last : '0) |
+        ((debug_axil_32b_w_sel_apb_periph0 && debug_axil_32b_wvalid) ? debug_axil_32b_w.last : '0);
+    assign apb_periph0_axi_wvalid = (cpu_32b_w_sel_apb_periph0 && cpu_32b_wvalid) || (dma_32b_w_sel_apb_periph0 && dma_32b_wvalid) || (host_axil_32b_w_sel_apb_periph0 && host_axil_32b_wvalid) || (debug_axil_32b_w_sel_apb_periph0 && debug_axil_32b_wvalid);
 
     // Bready (slave → owning master, by bid_bridge_id)
     assign apb_periph0_axi_bready = ((apb_periph0_axi_bid_bridge_id == 0) && apb_periph0_axi_bid_valid ? cpu_32b_bready : '0) |
@@ -1704,49 +1624,77 @@ module bridge_e_grand_mix_5x5_xbar
         ((apb_periph0_axi_bid_bridge_id == 3) && apb_periph0_axi_bid_valid ? host_axil_32b_bready : '0) |
         ((apb_periph0_axi_bid_bridge_id == 4) && apb_periph0_axi_bid_valid ? debug_axil_32b_bready : '0);
 
-    // Bridge ID (writes) — picks the originating master's id
-    assign apb_periph0_axi_bridge_id_aw = ((cpu_32b_aw_to_apb_periph0 && cpu_32b_awvalid) ? cpu_bridge_id_aw : '0) |
-        ((dma_32b_aw_to_apb_periph0 && dma_32b_awvalid) ? dma_bridge_id_aw : '0) |
-        ((host_axil_32b_aw_to_apb_periph0 && host_axil_32b_awvalid) ? host_axil_bridge_id_aw : '0) |
-        ((debug_axil_32b_aw_to_apb_periph0 && debug_axil_32b_awvalid) ? debug_axil_bridge_id_aw : '0);
+    // Bridge ID (writes) — the granted master's id
+    assign apb_periph0_axi_bridge_id_aw = (cpu_32b_aw_gnt_apb_periph0 ? cpu_bridge_id_aw : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? dma_bridge_id_aw : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? host_axil_bridge_id_aw : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? debug_axil_bridge_id_aw : '0);
 
-    // AR channel (OR-merged across reading masters)
-    assign apb_periph0_axi_arid = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.id : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_ar.id : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.id : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.id : '0);
-    assign apb_periph0_axi_araddr = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.addr : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_ar.addr : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.addr : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.addr : '0);
-    assign apb_periph0_axi_arlen = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.len : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_ar.len : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.len : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.len : '0);
-    assign apb_periph0_axi_arsize = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.size : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_ar.size : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.size : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.size : '0);
-    assign apb_periph0_axi_arburst = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.burst : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_ar.burst : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.burst : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.burst : '0);
-    assign apb_periph0_axi_arlock = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.lock : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_ar.lock : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.lock : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.lock : '0);
-    assign apb_periph0_axi_arcache = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.cache : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_ar.cache : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.cache : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.cache : '0);
-    assign apb_periph0_axi_arprot = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_ar.prot : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_ar.prot : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_ar.prot : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_ar.prot : '0);
-    assign apb_periph0_axi_arvalid = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_32b_arvalid : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_32b_arvalid : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_32b_arvalid : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_32b_arvalid : '0);
+    // ---- AR arbiter for apb_periph0: round-robin, lock until handshake ----
+    logic [3:0] apb_periph0_ar_arb_req;
+    assign apb_periph0_ar_arb_req = {debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid, host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid, dma_32b_ar_to_apb_periph0 && dma_32b_arvalid, cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid};
+    logic [1:0] apb_periph0_ar_arb_lock, apb_periph0_ar_arb_rr;
+    logic apb_periph0_ar_arb_locked;
+    wire [1:0] apb_periph0_ar_arb_pick = (apb_periph0_ar_arb_rr == 2'd0) ? (apb_periph0_ar_arb_req[0] ? 2'd0 : apb_periph0_ar_arb_req[1] ? 2'd1 : apb_periph0_ar_arb_req[2] ? 2'd2 : 2'd3) : 
+        (apb_periph0_ar_arb_rr == 2'd1) ? (apb_periph0_ar_arb_req[1] ? 2'd1 : apb_periph0_ar_arb_req[2] ? 2'd2 : apb_periph0_ar_arb_req[3] ? 2'd3 : 2'd0) : 
+        (apb_periph0_ar_arb_rr == 2'd2) ? (apb_periph0_ar_arb_req[2] ? 2'd2 : apb_periph0_ar_arb_req[3] ? 2'd3 : apb_periph0_ar_arb_req[0] ? 2'd0 : 2'd1) : 
+        apb_periph0_ar_arb_req[3] ? 2'd3 : apb_periph0_ar_arb_req[0] ? 2'd0 : apb_periph0_ar_arb_req[1] ? 2'd1 : 2'd2;
+    wire apb_periph0_ar_arb_gnt_valid = apb_periph0_ar_arb_locked || (|apb_periph0_ar_arb_req);
+    wire [1:0] apb_periph0_ar_arb_gnt = apb_periph0_ar_arb_locked ? apb_periph0_ar_arb_lock : apb_periph0_ar_arb_pick;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            apb_periph0_ar_arb_lock   <= '0;
+            apb_periph0_ar_arb_rr     <= '0;
+            apb_periph0_ar_arb_locked <= 1'b0;
+        end else begin
+            if (apb_periph0_axi_arvalid && apb_periph0_axi_arready) begin
+                apb_periph0_ar_arb_locked <= 1'b0;
+                apb_periph0_ar_arb_rr <= (apb_periph0_ar_arb_gnt == 2'd3) ? 2'd0 : apb_periph0_ar_arb_gnt + 1'b1;
+            end else if (apb_periph0_axi_arvalid) begin
+                apb_periph0_ar_arb_lock   <= apb_periph0_ar_arb_gnt;
+                apb_periph0_ar_arb_locked <= 1'b1;
+            end
+        end
+    end
+    wire cpu_32b_ar_gnt_apb_periph0 = apb_periph0_ar_arb_gnt_valid && (apb_periph0_ar_arb_gnt == 2'd0) && apb_periph0_ar_arb_req[0];
+    wire dma_32b_ar_gnt_apb_periph0 = apb_periph0_ar_arb_gnt_valid && (apb_periph0_ar_arb_gnt == 2'd1) && apb_periph0_ar_arb_req[1];
+    wire host_axil_32b_ar_gnt_apb_periph0 = apb_periph0_ar_arb_gnt_valid && (apb_periph0_ar_arb_gnt == 2'd2) && apb_periph0_ar_arb_req[2];
+    wire debug_axil_32b_ar_gnt_apb_periph0 = apb_periph0_ar_arb_gnt_valid && (apb_periph0_ar_arb_gnt == 2'd3) && apb_periph0_ar_arb_req[3];
+
+    // AR channel (arbitrated mux across reading masters)
+    assign apb_periph0_axi_arid = (cpu_32b_ar_gnt_apb_periph0 ? cpu_32b_ar.id : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_32b_ar.id : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_32b_ar.id : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_32b_ar.id : '0);
+    assign apb_periph0_axi_araddr = (cpu_32b_ar_gnt_apb_periph0 ? cpu_32b_ar.addr : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_32b_ar.addr : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_32b_ar.addr : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_32b_ar.addr : '0);
+    assign apb_periph0_axi_arlen = (cpu_32b_ar_gnt_apb_periph0 ? cpu_32b_ar.len : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_32b_ar.len : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_32b_ar.len : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_32b_ar.len : '0);
+    assign apb_periph0_axi_arsize = (cpu_32b_ar_gnt_apb_periph0 ? cpu_32b_ar.size : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_32b_ar.size : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_32b_ar.size : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_32b_ar.size : '0);
+    assign apb_periph0_axi_arburst = (cpu_32b_ar_gnt_apb_periph0 ? cpu_32b_ar.burst : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_32b_ar.burst : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_32b_ar.burst : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_32b_ar.burst : '0);
+    assign apb_periph0_axi_arlock = (cpu_32b_ar_gnt_apb_periph0 ? cpu_32b_ar.lock : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_32b_ar.lock : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_32b_ar.lock : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_32b_ar.lock : '0);
+    assign apb_periph0_axi_arcache = (cpu_32b_ar_gnt_apb_periph0 ? cpu_32b_ar.cache : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_32b_ar.cache : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_32b_ar.cache : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_32b_ar.cache : '0);
+    assign apb_periph0_axi_arprot = (cpu_32b_ar_gnt_apb_periph0 ? cpu_32b_ar.prot : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_32b_ar.prot : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_32b_ar.prot : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_32b_ar.prot : '0);
+    assign apb_periph0_axi_arvalid = cpu_32b_ar_gnt_apb_periph0 || dma_32b_ar_gnt_apb_periph0 || host_axil_32b_ar_gnt_apb_periph0 || debug_axil_32b_ar_gnt_apb_periph0;
 
     // Rready (slave → owning master, by rid_bridge_id)
     assign apb_periph0_axi_rready = ((apb_periph0_axi_rid_bridge_id == 0) && apb_periph0_axi_rid_valid ? cpu_32b_rready : '0) |
@@ -1754,12 +1702,358 @@ module bridge_e_grand_mix_5x5_xbar
         ((apb_periph0_axi_rid_bridge_id == 3) && apb_periph0_axi_rid_valid ? host_axil_32b_rready : '0) |
         ((apb_periph0_axi_rid_bridge_id == 4) && apb_periph0_axi_rid_valid ? debug_axil_32b_rready : '0);
 
-    // Bridge ID (reads) — picks the originating master's id
-    assign apb_periph0_axi_bridge_id_ar = ((cpu_32b_ar_to_apb_periph0 && cpu_32b_arvalid) ? cpu_bridge_id_ar : '0) |
-        ((dma_32b_ar_to_apb_periph0 && dma_32b_arvalid) ? dma_bridge_id_ar : '0) |
-        ((host_axil_32b_ar_to_apb_periph0 && host_axil_32b_arvalid) ? host_axil_bridge_id_ar : '0) |
-        ((debug_axil_32b_ar_to_apb_periph0 && debug_axil_32b_arvalid) ? debug_axil_bridge_id_ar : '0);
+    // Bridge ID (reads) — the granted master's id
+    assign apb_periph0_axi_bridge_id_ar = (cpu_32b_ar_gnt_apb_periph0 ? cpu_bridge_id_ar : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? dma_bridge_id_ar : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? host_axil_bridge_id_ar : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? debug_axil_bridge_id_ar : '0);
 
+
+    // ================================================================
+    // W destination FIFOs (per master width-path)
+    // ================================================================
+    // cpu 32b path -> axil_periph0, axil_periph1, apb_periph0
+    logic [1:0] cpu_32b_wdest_mem [16];
+    logic [4:0] cpu_32b_wdest_wptr, cpu_32b_wdest_rptr;
+    wire [1:0] cpu_32b_wdest_enc = cpu_32b_aw_to_axil_periph1 ? 2'd1 : cpu_32b_aw_to_apb_periph0 ? 2'd2 : 2'd0;
+    wire cpu_32b_wdest_push = cpu_32b_awvalid && cpu_32b_awready;
+    wire cpu_32b_wdest_pop  = cpu_32b_wvalid && cpu_32b_wready && cpu_32b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            cpu_32b_wdest_wptr <= '0;
+            cpu_32b_wdest_rptr <= '0;
+        end else begin
+            if (cpu_32b_wdest_push) begin
+                cpu_32b_wdest_mem[cpu_32b_wdest_wptr[3:0]] <= cpu_32b_wdest_enc;
+                cpu_32b_wdest_wptr <= cpu_32b_wdest_wptr + 1'b1;
+            end
+            if (cpu_32b_wdest_pop) begin
+                cpu_32b_wdest_rptr <= cpu_32b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire cpu_32b_wdest_valid = (cpu_32b_wdest_wptr != cpu_32b_wdest_rptr);
+    wire [1:0] cpu_32b_wdest_head = cpu_32b_wdest_mem[cpu_32b_wdest_rptr[3:0]];
+    assign cpu_32b_w_to_axil_periph0 = cpu_32b_wdest_valid && (cpu_32b_wdest_head == 2'd0);
+    assign cpu_32b_w_to_axil_periph1 = cpu_32b_wdest_valid && (cpu_32b_wdest_head == 2'd1);
+    assign cpu_32b_w_to_apb_periph0 = cpu_32b_wdest_valid && (cpu_32b_wdest_head == 2'd2);
+
+    // cpu 128b path -> scratch
+    logic [0:0] cpu_128b_wdest_mem [16];
+    logic [4:0] cpu_128b_wdest_wptr, cpu_128b_wdest_rptr;
+    wire [0:0] cpu_128b_wdest_enc = 1'd0;
+    wire cpu_128b_wdest_push = cpu_128b_awvalid && cpu_128b_awready;
+    wire cpu_128b_wdest_pop  = cpu_128b_wvalid && cpu_128b_wready && cpu_128b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            cpu_128b_wdest_wptr <= '0;
+            cpu_128b_wdest_rptr <= '0;
+        end else begin
+            if (cpu_128b_wdest_push) begin
+                cpu_128b_wdest_mem[cpu_128b_wdest_wptr[3:0]] <= cpu_128b_wdest_enc;
+                cpu_128b_wdest_wptr <= cpu_128b_wdest_wptr + 1'b1;
+            end
+            if (cpu_128b_wdest_pop) begin
+                cpu_128b_wdest_rptr <= cpu_128b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire cpu_128b_wdest_valid = (cpu_128b_wdest_wptr != cpu_128b_wdest_rptr);
+    wire [0:0] cpu_128b_wdest_head = cpu_128b_wdest_mem[cpu_128b_wdest_rptr[3:0]];
+    assign cpu_128b_w_to_scratch = cpu_128b_wdest_valid && (cpu_128b_wdest_head == 1'd0);
+
+    // cpu 256b path -> ddr0
+    logic [0:0] cpu_256b_wdest_mem [16];
+    logic [4:0] cpu_256b_wdest_wptr, cpu_256b_wdest_rptr;
+    wire [0:0] cpu_256b_wdest_enc = 1'd0;
+    wire cpu_256b_wdest_push = cpu_256b_awvalid && cpu_256b_awready;
+    wire cpu_256b_wdest_pop  = cpu_256b_wvalid && cpu_256b_wready && cpu_256b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            cpu_256b_wdest_wptr <= '0;
+            cpu_256b_wdest_rptr <= '0;
+        end else begin
+            if (cpu_256b_wdest_push) begin
+                cpu_256b_wdest_mem[cpu_256b_wdest_wptr[3:0]] <= cpu_256b_wdest_enc;
+                cpu_256b_wdest_wptr <= cpu_256b_wdest_wptr + 1'b1;
+            end
+            if (cpu_256b_wdest_pop) begin
+                cpu_256b_wdest_rptr <= cpu_256b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire cpu_256b_wdest_valid = (cpu_256b_wdest_wptr != cpu_256b_wdest_rptr);
+    wire [0:0] cpu_256b_wdest_head = cpu_256b_wdest_mem[cpu_256b_wdest_rptr[3:0]];
+    assign cpu_256b_w_to_ddr0 = cpu_256b_wdest_valid && (cpu_256b_wdest_head == 1'd0);
+
+    // gpu 32b path -> axil_periph1
+    logic [0:0] gpu_32b_wdest_mem [16];
+    logic [4:0] gpu_32b_wdest_wptr, gpu_32b_wdest_rptr;
+    wire [0:0] gpu_32b_wdest_enc = 1'd0;
+    wire gpu_32b_wdest_push = gpu_32b_awvalid && gpu_32b_awready;
+    wire gpu_32b_wdest_pop  = gpu_32b_wvalid && gpu_32b_wready && gpu_32b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            gpu_32b_wdest_wptr <= '0;
+            gpu_32b_wdest_rptr <= '0;
+        end else begin
+            if (gpu_32b_wdest_push) begin
+                gpu_32b_wdest_mem[gpu_32b_wdest_wptr[3:0]] <= gpu_32b_wdest_enc;
+                gpu_32b_wdest_wptr <= gpu_32b_wdest_wptr + 1'b1;
+            end
+            if (gpu_32b_wdest_pop) begin
+                gpu_32b_wdest_rptr <= gpu_32b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire gpu_32b_wdest_valid = (gpu_32b_wdest_wptr != gpu_32b_wdest_rptr);
+    wire [0:0] gpu_32b_wdest_head = gpu_32b_wdest_mem[gpu_32b_wdest_rptr[3:0]];
+    assign gpu_32b_w_to_axil_periph1 = gpu_32b_wdest_valid && (gpu_32b_wdest_head == 1'd0);
+
+    // gpu 128b path -> scratch
+    logic [0:0] gpu_128b_wdest_mem [16];
+    logic [4:0] gpu_128b_wdest_wptr, gpu_128b_wdest_rptr;
+    wire [0:0] gpu_128b_wdest_enc = 1'd0;
+    wire gpu_128b_wdest_push = gpu_128b_awvalid && gpu_128b_awready;
+    wire gpu_128b_wdest_pop  = gpu_128b_wvalid && gpu_128b_wready && gpu_128b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            gpu_128b_wdest_wptr <= '0;
+            gpu_128b_wdest_rptr <= '0;
+        end else begin
+            if (gpu_128b_wdest_push) begin
+                gpu_128b_wdest_mem[gpu_128b_wdest_wptr[3:0]] <= gpu_128b_wdest_enc;
+                gpu_128b_wdest_wptr <= gpu_128b_wdest_wptr + 1'b1;
+            end
+            if (gpu_128b_wdest_pop) begin
+                gpu_128b_wdest_rptr <= gpu_128b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire gpu_128b_wdest_valid = (gpu_128b_wdest_wptr != gpu_128b_wdest_rptr);
+    wire [0:0] gpu_128b_wdest_head = gpu_128b_wdest_mem[gpu_128b_wdest_rptr[3:0]];
+    assign gpu_128b_w_to_scratch = gpu_128b_wdest_valid && (gpu_128b_wdest_head == 1'd0);
+
+    // gpu 256b path -> ddr0
+    logic [0:0] gpu_256b_wdest_mem [16];
+    logic [4:0] gpu_256b_wdest_wptr, gpu_256b_wdest_rptr;
+    wire [0:0] gpu_256b_wdest_enc = 1'd0;
+    wire gpu_256b_wdest_push = gpu_256b_awvalid && gpu_256b_awready;
+    wire gpu_256b_wdest_pop  = gpu_256b_wvalid && gpu_256b_wready && gpu_256b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            gpu_256b_wdest_wptr <= '0;
+            gpu_256b_wdest_rptr <= '0;
+        end else begin
+            if (gpu_256b_wdest_push) begin
+                gpu_256b_wdest_mem[gpu_256b_wdest_wptr[3:0]] <= gpu_256b_wdest_enc;
+                gpu_256b_wdest_wptr <= gpu_256b_wdest_wptr + 1'b1;
+            end
+            if (gpu_256b_wdest_pop) begin
+                gpu_256b_wdest_rptr <= gpu_256b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire gpu_256b_wdest_valid = (gpu_256b_wdest_wptr != gpu_256b_wdest_rptr);
+    wire [0:0] gpu_256b_wdest_head = gpu_256b_wdest_mem[gpu_256b_wdest_rptr[3:0]];
+    assign gpu_256b_w_to_ddr0 = gpu_256b_wdest_valid && (gpu_256b_wdest_head == 1'd0);
+
+    // dma 32b path -> axil_periph0, apb_periph0
+    logic [0:0] dma_32b_wdest_mem [16];
+    logic [4:0] dma_32b_wdest_wptr, dma_32b_wdest_rptr;
+    wire [0:0] dma_32b_wdest_enc = dma_32b_aw_to_apb_periph0 ? 1'd1 : 1'd0;
+    wire dma_32b_wdest_push = dma_32b_awvalid && dma_32b_awready;
+    wire dma_32b_wdest_pop  = dma_32b_wvalid && dma_32b_wready && dma_32b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            dma_32b_wdest_wptr <= '0;
+            dma_32b_wdest_rptr <= '0;
+        end else begin
+            if (dma_32b_wdest_push) begin
+                dma_32b_wdest_mem[dma_32b_wdest_wptr[3:0]] <= dma_32b_wdest_enc;
+                dma_32b_wdest_wptr <= dma_32b_wdest_wptr + 1'b1;
+            end
+            if (dma_32b_wdest_pop) begin
+                dma_32b_wdest_rptr <= dma_32b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire dma_32b_wdest_valid = (dma_32b_wdest_wptr != dma_32b_wdest_rptr);
+    wire [0:0] dma_32b_wdest_head = dma_32b_wdest_mem[dma_32b_wdest_rptr[3:0]];
+    assign dma_32b_w_to_axil_periph0 = dma_32b_wdest_valid && (dma_32b_wdest_head == 1'd0);
+    assign dma_32b_w_to_apb_periph0 = dma_32b_wdest_valid && (dma_32b_wdest_head == 1'd1);
+
+    // dma 128b path -> scratch
+    logic [0:0] dma_128b_wdest_mem [16];
+    logic [4:0] dma_128b_wdest_wptr, dma_128b_wdest_rptr;
+    wire [0:0] dma_128b_wdest_enc = 1'd0;
+    wire dma_128b_wdest_push = dma_128b_awvalid && dma_128b_awready;
+    wire dma_128b_wdest_pop  = dma_128b_wvalid && dma_128b_wready && dma_128b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            dma_128b_wdest_wptr <= '0;
+            dma_128b_wdest_rptr <= '0;
+        end else begin
+            if (dma_128b_wdest_push) begin
+                dma_128b_wdest_mem[dma_128b_wdest_wptr[3:0]] <= dma_128b_wdest_enc;
+                dma_128b_wdest_wptr <= dma_128b_wdest_wptr + 1'b1;
+            end
+            if (dma_128b_wdest_pop) begin
+                dma_128b_wdest_rptr <= dma_128b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire dma_128b_wdest_valid = (dma_128b_wdest_wptr != dma_128b_wdest_rptr);
+    wire [0:0] dma_128b_wdest_head = dma_128b_wdest_mem[dma_128b_wdest_rptr[3:0]];
+    assign dma_128b_w_to_scratch = dma_128b_wdest_valid && (dma_128b_wdest_head == 1'd0);
+
+    // dma 256b path -> ddr0
+    logic [0:0] dma_256b_wdest_mem [16];
+    logic [4:0] dma_256b_wdest_wptr, dma_256b_wdest_rptr;
+    wire [0:0] dma_256b_wdest_enc = 1'd0;
+    wire dma_256b_wdest_push = dma_256b_awvalid && dma_256b_awready;
+    wire dma_256b_wdest_pop  = dma_256b_wvalid && dma_256b_wready && dma_256b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            dma_256b_wdest_wptr <= '0;
+            dma_256b_wdest_rptr <= '0;
+        end else begin
+            if (dma_256b_wdest_push) begin
+                dma_256b_wdest_mem[dma_256b_wdest_wptr[3:0]] <= dma_256b_wdest_enc;
+                dma_256b_wdest_wptr <= dma_256b_wdest_wptr + 1'b1;
+            end
+            if (dma_256b_wdest_pop) begin
+                dma_256b_wdest_rptr <= dma_256b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire dma_256b_wdest_valid = (dma_256b_wdest_wptr != dma_256b_wdest_rptr);
+    wire [0:0] dma_256b_wdest_head = dma_256b_wdest_mem[dma_256b_wdest_rptr[3:0]];
+    assign dma_256b_w_to_ddr0 = dma_256b_wdest_valid && (dma_256b_wdest_head == 1'd0);
+
+    // host_axil 32b path -> axil_periph0, axil_periph1, apb_periph0
+    logic [1:0] host_axil_32b_wdest_mem [16];
+    logic [4:0] host_axil_32b_wdest_wptr, host_axil_32b_wdest_rptr;
+    wire [1:0] host_axil_32b_wdest_enc = host_axil_32b_aw_to_axil_periph1 ? 2'd1 : host_axil_32b_aw_to_apb_periph0 ? 2'd2 : 2'd0;
+    wire host_axil_32b_wdest_push = host_axil_32b_awvalid && host_axil_32b_awready;
+    wire host_axil_32b_wdest_pop  = host_axil_32b_wvalid && host_axil_32b_wready && host_axil_32b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            host_axil_32b_wdest_wptr <= '0;
+            host_axil_32b_wdest_rptr <= '0;
+        end else begin
+            if (host_axil_32b_wdest_push) begin
+                host_axil_32b_wdest_mem[host_axil_32b_wdest_wptr[3:0]] <= host_axil_32b_wdest_enc;
+                host_axil_32b_wdest_wptr <= host_axil_32b_wdest_wptr + 1'b1;
+            end
+            if (host_axil_32b_wdest_pop) begin
+                host_axil_32b_wdest_rptr <= host_axil_32b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire host_axil_32b_wdest_valid = (host_axil_32b_wdest_wptr != host_axil_32b_wdest_rptr);
+    wire [1:0] host_axil_32b_wdest_head = host_axil_32b_wdest_mem[host_axil_32b_wdest_rptr[3:0]];
+    assign host_axil_32b_w_to_axil_periph0 = host_axil_32b_wdest_valid && (host_axil_32b_wdest_head == 2'd0);
+    assign host_axil_32b_w_to_axil_periph1 = host_axil_32b_wdest_valid && (host_axil_32b_wdest_head == 2'd1);
+    assign host_axil_32b_w_to_apb_periph0 = host_axil_32b_wdest_valid && (host_axil_32b_wdest_head == 2'd2);
+
+    // host_axil 128b path -> scratch
+    logic [0:0] host_axil_128b_wdest_mem [16];
+    logic [4:0] host_axil_128b_wdest_wptr, host_axil_128b_wdest_rptr;
+    wire [0:0] host_axil_128b_wdest_enc = 1'd0;
+    wire host_axil_128b_wdest_push = host_axil_128b_awvalid && host_axil_128b_awready;
+    wire host_axil_128b_wdest_pop  = host_axil_128b_wvalid && host_axil_128b_wready && host_axil_128b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            host_axil_128b_wdest_wptr <= '0;
+            host_axil_128b_wdest_rptr <= '0;
+        end else begin
+            if (host_axil_128b_wdest_push) begin
+                host_axil_128b_wdest_mem[host_axil_128b_wdest_wptr[3:0]] <= host_axil_128b_wdest_enc;
+                host_axil_128b_wdest_wptr <= host_axil_128b_wdest_wptr + 1'b1;
+            end
+            if (host_axil_128b_wdest_pop) begin
+                host_axil_128b_wdest_rptr <= host_axil_128b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire host_axil_128b_wdest_valid = (host_axil_128b_wdest_wptr != host_axil_128b_wdest_rptr);
+    wire [0:0] host_axil_128b_wdest_head = host_axil_128b_wdest_mem[host_axil_128b_wdest_rptr[3:0]];
+    assign host_axil_128b_w_to_scratch = host_axil_128b_wdest_valid && (host_axil_128b_wdest_head == 1'd0);
+
+    // host_axil 256b path -> ddr0
+    logic [0:0] host_axil_256b_wdest_mem [16];
+    logic [4:0] host_axil_256b_wdest_wptr, host_axil_256b_wdest_rptr;
+    wire [0:0] host_axil_256b_wdest_enc = 1'd0;
+    wire host_axil_256b_wdest_push = host_axil_256b_awvalid && host_axil_256b_awready;
+    wire host_axil_256b_wdest_pop  = host_axil_256b_wvalid && host_axil_256b_wready && host_axil_256b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            host_axil_256b_wdest_wptr <= '0;
+            host_axil_256b_wdest_rptr <= '0;
+        end else begin
+            if (host_axil_256b_wdest_push) begin
+                host_axil_256b_wdest_mem[host_axil_256b_wdest_wptr[3:0]] <= host_axil_256b_wdest_enc;
+                host_axil_256b_wdest_wptr <= host_axil_256b_wdest_wptr + 1'b1;
+            end
+            if (host_axil_256b_wdest_pop) begin
+                host_axil_256b_wdest_rptr <= host_axil_256b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire host_axil_256b_wdest_valid = (host_axil_256b_wdest_wptr != host_axil_256b_wdest_rptr);
+    wire [0:0] host_axil_256b_wdest_head = host_axil_256b_wdest_mem[host_axil_256b_wdest_rptr[3:0]];
+    assign host_axil_256b_w_to_ddr0 = host_axil_256b_wdest_valid && (host_axil_256b_wdest_head == 1'd0);
+
+    // debug_axil 32b path -> axil_periph0, axil_periph1, apb_periph0
+    logic [1:0] debug_axil_32b_wdest_mem [16];
+    logic [4:0] debug_axil_32b_wdest_wptr, debug_axil_32b_wdest_rptr;
+    wire [1:0] debug_axil_32b_wdest_enc = debug_axil_32b_aw_to_axil_periph1 ? 2'd1 : debug_axil_32b_aw_to_apb_periph0 ? 2'd2 : 2'd0;
+    wire debug_axil_32b_wdest_push = debug_axil_32b_awvalid && debug_axil_32b_awready;
+    wire debug_axil_32b_wdest_pop  = debug_axil_32b_wvalid && debug_axil_32b_wready && debug_axil_32b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            debug_axil_32b_wdest_wptr <= '0;
+            debug_axil_32b_wdest_rptr <= '0;
+        end else begin
+            if (debug_axil_32b_wdest_push) begin
+                debug_axil_32b_wdest_mem[debug_axil_32b_wdest_wptr[3:0]] <= debug_axil_32b_wdest_enc;
+                debug_axil_32b_wdest_wptr <= debug_axil_32b_wdest_wptr + 1'b1;
+            end
+            if (debug_axil_32b_wdest_pop) begin
+                debug_axil_32b_wdest_rptr <= debug_axil_32b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire debug_axil_32b_wdest_valid = (debug_axil_32b_wdest_wptr != debug_axil_32b_wdest_rptr);
+    wire [1:0] debug_axil_32b_wdest_head = debug_axil_32b_wdest_mem[debug_axil_32b_wdest_rptr[3:0]];
+    assign debug_axil_32b_w_to_axil_periph0 = debug_axil_32b_wdest_valid && (debug_axil_32b_wdest_head == 2'd0);
+    assign debug_axil_32b_w_to_axil_periph1 = debug_axil_32b_wdest_valid && (debug_axil_32b_wdest_head == 2'd1);
+    assign debug_axil_32b_w_to_apb_periph0 = debug_axil_32b_wdest_valid && (debug_axil_32b_wdest_head == 2'd2);
+
+    // debug_axil 256b path -> ddr0
+    logic [0:0] debug_axil_256b_wdest_mem [16];
+    logic [4:0] debug_axil_256b_wdest_wptr, debug_axil_256b_wdest_rptr;
+    wire [0:0] debug_axil_256b_wdest_enc = 1'd0;
+    wire debug_axil_256b_wdest_push = debug_axil_256b_awvalid && debug_axil_256b_awready;
+    wire debug_axil_256b_wdest_pop  = debug_axil_256b_wvalid && debug_axil_256b_wready && debug_axil_256b_w.last;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            debug_axil_256b_wdest_wptr <= '0;
+            debug_axil_256b_wdest_rptr <= '0;
+        end else begin
+            if (debug_axil_256b_wdest_push) begin
+                debug_axil_256b_wdest_mem[debug_axil_256b_wdest_wptr[3:0]] <= debug_axil_256b_wdest_enc;
+                debug_axil_256b_wdest_wptr <= debug_axil_256b_wdest_wptr + 1'b1;
+            end
+            if (debug_axil_256b_wdest_pop) begin
+                debug_axil_256b_wdest_rptr <= debug_axil_256b_wdest_rptr + 1'b1;
+            end
+        end
+    end
+    wire debug_axil_256b_wdest_valid = (debug_axil_256b_wdest_wptr != debug_axil_256b_wdest_rptr);
+    wire [0:0] debug_axil_256b_wdest_head = debug_axil_256b_wdest_mem[debug_axil_256b_wdest_rptr[3:0]];
+    assign debug_axil_256b_w_to_ddr0 = debug_axil_256b_wdest_valid && (debug_axil_256b_wdest_head == 1'd0);
 
     // ================================================================
     // Response MUXes (OR together all slave responses)
@@ -1767,14 +2061,14 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: cpu, Width path: 32b
     assign cpu_32b_awready = 
-        (cpu_32b_aw_to_axil_periph0 ? axil_periph0_axi_awready : '0) |
-        (cpu_32b_aw_to_axil_periph1 ? axil_periph1_axi_awready : '0) |
-        (cpu_32b_aw_to_apb_periph0 ? apb_periph0_axi_awready : '0);
+        (cpu_32b_aw_gnt_axil_periph0 ? axil_periph0_axi_awready : '0) |
+        (cpu_32b_aw_gnt_axil_periph1 ? axil_periph1_axi_awready : '0) |
+        (cpu_32b_aw_gnt_apb_periph0 ? apb_periph0_axi_awready : '0);
 
     assign cpu_32b_wready = 
-        (cpu_32b_w_to_axil_periph0 ? axil_periph0_axi_wready : '0) |
-        (cpu_32b_w_to_axil_periph1 ? axil_periph1_axi_wready : '0) |
-        (cpu_32b_w_to_apb_periph0 ? apb_periph0_axi_wready : '0);
+        (cpu_32b_w_sel_axil_periph0 ? axil_periph0_axi_wready : '0) |
+        (cpu_32b_w_sel_axil_periph1 ? axil_periph1_axi_wready : '0) |
+        (cpu_32b_w_sel_apb_periph0 ? apb_periph0_axi_wready : '0);
 
     assign cpu_32b_b.id = 
         ((axil_periph0_axi_bid_bridge_id == 0) && axil_periph0_axi_bid_valid ? axil_periph0_axi_bid : '0) |
@@ -1792,9 +2086,9 @@ module bridge_e_grand_mix_5x5_xbar
         ((apb_periph0_axi_bid_bridge_id == 0) && apb_periph0_axi_bid_valid ? apb_periph0_axi_bvalid : '0);
 
     assign cpu_32b_arready = 
-        (cpu_32b_ar_to_axil_periph0 ? axil_periph0_axi_arready : '0) |
-        (cpu_32b_ar_to_axil_periph1 ? axil_periph1_axi_arready : '0) |
-        (cpu_32b_ar_to_apb_periph0 ? apb_periph0_axi_arready : '0);
+        (cpu_32b_ar_gnt_axil_periph0 ? axil_periph0_axi_arready : '0) |
+        (cpu_32b_ar_gnt_axil_periph1 ? axil_periph1_axi_arready : '0) |
+        (cpu_32b_ar_gnt_apb_periph0 ? apb_periph0_axi_arready : '0);
 
     assign cpu_32b_r.id = 
         ((axil_periph0_axi_rid_bridge_id == 0) && axil_periph0_axi_rid_valid ? axil_periph0_axi_rid : '0) |
@@ -1824,10 +2118,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: cpu, Width path: 128b
     assign cpu_128b_awready = 
-        (cpu_128b_aw_to_scratch ? scratch_axi_awready : '0);
+        (cpu_128b_aw_gnt_scratch ? scratch_axi_awready : '0);
 
     assign cpu_128b_wready = 
-        (cpu_128b_w_to_scratch ? scratch_axi_wready : '0);
+        (cpu_128b_w_sel_scratch ? scratch_axi_wready : '0);
 
     assign cpu_128b_b.id = 
         ((scratch_axi_bid_bridge_id == 0) && scratch_axi_bid_valid ? scratch_axi_bid : '0);
@@ -1839,7 +2133,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((scratch_axi_bid_bridge_id == 0) && scratch_axi_bid_valid ? scratch_axi_bvalid : '0);
 
     assign cpu_128b_arready = 
-        (cpu_128b_ar_to_scratch ? scratch_axi_arready : '0);
+        (cpu_128b_ar_gnt_scratch ? scratch_axi_arready : '0);
 
     assign cpu_128b_r.id = 
         ((scratch_axi_rid_bridge_id == 0) && scratch_axi_rid_valid ? scratch_axi_rid : '0);
@@ -1859,10 +2153,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: cpu, Width path: 256b
     assign cpu_256b_awready = 
-        (cpu_256b_aw_to_ddr0 ? ddr0_axi_awready : '0);
+        (cpu_256b_aw_gnt_ddr0 ? ddr0_axi_awready : '0);
 
     assign cpu_256b_wready = 
-        (cpu_256b_w_to_ddr0 ? ddr0_axi_wready : '0);
+        (cpu_256b_w_sel_ddr0 ? ddr0_axi_wready : '0);
 
     assign cpu_256b_b.id = 
         ((ddr0_axi_bid_bridge_id == 0) && ddr0_axi_bid_valid ? ddr0_axi_bid : '0);
@@ -1874,7 +2168,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((ddr0_axi_bid_bridge_id == 0) && ddr0_axi_bid_valid ? ddr0_axi_bvalid : '0);
 
     assign cpu_256b_arready = 
-        (cpu_256b_ar_to_ddr0 ? ddr0_axi_arready : '0);
+        (cpu_256b_ar_gnt_ddr0 ? ddr0_axi_arready : '0);
 
     assign cpu_256b_r.id = 
         ((ddr0_axi_rid_bridge_id == 0) && ddr0_axi_rid_valid ? ddr0_axi_rid : '0);
@@ -1894,10 +2188,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: gpu, Width path: 32b
     assign gpu_32b_awready = 
-        (gpu_32b_aw_to_axil_periph1 ? axil_periph1_axi_awready : '0);
+        (gpu_32b_aw_gnt_axil_periph1 ? axil_periph1_axi_awready : '0);
 
     assign gpu_32b_wready = 
-        (gpu_32b_w_to_axil_periph1 ? axil_periph1_axi_wready : '0);
+        (gpu_32b_w_sel_axil_periph1 ? axil_periph1_axi_wready : '0);
 
     assign gpu_32b_b.id = 
         ((axil_periph1_axi_bid_bridge_id == 1) && axil_periph1_axi_bid_valid ? axil_periph1_axi_bid : '0);
@@ -1909,7 +2203,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((axil_periph1_axi_bid_bridge_id == 1) && axil_periph1_axi_bid_valid ? axil_periph1_axi_bvalid : '0);
 
     assign gpu_32b_arready = 
-        (gpu_32b_ar_to_axil_periph1 ? axil_periph1_axi_arready : '0);
+        (gpu_32b_ar_gnt_axil_periph1 ? axil_periph1_axi_arready : '0);
 
     assign gpu_32b_r.id = 
         ((axil_periph1_axi_rid_bridge_id == 1) && axil_periph1_axi_rid_valid ? axil_periph1_axi_rid : '0);
@@ -1929,10 +2223,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: gpu, Width path: 128b
     assign gpu_128b_awready = 
-        (gpu_128b_aw_to_scratch ? scratch_axi_awready : '0);
+        (gpu_128b_aw_gnt_scratch ? scratch_axi_awready : '0);
 
     assign gpu_128b_wready = 
-        (gpu_128b_w_to_scratch ? scratch_axi_wready : '0);
+        (gpu_128b_w_sel_scratch ? scratch_axi_wready : '0);
 
     assign gpu_128b_b.id = 
         ((scratch_axi_bid_bridge_id == 1) && scratch_axi_bid_valid ? scratch_axi_bid : '0);
@@ -1944,7 +2238,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((scratch_axi_bid_bridge_id == 1) && scratch_axi_bid_valid ? scratch_axi_bvalid : '0);
 
     assign gpu_128b_arready = 
-        (gpu_128b_ar_to_scratch ? scratch_axi_arready : '0);
+        (gpu_128b_ar_gnt_scratch ? scratch_axi_arready : '0);
 
     assign gpu_128b_r.id = 
         ((scratch_axi_rid_bridge_id == 1) && scratch_axi_rid_valid ? scratch_axi_rid : '0);
@@ -1964,10 +2258,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: gpu, Width path: 256b
     assign gpu_256b_awready = 
-        (gpu_256b_aw_to_ddr0 ? ddr0_axi_awready : '0);
+        (gpu_256b_aw_gnt_ddr0 ? ddr0_axi_awready : '0);
 
     assign gpu_256b_wready = 
-        (gpu_256b_w_to_ddr0 ? ddr0_axi_wready : '0);
+        (gpu_256b_w_sel_ddr0 ? ddr0_axi_wready : '0);
 
     assign gpu_256b_b.id = 
         ((ddr0_axi_bid_bridge_id == 1) && ddr0_axi_bid_valid ? ddr0_axi_bid : '0);
@@ -1979,7 +2273,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((ddr0_axi_bid_bridge_id == 1) && ddr0_axi_bid_valid ? ddr0_axi_bvalid : '0);
 
     assign gpu_256b_arready = 
-        (gpu_256b_ar_to_ddr0 ? ddr0_axi_arready : '0);
+        (gpu_256b_ar_gnt_ddr0 ? ddr0_axi_arready : '0);
 
     assign gpu_256b_r.id = 
         ((ddr0_axi_rid_bridge_id == 1) && ddr0_axi_rid_valid ? ddr0_axi_rid : '0);
@@ -1999,12 +2293,12 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: dma, Width path: 32b
     assign dma_32b_awready = 
-        (dma_32b_aw_to_axil_periph0 ? axil_periph0_axi_awready : '0) |
-        (dma_32b_aw_to_apb_periph0 ? apb_periph0_axi_awready : '0);
+        (dma_32b_aw_gnt_axil_periph0 ? axil_periph0_axi_awready : '0) |
+        (dma_32b_aw_gnt_apb_periph0 ? apb_periph0_axi_awready : '0);
 
     assign dma_32b_wready = 
-        (dma_32b_w_to_axil_periph0 ? axil_periph0_axi_wready : '0) |
-        (dma_32b_w_to_apb_periph0 ? apb_periph0_axi_wready : '0);
+        (dma_32b_w_sel_axil_periph0 ? axil_periph0_axi_wready : '0) |
+        (dma_32b_w_sel_apb_periph0 ? apb_periph0_axi_wready : '0);
 
     assign dma_32b_b.id = 
         ((axil_periph0_axi_bid_bridge_id == 2) && axil_periph0_axi_bid_valid ? axil_periph0_axi_bid : '0) |
@@ -2019,8 +2313,8 @@ module bridge_e_grand_mix_5x5_xbar
         ((apb_periph0_axi_bid_bridge_id == 2) && apb_periph0_axi_bid_valid ? apb_periph0_axi_bvalid : '0);
 
     assign dma_32b_arready = 
-        (dma_32b_ar_to_axil_periph0 ? axil_periph0_axi_arready : '0) |
-        (dma_32b_ar_to_apb_periph0 ? apb_periph0_axi_arready : '0);
+        (dma_32b_ar_gnt_axil_periph0 ? axil_periph0_axi_arready : '0) |
+        (dma_32b_ar_gnt_apb_periph0 ? apb_periph0_axi_arready : '0);
 
     assign dma_32b_r.id = 
         ((axil_periph0_axi_rid_bridge_id == 2) && axil_periph0_axi_rid_valid ? axil_periph0_axi_rid : '0) |
@@ -2045,10 +2339,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: dma, Width path: 128b
     assign dma_128b_awready = 
-        (dma_128b_aw_to_scratch ? scratch_axi_awready : '0);
+        (dma_128b_aw_gnt_scratch ? scratch_axi_awready : '0);
 
     assign dma_128b_wready = 
-        (dma_128b_w_to_scratch ? scratch_axi_wready : '0);
+        (dma_128b_w_sel_scratch ? scratch_axi_wready : '0);
 
     assign dma_128b_b.id = 
         ((scratch_axi_bid_bridge_id == 2) && scratch_axi_bid_valid ? scratch_axi_bid : '0);
@@ -2060,7 +2354,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((scratch_axi_bid_bridge_id == 2) && scratch_axi_bid_valid ? scratch_axi_bvalid : '0);
 
     assign dma_128b_arready = 
-        (dma_128b_ar_to_scratch ? scratch_axi_arready : '0);
+        (dma_128b_ar_gnt_scratch ? scratch_axi_arready : '0);
 
     assign dma_128b_r.id = 
         ((scratch_axi_rid_bridge_id == 2) && scratch_axi_rid_valid ? scratch_axi_rid : '0);
@@ -2080,10 +2374,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: dma, Width path: 256b
     assign dma_256b_awready = 
-        (dma_256b_aw_to_ddr0 ? ddr0_axi_awready : '0);
+        (dma_256b_aw_gnt_ddr0 ? ddr0_axi_awready : '0);
 
     assign dma_256b_wready = 
-        (dma_256b_w_to_ddr0 ? ddr0_axi_wready : '0);
+        (dma_256b_w_sel_ddr0 ? ddr0_axi_wready : '0);
 
     assign dma_256b_b.id = 
         ((ddr0_axi_bid_bridge_id == 2) && ddr0_axi_bid_valid ? ddr0_axi_bid : '0);
@@ -2095,7 +2389,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((ddr0_axi_bid_bridge_id == 2) && ddr0_axi_bid_valid ? ddr0_axi_bvalid : '0);
 
     assign dma_256b_arready = 
-        (dma_256b_ar_to_ddr0 ? ddr0_axi_arready : '0);
+        (dma_256b_ar_gnt_ddr0 ? ddr0_axi_arready : '0);
 
     assign dma_256b_r.id = 
         ((ddr0_axi_rid_bridge_id == 2) && ddr0_axi_rid_valid ? ddr0_axi_rid : '0);
@@ -2115,14 +2409,14 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: host_axil, Width path: 32b
     assign host_axil_32b_awready = 
-        (host_axil_32b_aw_to_axil_periph0 ? axil_periph0_axi_awready : '0) |
-        (host_axil_32b_aw_to_axil_periph1 ? axil_periph1_axi_awready : '0) |
-        (host_axil_32b_aw_to_apb_periph0 ? apb_periph0_axi_awready : '0);
+        (host_axil_32b_aw_gnt_axil_periph0 ? axil_periph0_axi_awready : '0) |
+        (host_axil_32b_aw_gnt_axil_periph1 ? axil_periph1_axi_awready : '0) |
+        (host_axil_32b_aw_gnt_apb_periph0 ? apb_periph0_axi_awready : '0);
 
     assign host_axil_32b_wready = 
-        (host_axil_32b_w_to_axil_periph0 ? axil_periph0_axi_wready : '0) |
-        (host_axil_32b_w_to_axil_periph1 ? axil_periph1_axi_wready : '0) |
-        (host_axil_32b_w_to_apb_periph0 ? apb_periph0_axi_wready : '0);
+        (host_axil_32b_w_sel_axil_periph0 ? axil_periph0_axi_wready : '0) |
+        (host_axil_32b_w_sel_axil_periph1 ? axil_periph1_axi_wready : '0) |
+        (host_axil_32b_w_sel_apb_periph0 ? apb_periph0_axi_wready : '0);
 
     assign host_axil_32b_b.id = 
         ((axil_periph0_axi_bid_bridge_id == 3) && axil_periph0_axi_bid_valid ? axil_periph0_axi_bid : '0) |
@@ -2140,9 +2434,9 @@ module bridge_e_grand_mix_5x5_xbar
         ((apb_periph0_axi_bid_bridge_id == 3) && apb_periph0_axi_bid_valid ? apb_periph0_axi_bvalid : '0);
 
     assign host_axil_32b_arready = 
-        (host_axil_32b_ar_to_axil_periph0 ? axil_periph0_axi_arready : '0) |
-        (host_axil_32b_ar_to_axil_periph1 ? axil_periph1_axi_arready : '0) |
-        (host_axil_32b_ar_to_apb_periph0 ? apb_periph0_axi_arready : '0);
+        (host_axil_32b_ar_gnt_axil_periph0 ? axil_periph0_axi_arready : '0) |
+        (host_axil_32b_ar_gnt_axil_periph1 ? axil_periph1_axi_arready : '0) |
+        (host_axil_32b_ar_gnt_apb_periph0 ? apb_periph0_axi_arready : '0);
 
     assign host_axil_32b_r.id = 
         ((axil_periph0_axi_rid_bridge_id == 3) && axil_periph0_axi_rid_valid ? axil_periph0_axi_rid : '0) |
@@ -2172,10 +2466,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: host_axil, Width path: 128b
     assign host_axil_128b_awready = 
-        (host_axil_128b_aw_to_scratch ? scratch_axi_awready : '0);
+        (host_axil_128b_aw_gnt_scratch ? scratch_axi_awready : '0);
 
     assign host_axil_128b_wready = 
-        (host_axil_128b_w_to_scratch ? scratch_axi_wready : '0);
+        (host_axil_128b_w_sel_scratch ? scratch_axi_wready : '0);
 
     assign host_axil_128b_b.id = 
         ((scratch_axi_bid_bridge_id == 3) && scratch_axi_bid_valid ? scratch_axi_bid : '0);
@@ -2187,7 +2481,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((scratch_axi_bid_bridge_id == 3) && scratch_axi_bid_valid ? scratch_axi_bvalid : '0);
 
     assign host_axil_128b_arready = 
-        (host_axil_128b_ar_to_scratch ? scratch_axi_arready : '0);
+        (host_axil_128b_ar_gnt_scratch ? scratch_axi_arready : '0);
 
     assign host_axil_128b_r.id = 
         ((scratch_axi_rid_bridge_id == 3) && scratch_axi_rid_valid ? scratch_axi_rid : '0);
@@ -2207,10 +2501,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: host_axil, Width path: 256b
     assign host_axil_256b_awready = 
-        (host_axil_256b_aw_to_ddr0 ? ddr0_axi_awready : '0);
+        (host_axil_256b_aw_gnt_ddr0 ? ddr0_axi_awready : '0);
 
     assign host_axil_256b_wready = 
-        (host_axil_256b_w_to_ddr0 ? ddr0_axi_wready : '0);
+        (host_axil_256b_w_sel_ddr0 ? ddr0_axi_wready : '0);
 
     assign host_axil_256b_b.id = 
         ((ddr0_axi_bid_bridge_id == 3) && ddr0_axi_bid_valid ? ddr0_axi_bid : '0);
@@ -2222,7 +2516,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((ddr0_axi_bid_bridge_id == 3) && ddr0_axi_bid_valid ? ddr0_axi_bvalid : '0);
 
     assign host_axil_256b_arready = 
-        (host_axil_256b_ar_to_ddr0 ? ddr0_axi_arready : '0);
+        (host_axil_256b_ar_gnt_ddr0 ? ddr0_axi_arready : '0);
 
     assign host_axil_256b_r.id = 
         ((ddr0_axi_rid_bridge_id == 3) && ddr0_axi_rid_valid ? ddr0_axi_rid : '0);
@@ -2242,14 +2536,14 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: debug_axil, Width path: 32b
     assign debug_axil_32b_awready = 
-        (debug_axil_32b_aw_to_axil_periph0 ? axil_periph0_axi_awready : '0) |
-        (debug_axil_32b_aw_to_axil_periph1 ? axil_periph1_axi_awready : '0) |
-        (debug_axil_32b_aw_to_apb_periph0 ? apb_periph0_axi_awready : '0);
+        (debug_axil_32b_aw_gnt_axil_periph0 ? axil_periph0_axi_awready : '0) |
+        (debug_axil_32b_aw_gnt_axil_periph1 ? axil_periph1_axi_awready : '0) |
+        (debug_axil_32b_aw_gnt_apb_periph0 ? apb_periph0_axi_awready : '0);
 
     assign debug_axil_32b_wready = 
-        (debug_axil_32b_w_to_axil_periph0 ? axil_periph0_axi_wready : '0) |
-        (debug_axil_32b_w_to_axil_periph1 ? axil_periph1_axi_wready : '0) |
-        (debug_axil_32b_w_to_apb_periph0 ? apb_periph0_axi_wready : '0);
+        (debug_axil_32b_w_sel_axil_periph0 ? axil_periph0_axi_wready : '0) |
+        (debug_axil_32b_w_sel_axil_periph1 ? axil_periph1_axi_wready : '0) |
+        (debug_axil_32b_w_sel_apb_periph0 ? apb_periph0_axi_wready : '0);
 
     assign debug_axil_32b_b.id = 
         ((axil_periph0_axi_bid_bridge_id == 4) && axil_periph0_axi_bid_valid ? axil_periph0_axi_bid : '0) |
@@ -2267,9 +2561,9 @@ module bridge_e_grand_mix_5x5_xbar
         ((apb_periph0_axi_bid_bridge_id == 4) && apb_periph0_axi_bid_valid ? apb_periph0_axi_bvalid : '0);
 
     assign debug_axil_32b_arready = 
-        (debug_axil_32b_ar_to_axil_periph0 ? axil_periph0_axi_arready : '0) |
-        (debug_axil_32b_ar_to_axil_periph1 ? axil_periph1_axi_arready : '0) |
-        (debug_axil_32b_ar_to_apb_periph0 ? apb_periph0_axi_arready : '0);
+        (debug_axil_32b_ar_gnt_axil_periph0 ? axil_periph0_axi_arready : '0) |
+        (debug_axil_32b_ar_gnt_axil_periph1 ? axil_periph1_axi_arready : '0) |
+        (debug_axil_32b_ar_gnt_apb_periph0 ? apb_periph0_axi_arready : '0);
 
     assign debug_axil_32b_r.id = 
         ((axil_periph0_axi_rid_bridge_id == 4) && axil_periph0_axi_rid_valid ? axil_periph0_axi_rid : '0) |
@@ -2299,10 +2593,10 @@ module bridge_e_grand_mix_5x5_xbar
 
     // Master: debug_axil, Width path: 256b
     assign debug_axil_256b_awready = 
-        (debug_axil_256b_aw_to_ddr0 ? ddr0_axi_awready : '0);
+        (debug_axil_256b_aw_gnt_ddr0 ? ddr0_axi_awready : '0);
 
     assign debug_axil_256b_wready = 
-        (debug_axil_256b_w_to_ddr0 ? ddr0_axi_wready : '0);
+        (debug_axil_256b_w_sel_ddr0 ? ddr0_axi_wready : '0);
 
     assign debug_axil_256b_b.id = 
         ((ddr0_axi_bid_bridge_id == 4) && ddr0_axi_bid_valid ? ddr0_axi_bid : '0);
@@ -2314,7 +2608,7 @@ module bridge_e_grand_mix_5x5_xbar
         ((ddr0_axi_bid_bridge_id == 4) && ddr0_axi_bid_valid ? ddr0_axi_bvalid : '0);
 
     assign debug_axil_256b_arready = 
-        (debug_axil_256b_ar_to_ddr0 ? ddr0_axi_arready : '0);
+        (debug_axil_256b_ar_gnt_ddr0 ? ddr0_axi_arready : '0);
 
     assign debug_axil_256b_r.id = 
         ((ddr0_axi_rid_bridge_id == 4) && ddr0_axi_rid_valid ? ddr0_axi_rid : '0);

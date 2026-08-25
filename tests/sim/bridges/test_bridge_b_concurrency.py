@@ -12,6 +12,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE.parent))  # makes TBClasses/ importable
 sys.path.insert(0, str(_HERE))
@@ -40,7 +42,9 @@ async def cocotb_test_bridge_b_basic_connectivity(dut):
                 continue
             base = tb._parse_addr(tb.slave_descs[s_idx]["base_addr"])
             bpw = tb.master_descs[m_idx]["data_width"] // 8
-            addr = base + (4 * bpw)
+            # Align to the wider of master/slave: the upsize converters
+            # need burst starts aligned to the wide bus (MAS 2.5.5/2.6.5).
+            addr = base + (4 * tb.access_stride(m_idx, s_idx))
             data = 0xB0000000 | (m_idx << 20) | (s_idx << 16)
             await tb.master_write(m_idx, addr, data, bpw)
             await tb.master_read(m_idx, addr, bpw)
@@ -106,6 +110,19 @@ def _wrap(testcase: str):
             "COCOTB_RESULTS_FILE": os.path.join(log_dir, f"results_{test_name}.xml"),
             **waves["extra_env"],
         },
+        compile_args=[
+            # Style-class lint in the generated xbar: the OR-merge legs
+            # zero-extend ('0 with 4-bit IDs into 8-bit slave ports) and the
+            # B/R return path truncates the bridge-ID routing prefix back
+            # off -- the bridge_id gate does the real selection. Not defects,
+            # and not this test's job to gate on (same policy as the
+            # converters/axis tests).
+            "-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC",
+            # ASCRANGE: AXIL ports carry id_width=0 in the spec (AXIL has no
+            # IDs), and the generator plumbs that into [IW-1:0] -> [-1:0]
+            # phantom ID vectors that nothing reads. Benign.
+            "-Wno-ASCRANGE",
+        ],
         extra_args=["--assert"] + waves["extra_args"],
         testcase=f"cocotb_test_bridge_b_{testcase}",
     )

@@ -11,9 +11,9 @@ package bridge_c_dma_heavy_3x6_pkg;
     localparam int BRIDGE_ID_WIDTH = 2;  // $clog2(NUM_MASTERS)
 
     // AXI4 Write Address Channel (width-independent)
-    // Note: ID width is 4-bit for this bridge
+    // Note: ID width is 8-bit for this bridge
     typedef struct packed {
-        logic [3:0]   id;      // Transaction ID
+        logic [7:0]   id;      // Transaction ID
         logic [31:0]  addr;    // Address
         logic [7:0]   len;     // Burst length
         logic [2:0]   size;    // Burst size
@@ -28,7 +28,7 @@ package bridge_c_dma_heavy_3x6_pkg;
 
     // AXI4 Read Address Channel (width-independent)
     typedef struct packed {
-        logic [3:0]   id;      // Transaction ID
+        logic [7:0]   id;      // Transaction ID
         logic [31:0]  addr;    // Address
         logic [7:0]   len;     // Burst length
         logic [2:0]   size;    // Burst size
@@ -75,14 +75,14 @@ package bridge_c_dma_heavy_3x6_pkg;
 
     // AXI4 Write Response Channel (width-independent)
     typedef struct packed {
-        logic [3:0]   id;      // Response ID
+        logic [7:0]   id;      // Response ID
         logic [1:0]   resp;    // Write response
         logic         user;    // User signal
     } axi4_b_t;
 
     // AXI4 Read Data Channel - 32-bit data width
     typedef struct packed {
-        logic [3:0]   id;      // Response ID
+        logic [7:0]   id;      // Response ID
         logic [31:0]  data;    // Read data
         logic [1:0]   resp;    // Read response
         logic         last;    // Last transfer in burst
@@ -91,7 +91,7 @@ package bridge_c_dma_heavy_3x6_pkg;
 
     // AXI4 Read Data Channel - 64-bit data width
     typedef struct packed {
-        logic [3:0]   id;      // Response ID
+        logic [7:0]   id;      // Response ID
         logic [63:0]  data;    // Read data
         logic [1:0]   resp;    // Read response
         logic         last;    // Last transfer in burst
@@ -100,7 +100,7 @@ package bridge_c_dma_heavy_3x6_pkg;
 
     // AXI4 Read Data Channel - 128-bit data width
     typedef struct packed {
-        logic [3:0]   id;      // Response ID
+        logic [7:0]   id;      // Response ID
         logic [127:0]  data;    // Read data
         logic [1:0]   resp;    // Read response
         logic         last;    // Last transfer in burst
@@ -109,7 +109,7 @@ package bridge_c_dma_heavy_3x6_pkg;
 
     // AXI4 Read Data Channel - 256-bit data width
     typedef struct packed {
-        logic [3:0]   id;      // Response ID
+        logic [7:0]   id;      // Response ID
         logic [255:0]  data;    // Read data
         logic [1:0]   resp;    // Read response
         logic         last;    // Last transfer in burst

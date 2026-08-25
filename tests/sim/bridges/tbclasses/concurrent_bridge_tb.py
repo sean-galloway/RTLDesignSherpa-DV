@@ -345,14 +345,19 @@ class ConcurrentBridgeTB(TBBase):
             return 0
         dw = sdesc["data_width"]
         bpw = dw // 8
-        word_offset = offset // bpw
-        word_val = self._seed_value(slave_idx, word_offset, dw)
-        # Pick out the byte_count low bytes at the right within-word offset
-        intra_word = offset % bpw
-        word_bytes = word_val.to_bytes(bpw, "little")
-        return int.from_bytes(
-            word_bytes[intra_word:intra_word + byte_count], "little"
-        )
+        # Build the seed byte stream byte-by-byte so byte_count may span
+        # multiple slave words (a wide master reading a narrower slave gets
+        # several seed words concatenated). The old single-word slice came
+        # up short in exactly that case.
+        out = bytearray()
+        for b in range(byte_count):
+            o = offset + b
+            if o >= self.SLAVE_MEM_CAP_BYTES:
+                out.append(0)
+                continue
+            word_val = self._seed_value(slave_idx, o // bpw, dw)
+            out.append(word_val.to_bytes(bpw, "little")[o % bpw])
+        return int.from_bytes(out, "little")
 
     def slave_mem_read(
         self, slave_idx: int, address: int, byte_count: int = 4
@@ -365,6 +370,17 @@ class ConcurrentBridgeTB(TBBase):
         return int.from_bytes(bytes(mem.read(offset, byte_count)), "little")
 
     # ---------- Bridge routing helpers ----------
+
+    def access_stride(self, master_idx: int, slave_idx: int) -> int:
+        """Byte stride that keeps accesses legal across a width-crossing
+        path. The upsize converters only support burst starts aligned to
+        the WIDER bus (converter MAS 2.5.5/2.6.5 — the data packer starts
+        at lane 0, there is no mid-word entry), so addresses must be
+        aligned to max(master, slave) width, not just the master's.
+        """
+        m_bpw = self.master_descs[master_idx]["data_width"] // 8
+        s_bpw = self.slave_descs[slave_idx]["data_width"] // 8
+        return max(m_bpw, s_bpw)
 
     def slave_for_address(self, address: int) -> Optional[int]:
         """Which slave_idx (if any) owns this address?"""
@@ -496,9 +512,10 @@ class ConcurrentBridgeTB(TBBase):
                 s_idx = rng.choice(reachable)
                 base = self._parse_addr(self.slave_descs[s_idx]["base_addr"])
                 bpw = self.master_descs[m_idx]["data_width"] // 8
-                # Address inside the seeded cap, aligned to master width
-                offset = (rng.randint(0, self.SLAVE_MEM_CAP_BYTES // bpw - 1)
-                          * bpw)
+                # Address inside the seeded cap, aligned for the whole path
+                stride = self.access_stride(m_idx, s_idx)
+                offset = (rng.randint(0, self.SLAVE_MEM_CAP_BYTES // stride - 1)
+                          * stride)
                 addr = base + offset
                 txn_id = n % (1 << (self.master_descs[m_idx].get("id_width") or 4))
                 if rng.random() < write_fraction:
@@ -528,10 +545,11 @@ class ConcurrentBridgeTB(TBBase):
         """
         base = self._parse_addr(self.slave_descs[slave_idx]["base_addr"])
         bpw = self.master_descs[master_idx]["data_width"] // 8
+        stride = self.access_stride(master_idx, slave_idx)
 
         tasks = []
         for n in range(count):
-            addr = base + (n * bpw)
+            addr = base + (n * stride)
             if operation == "write":
                 data = 0xC0000000 | (master_idx << 20) | (txn_id << 8) | (n & 0xFF)
                 tasks.append(cocotb.start_soon(
@@ -579,7 +597,7 @@ class ConcurrentBridgeTB(TBBase):
                     s_idx = rng.choice(reachable)
                     base = self._parse_addr(self.slave_descs[s_idx]["base_addr"])
                     bpw = self.master_descs[m_idx]["data_width"] // 8
-                    addr = base + (n * bpw)
+                    addr = base + (n * self.access_stride(m_idx, s_idx))
                     data = 0xCC000000 | (m_idx << 20) | (s_idx << 16) | n
                     txn_id = n
                     tasks.append(cocotb.start_soon(
@@ -601,9 +619,10 @@ class ConcurrentBridgeTB(TBBase):
         """
         base = self._parse_addr(self.slave_descs[slave_idx]["base_addr"])
         bpw = self.master_descs[master_idx]["data_width"] // 8
+        stride = self.access_stride(master_idx, slave_idx)
         tasks = []
         for n in range(num_concurrent):
-            addr = base + (n * bpw)
+            addr = base + (n * stride)
             txn_id = n % ids_in_play
             tasks.append(cocotb.start_soon(
                 self.master_read(master_idx, addr, bpw, txn_id)

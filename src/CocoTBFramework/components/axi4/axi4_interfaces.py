@@ -143,12 +143,18 @@ class AXI4MasterRead:
         """
         txn_id = transaction_kwargs.get('id', 0)
 
+        # Default ARSIZE is the full bus width. A fixed size=2 (4 bytes)
+        # default silently under-sized every beat on >32-bit buses: the
+        # slave then legally returns only a 4-byte lane slice, which is
+        # never what a caller passing full-width data words meant.
+        full_bus_size = (self.data_width // 8).bit_length() - 1
+
         # Create AR packet with GENERIC field names
         ar_packet = self.ar_channel.create_packet(
             addr=address,
             len=burst_len - 1,
             id=txn_id,
-            size=transaction_kwargs.get('size', 2),
+            size=transaction_kwargs.get('size', full_bus_size),
             burst=transaction_kwargs.get('burst_type', 1),
             lock=transaction_kwargs.get('lock', 0),
             cache=transaction_kwargs.get('cache', 0),
@@ -357,12 +363,19 @@ class AXI4MasterWrite:
 
             txn_id = transaction_kwargs.get('id', 0)
 
+            # Default AWSIZE is the full bus width, matching the all-lanes
+            # default WSTRB below. The old fixed size=2 default contradicted
+            # that strobe on >32-bit buses (AWSIZE said 4 bytes, WSTRB
+            # enabled every lane) -- an AXI violation that made slaves drop
+            # or mis-slice the write.
+            full_bus_size = (self.data_width // 8).bit_length() - 1
+
             # Create AW packet with GENERIC field names
             aw_packet = self.aw_channel.create_packet(
                 addr=address,
                 len=burst_len - 1,
                 id=txn_id,
-                size=transaction_kwargs.get('size', 2),
+                size=transaction_kwargs.get('size', full_bus_size),
                 burst=transaction_kwargs.get('burst_type', 1),
                 lock=transaction_kwargs.get('lock', 0),
                 cache=transaction_kwargs.get('cache', 0),
@@ -385,13 +398,26 @@ class AXI4MasterWrite:
 
                 # Send data beats using GENERIC field names
                 strb_width = self.data_width // 8
-                default_strb = (1 << strb_width) - 1  # All bytes enabled
+                beat_bytes = 1 << aw_packet.size
 
                 for i, data_value in enumerate(data_list):
+                    if 'strb' in transaction_kwargs:
+                        beat_strb = transaction_kwargs['strb']
+                    elif beat_bytes >= strb_width:
+                        beat_strb = (1 << strb_width) - 1  # All bytes enabled
+                    else:
+                        # Narrow write: enable only this beat's addressed
+                        # lanes (INCR walks the lanes beat by beat). Strobes
+                        # outside the AWSIZE window are an AXI violation.
+                        # The data value is lane-positioned to match -- on
+                        # the wire, narrow data rides in the addressed lanes.
+                        lane = (address + i * beat_bytes) % strb_width
+                        beat_strb = ((1 << beat_bytes) - 1) << lane
+                        data_value = (data_value & ((1 << (beat_bytes * 8)) - 1)) << (lane * 8)
                     w_packet = self.w_channel.create_packet(
                         data=data_value,
                         last=1 if i == len(data_list) - 1 else 0,
-                        strb=transaction_kwargs.get('strb', default_strb),
+                        strb=beat_strb,
                         **{k: v for k, v in transaction_kwargs.items() if k.startswith('w')}
                     )
                     await self.w_channel.send(w_packet)
@@ -1456,19 +1482,29 @@ class AXI4SlaveWrite:
 
                 # Write data to memory if available
                 if self.memory_model:
+                    # W data and WSTRB are bus-width quantities: a narrow
+                    # beat (AWSIZE < bus width) rides in its addressed byte
+                    # lanes with only those strobes set. Writing the full
+                    # bus word at the bus-aligned address with the wire
+                    # strobe handles narrow and full beats identically.
+                    # (The old code sliced the data down to 1<<AWSIZE bytes
+                    # but kept the bus-width strobe -- memory_model.write
+                    # rejected the mismatch and the write was dropped.)
+                    bus_bytes = self.data_width // 8
                     for i, w_packet in enumerate(w_packets):
                         addr = base_addr + (i * bytes_per_beat)
+                        bus_aligned_addr = addr - (addr % bus_bytes)
 
                         # Apply base address offset before accessing memory model
                         # (RTL sends absolute addresses, memory model expects 0-based offsets)
-                        memory_offset = addr - self.base_addr
+                        memory_offset = bus_aligned_addr - self.base_addr
 
                         data = getattr(w_packet, 'data', 0)
-                        strb = getattr(w_packet, 'strb', 0xF)
+                        strb = getattr(w_packet, 'strb', (1 << bus_bytes) - 1)
 
                         # Convert data to proper bytearray format
                         try:
-                            data_bytes = self.memory_model.integer_to_bytearray(data, bytes_per_beat)
+                            data_bytes = self.memory_model.integer_to_bytearray(data, bus_bytes)
                             self.memory_model.write(memory_offset, data_bytes, strb)
                         except Exception as mem_error:
                             if self.log:

@@ -26,7 +26,7 @@ This file is ready to replace the existing axil4_interfaces.py
 """
 
 import collections
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import cocotb
 from cocotb.triggers import Event, Lock, RisingEdge
@@ -348,12 +348,24 @@ class AXIL4MasterWrite:
             self.log.warning("AXIL4MasterWrite: B response with no pending "
                              "waiter (dropped from pickup, retained in _recvQ)")
 
-    async def write_transaction(self, address: int, data: int, strb: Optional[int] = None,
+    async def write_transaction(self, address: int, data: Union[int, List[int]],
+                              strb: Optional[int] = None,
                               **transaction_kwargs) -> int:
         """
         High-level write transaction - always single transfer for AXIL4.
         STANDARDIZED: Returns response code (int) for API consistency.
+
+        Accepts a bare int or a 1-element list (the AXI4 API's data shape),
+        so protocol-generic callers can pass ``[data]`` to either master.
         """
+        if isinstance(data, list):
+            if len(data) != 1:
+                raise ValueError(
+                    f"AXIL4 is single-beat: got {len(data)} data beats "
+                    f"for addr=0x{address:08X}"
+                )
+            data = data[0]
+
         if self.log:
             self.log.debug(f"AXIL4MasterWrite: Starting write transaction addr=0x{address:08X}, data=0x{data:08X}")
 

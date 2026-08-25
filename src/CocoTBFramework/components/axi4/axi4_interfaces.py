@@ -496,6 +496,11 @@ class AXI4SlaveRead:
 
         # Response configuration
         self.response_delay_cycles = kwargs.get('response_delay', 1)
+        # Optional response override: a callable (address) -> resp code, or
+        # None to leave the natural response alone. Same convention as the
+        # AXIL4 slaves; without it this BFM can only answer OKAY and a
+        # DUT's R-path error handling is untestable.
+        self.resp_override = kwargs.get('resp_override')
 
         # Out-of-order response configuration
         self.enable_ooo = kwargs.get('enable_ooo', False)
@@ -814,10 +819,15 @@ class AXI4SlaveRead:
 
                 # Create R response packet using GENERIC field names
                 is_last = (i == burst_len - 1)
+                beat_resp = 0
+                if self.resp_override is not None:
+                    forced = self.resp_override(current_addr)
+                    if forced is not None:
+                        beat_resp = forced
                 r_packet = self.r_channel.create_packet(
                     id=packet_id,
                     data=data,
-                    resp=0,
+                    resp=beat_resp,
                     last=1 if is_last else 0
                 )
 

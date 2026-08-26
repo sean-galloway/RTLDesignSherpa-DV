@@ -372,15 +372,14 @@ class ConcurrentBridgeTB(TBBase):
     # ---------- Bridge routing helpers ----------
 
     def access_stride(self, master_idx: int, slave_idx: int) -> int:
-        """Byte stride that keeps accesses legal across a width-crossing
-        path. The upsize converters only support burst starts aligned to
-        the WIDER bus (converter MAS 2.5.5/2.6.5 — the data packer starts
-        at lane 0, there is no mid-word entry), so addresses must be
-        aligned to max(master, slave) width, not just the master's.
+        """Byte stride for generated addresses: the MASTER's beat size.
+
+        Master-width-aligned (wide-UNaligned) starts are deliberate: the
+        upsize converters place mid-word bursts in their addressed lanes
+        with byte enables (CONV-006), and this is the end-to-end coverage
+        for it — a CPU-style narrow access into a wide slave region.
         """
-        m_bpw = self.master_descs[master_idx]["data_width"] // 8
-        s_bpw = self.slave_descs[slave_idx]["data_width"] // 8
-        return max(m_bpw, s_bpw)
+        return self.master_descs[master_idx]["data_width"] // 8
 
     def slave_for_address(self, address: int) -> Optional[int]:
         """Which slave_idx (if any) owns this address?"""

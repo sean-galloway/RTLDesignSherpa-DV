@@ -42,8 +42,9 @@ async def cocotb_test_bridge_b_basic_connectivity(dut):
                 continue
             base = tb._parse_addr(tb.slave_descs[s_idx]["base_addr"])
             bpw = tb.master_descs[m_idx]["data_width"] // 8
-            # Align to the wider of master/slave: the upsize converters
-            # need burst starts aligned to the wide bus (MAS 2.5.5/2.6.5).
+            # Master-width stride: wide-unaligned starts are supported
+            # (mid-word lane placement + byte enables, CONV-006) and this
+            # exercises them end-to-end.
             addr = base + (4 * tb.access_stride(m_idx, s_idx))
             data = 0xB0000000 | (m_idx << 20) | (s_idx << 16)
             await tb.master_write(m_idx, addr, data, bpw)

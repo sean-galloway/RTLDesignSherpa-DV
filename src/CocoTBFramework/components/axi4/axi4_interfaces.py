@@ -61,6 +61,9 @@ class AXI4MasterRead:
         self.addr_width = kwargs.get('addr_width', 32)
         self.user_width = kwargs.get('user_width', 1)
         self.multi_sig = kwargs.get('multi_sig', True)  # AXI4 uses individual signals by default
+        # Fields the DUT genuinely does not carry (e.g. AxREGION on an AXI5
+        # port -- AMBA5 removed it). Declared fields otherwise bind fatally.
+        self.optional_fields = kwargs.get('optional_fields')
 
         # AR Channel (Address Read) - Master drives
         self.ar_channel = GAXIMaster(
@@ -75,7 +78,8 @@ class AXI4MasterRead:
             multi_sig=self.multi_sig,
             protocol_type='axi4_ar_master',  # Use AXI4-specific patterns
             super_debug=self.super_debug,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # R Channel needs to drive rready - use GAXISlave
@@ -249,6 +253,9 @@ class AXI4MasterWrite:
         self.addr_width = kwargs.get('addr_width', 32)
         self.user_width = kwargs.get('user_width', 1)
         self.multi_sig = kwargs.get('multi_sig', True)  # AXI4 uses individual signals by default
+        # Fields the DUT genuinely does not carry (e.g. AxREGION on an AXI5
+        # port -- AMBA5 removed it). Declared fields otherwise bind fatally.
+        self.optional_fields = kwargs.get('optional_fields')
 
         # AW Channel (Address Write) - Master drives
         self.aw_channel = GAXIMaster(
@@ -262,7 +269,8 @@ class AXI4MasterWrite:
             pkt_prefix="aw",
             multi_sig=self.multi_sig,
             protocol_type='axi4_aw_master',  # Use AXI4-specific patterns
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # W Channel (Write Data) - Master drives
@@ -547,6 +555,10 @@ class AXI4SlaveRead:
         self.in_order_active = {}            # {id: bool} - track if ID is actively responding
         self.in_order_queue = {}             # {id: [ar_packets]} - queue of waiting requests per ID
 
+        # Fields the DUT genuinely does not carry (e.g. AxREGION on an AXI5
+        # port -- AMBA5 removed it). Declared fields otherwise bind fatally.
+        self.optional_fields = kwargs.get('optional_fields')
+
         # AR Channel (Address Read) - GAXISlave drives arready and receives AR requests
         self.ar_channel = GAXISlave(
             dut=dut,
@@ -560,6 +572,7 @@ class AXI4SlaveRead:
             multi_sig=self.multi_sig,
             protocol_type='axi4_ar_slave',  # Use AXI4-specific patterns
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # R Channel (Read Data + Response) - GAXIMaster drives R responses
@@ -959,6 +972,10 @@ class AXI4SlaveWrite:
         self.ooo_transaction_metadata = {}   # {txn_seq: {'id': id, 'addr': addr}}
         self.ooo_last_completed_seq = {}     # {id: last_completed_sequence}
 
+        # Fields the DUT genuinely does not carry (e.g. AxREGION on an AXI5
+        # port -- AMBA5 removed it). Declared fields otherwise bind fatally.
+        self.optional_fields = kwargs.get('optional_fields')
+
         # AW Channel - GAXISlave drives awready and receives AW requests
         self.aw_channel = GAXISlave(
             dut=dut,
@@ -973,6 +990,7 @@ class AXI4SlaveWrite:
             protocol_type='axi4_aw_slave',  # Use AXI4-specific patterns
             super_debug=self.super_debug,
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # W Channel - GAXISlave drives wready and receives W data

@@ -916,7 +916,8 @@ class SignalResolver:
     def __init__(self, protocol_type: str, dut, bus, log, component_name: str,
                 prefix='', field_config=None, multi_sig: bool = False,
                 bus_name: str = '', pkt_prefix: str = '', mode: str = None,
-                super_debug: bool = False, signal_map: Optional[Dict[str, str]] = None):
+                super_debug: bool = False, signal_map: Optional[Dict[str, str]] = None,
+                optional_fields=None):
         """
         Initialize signal resolver with pattern matching and prefix support.
 
@@ -962,6 +963,10 @@ class SignalResolver:
         self.mode = mode
         self.super_debug = super_debug
         self.signal_map = signal_map  # NEW: Store manual signal mapping
+        # Per-instance additions to the protocol config's optional_fields:
+        # fields the DUT genuinely does not carry (e.g. AxREGION on an AXI5
+        # port -- AMBA5 removed it). Unioned with the config-level set.
+        self.instance_optional_fields = set(optional_fields or ())
 
         # Storage for log messages (in case log is None)
         self.log_messages = []
@@ -1293,6 +1298,8 @@ class SignalResolver:
                 # Genuinely optional fields (a `user` field a given DUT does not
                 # carry) opt out by name via `optional_fields`.
                 optional_fields = set(self.config.get('optional_fields', ()) or ())
+                # getattr: unit helpers build resolvers via object.__new__.
+                optional_fields |= set(getattr(self, 'instance_optional_fields', ()) or ())
                 for field_name in self.field_config.field_names():
                     logical_name = f'field_{field_name}_sig'
                     is_required = field_name not in optional_fields

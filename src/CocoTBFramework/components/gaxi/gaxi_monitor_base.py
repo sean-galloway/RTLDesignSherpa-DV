@@ -94,6 +94,7 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
         # See components/shared/init_kwargs.py for the canonical set.
         memory_model = kwargs.pop('memory_model', None)
         randomizer = kwargs.pop('randomizer', None)
+        optional_fields = kwargs.pop('optional_fields', None)
         strip_framework_kwargs(kwargs)
 
         # Initialize base class with all parameters preserved
@@ -115,6 +116,7 @@ class GAXIMonitorBase(GAXIComponentBase, BusMonitor):
             super_debug=super_debug,
             signal_map=signal_map,
             packet_class=packet_class,
+            optional_fields=optional_fields,
             **{k: v for k, v in kwargs.items()}  # Pass remaining clean kwargs
         )
 

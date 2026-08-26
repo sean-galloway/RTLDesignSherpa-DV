@@ -47,7 +47,32 @@ def _resolver(monkeypatch, ports, field_names, optional_fields=None):
     obj.prefix = ""
     obj.log = None
     obj.config = {"optional_fields": tuple(optional_fields or ())}
+    obj.instance_optional_fields = set()
     return obj
+
+
+def test_instance_optional_fields_union(monkeypatch):
+    """Per-instance optional_fields union with the config-level set.
+
+    An AXI5 DUT has no AxREGION port (AMBA5 removed it); the TB opts the
+    field out per instance without weakening the config for AXI4 DUTs.
+    """
+    from CocoTBFramework.components.shared import signal_mapping_helper as smh
+
+    r = _resolver(monkeypatch, ["data"], ["data", "region"])
+    r.instance_optional_fields = {"region"}
+    recorded = {}
+
+    def fake_find(logical_name, patterns, required=False, field_name=None):
+        recorded[field_name] = required
+        return None
+
+    r._find_signal_match = fake_find
+    r.config["optional_signal_map"] = {"multi_sig_true": ["{field_name}"]}
+    smh.SignalResolver._resolve_optional_signals(r)
+
+    assert recorded.get("data") is True, "data should still be required"
+    assert recorded.get("region") is False, "instance opt-out ignored"
 
 
 def test_declared_field_is_required_not_optional(monkeypatch):

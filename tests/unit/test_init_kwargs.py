@@ -14,6 +14,7 @@ def test_framework_kwargs_includes_canonical_set():
     expected = {
         "bus_name", "pkt_prefix", "memory_model", "randomizer",
         "signal_map", "super_debug", "pipeline_debug",
+        "optional_fields",
     }
     assert set(FRAMEWORK_KWARGS) == expected
 

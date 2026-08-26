@@ -46,6 +46,7 @@ FRAMEWORK_KWARGS: tuple[str, ...] = (
     "signal_map",
     "super_debug",
     "pipeline_debug",
+    "optional_fields",
 )
 
 

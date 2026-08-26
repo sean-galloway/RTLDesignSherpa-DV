@@ -171,7 +171,8 @@ class GAXIComponentBase:
             pkt_prefix=self.pkt_prefix,
             mode=mode,
             super_debug=super_debug,
-            signal_map=signal_map  # NEW: Pass signal map to resolver
+            signal_map=signal_map,  # NEW: Pass signal map to resolver
+            optional_fields=kwargs.get('optional_fields'),
         )
 
         # Get signal lists for cocotb Bus initialization

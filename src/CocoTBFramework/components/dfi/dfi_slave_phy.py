@@ -839,7 +839,16 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
             all_banks = bool(addr & (1 << 10))
             self.dram.on_precharge(bank_idx=bank, all_banks=all_banks)
         elif cmd == DRAMCommand.REF:
-            self.dram.on_refresh()
+            # CA-bus protocols carry all_banks in the decoded args
+            # (LPDDR2 Table 60: CA3r distinguishes REFab/REFpb). An
+            # explicit False routes to the per-bank model; absent or
+            # True is the broadcast REFab every other protocol means.
+            _a = (self._ca_args if self._ca_streams is not None
+                  else getattr(self, "_lpddr_args", {})) or {}
+            if self._uses_ca_bus() and _a.get("all_banks") is False:
+                self.dram.on_refresh_bank()
+            else:
+                self.dram.on_refresh()
         elif cmd == DRAMCommand.MRS:
             # Record MRW {index: data} for init verification. CA-bus
             # protocols carry mr_addr/mr_data in the decoded args; skip

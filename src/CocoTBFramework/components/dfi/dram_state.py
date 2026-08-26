@@ -186,6 +186,7 @@ _DEFAULT_HARD: FrozenSet[str] = frozenset({
     "no_act_before_wr",
     "act_on_active_bank",
     "ref_with_open_row",
+    "refpb_with_open_row",
     "cmd_during_refresh",
     "sre_with_open_row",
     "cmd_during_self_refresh",
@@ -295,6 +296,7 @@ class Bank:
     last_wr_data_cycle: int = -1   # last data beat of the most recent WR burst
     last_rd_data_cycle: int = -1
     last_ref_end_cycle: int = -1
+    refpb_end_cycle: int = -1      # per-bank refresh (REFpb) recovery, -1 = none
 
 
 # ----------------------------------------------------------------------
@@ -344,6 +346,13 @@ class DramStateModel:
         self._last_ref_cycle: int = -1
         self._ref_end_cycle: int = -1
 
+        # REFpb (LPDDR2 per-bank refresh): the DEVICE owns the bank
+        # sequence — a fixed internal rotor the controller can only
+        # track, never choose (JESD209-2 6.6). refpb_total counts
+        # completed REFpb commands for test observability.
+        self._refpb_rotor: int = 0
+        self.refpb_total: int = 0
+
         # Self-refresh / power-down state. SRE requires all banks
         # precharged; while in either state the DRAM ignores the
         # command bus, so any command routed here is a violation.
@@ -374,6 +383,17 @@ class DramStateModel:
                     b.state = BankState.IDLE
                     b.row = None
                     b.last_ref_end_cycle = self.cycle
+        # Walk per-bank REFpb recoveries (independent tRFCpb windows)
+        for b in self.banks:
+            if (
+                b.state == BankState.REFRESHING
+                and b.refpb_end_cycle >= 0
+                and self.cycle >= b.refpb_end_cycle
+            ):
+                b.state = BankState.IDLE
+                b.row = None
+                b.refpb_end_cycle = -1
+                b.last_ref_end_cycle = self.cycle
         # tREFI window: once armed, a REF must land within 9 x tREFI
         # (8-postpone limit). Report once per missed window, then
         # re-arm so a stalled refresher logs one violation per window
@@ -408,7 +428,7 @@ class DramStateModel:
         self._arm_refi_window()
         self._check_not_low_power("ACT")
         self._check_txs("ACT")
-        self._check_not_refreshing("act")
+        self._check_not_refreshing("act", bank_idx)
         b = self._bank(bank_idx)
         if b.state == BankState.ACTIVE:
             self.policy.report(
@@ -470,7 +490,7 @@ class DramStateModel:
         self._arm_refi_window()
         self._check_not_low_power("RD")
         self._check_txs("RD")
-        self._check_not_refreshing("rd")
+        self._check_not_refreshing("rd", bank_idx)
         b = self._bank(bank_idx)
         if b.state != BankState.ACTIVE:
             self.policy.report(
@@ -506,7 +526,7 @@ class DramStateModel:
         self._arm_refi_window()
         self._check_not_low_power("WR")
         self._check_txs("WR")
-        self._check_not_refreshing("wr")
+        self._check_not_refreshing("wr", bank_idx)
         b = self._bank(bank_idx)
         if b.state != BankState.ACTIVE:
             self.policy.report(
@@ -531,7 +551,7 @@ class DramStateModel:
         """Process a PRE command."""
         self._arm_refi_window()
         self._check_not_low_power("PRE")
-        self._check_not_refreshing("pre")
+        self._check_not_refreshing("pre", None if all_banks else bank_idx)
         targets = self.banks if all_banks else [self._bank(bank_idx)]
         for i, b in enumerate(targets):
             real_idx = i if all_banks else bank_idx
@@ -588,6 +608,51 @@ class DramStateModel:
         self._last_ref_cycle = self.cycle
         self._ref_end_cycle = self.cycle + self.timings.tRFC_cycles
         # A REF landed — restart the 9 x tREFI postpone window.
+        self._refi_deadline_cycle = (
+            self.cycle + 9 * self.timings.tREFI_cycles
+        )
+
+    @property
+    def refpb_rotor(self) -> int:
+        """The device's internal REFpb bank counter (next bank)."""
+        return self._refpb_rotor
+
+    @property
+    def tRFCpb_cycles(self) -> int:
+        """Per-bank refresh recovery. Falls back to tRFCab when the
+        timing set does not define a per-bank value (conservative)."""
+        return getattr(self.timings, "tRFCpb_cycles", None) \
+            or self.timings.tRFC_cycles
+
+    def on_refresh_bank(self) -> None:
+        """Process a REFpb (per-bank refresh) command.
+
+        JESD209-2 6.6: the refreshed bank is chosen by the DEVICE'S
+        internal counter in strict rotor order — the command carries no
+        bank address and the controller can only TRACK the sequence.
+        The rotor bank must be precharged; every other bank stays
+        accessible for the whole tRFCpb window.
+        """
+        self._check_not_low_power("REFpb")
+        self._check_txs("REFpb")
+        idx = self._refpb_rotor
+        b = self.banks[idx]
+        if b.state == BankState.ACTIVE:
+            self.policy.report(
+                "refpb_with_open_row",
+                f"REFpb issued but rotor bank {idx} is ACTIVE "
+                f"(row=0x{b.row:x}) @ cycle {self.cycle}",
+                self.log,
+            )
+        b.state = BankState.REFRESHING
+        b.row = None
+        b.refpb_end_cycle = self.cycle + self.tRFCpb_cycles
+        self._refpb_rotor = (idx + 1) % len(self.banks)
+        self.refpb_total += 1
+        self._last_ref_cycle = self.cycle
+        # Retention bookkeeping: 8 REFpb equal one REFab. Re-arming the
+        # 9 x tREFI deadline per command is deliberately lenient — the
+        # per-command granularity is what the rotor coverage test pins.
         self._refi_deadline_cycle = (
             self.cycle + 9 * self.timings.tREFI_cycles
         )
@@ -684,12 +749,32 @@ class DramStateModel:
             raise IndexError(f"bank_idx {idx} out of range [0, {len(self.banks)})")
         return self.banks[idx]
 
-    def _check_not_refreshing(self, cmd: str) -> None:
-        if any(b.state == BankState.REFRESHING for b in self.banks):
+    def _check_not_refreshing(self, cmd: str, bank_idx: int | None = None) -> None:
+        # All-bank refresh window: nothing may issue at all.
+        if self._ref_end_cycle >= 0 and self.cycle < self._ref_end_cycle:
             self.policy.report(
                 "cmd_during_refresh",
                 f"{cmd.upper()} command issued while refresh in progress "
                 f"(REF started cycle {self._last_ref_cycle}, "
                 f"ends cycle {self._ref_end_cycle})",
+                self.log,
+            )
+            return
+        # Per-bank refresh (REFpb): only the refreshing bank is off
+        # limits — the whole point of REFpb is that the others stay
+        # accessible. Callers without a bank keep the strict check.
+        if bank_idx is not None:
+            b = self.banks[bank_idx]
+            if b.state == BankState.REFRESHING:
+                self.policy.report(
+                    "cmd_during_refresh",
+                    f"{cmd.upper()} to bank {bank_idx} during its REFpb "
+                    f"window (ends cycle {b.refpb_end_cycle})",
+                    self.log,
+                )
+        elif any(b.state == BankState.REFRESHING for b in self.banks):
+            self.policy.report(
+                "cmd_during_refresh",
+                f"{cmd.upper()} command issued while refresh in progress",
                 self.log,
             )

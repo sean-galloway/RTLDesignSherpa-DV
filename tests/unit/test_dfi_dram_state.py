@@ -374,3 +374,58 @@ def test_self_refresh_restarts_trefi_window(timings):
     m.on_self_refresh_entry()         # SR maintains the cells
     _advance(m, window - 10)          # deep into the restarted window
     assert m.policy.soft_violation_counts.get("tREFI", 0) in (0, None)
+
+
+# ---------------------------------------------------------------------
+# REFpb (LPDDR2 per-bank refresh) — device-internal rotor
+# ---------------------------------------------------------------------
+
+
+def test_refpb_refreshes_only_the_rotor_bank(model, timings):
+    model.on_refresh_bank()
+    assert model.banks[0].state == BankState.REFRESHING
+    assert all(b.state == BankState.IDLE for b in model.banks[1:])
+    assert model.refpb_rotor == 1
+    assert model.refpb_total == 1
+
+
+def test_refpb_rotor_walks_all_banks_in_order(model, timings):
+    for i in range(8):
+        assert model.refpb_rotor == i
+        model.on_refresh_bank()
+        _advance(model, model.tRFCpb_cycles)
+    assert model.refpb_rotor == 0          # wrapped
+    assert model.refpb_total == 8
+    assert all(b.state == BankState.IDLE for b in model.banks)
+
+
+def test_refpb_with_open_rotor_bank_is_hard(model, timings):
+    # The DEVICE refreshes bank 0 next; leaving bank 0 open is the bug.
+    model.on_activate(bank_idx=0, row=0x100)
+    _advance(model, timings.tRAS_min_cycles)
+    with pytest.raises(AssertionError, match="refpb_with_open_row"):
+        model.on_refresh_bank()
+
+
+def test_refpb_other_banks_stay_accessible(model, timings):
+    # The whole point of REFpb: bank 0 refreshes, bank 3 keeps working.
+    model.on_refresh_bank()
+    model.on_activate(bank_idx=3, row=0x42)         # no raise
+    _advance(model, timings.tRCD_cycles)
+    model.on_read(bank_idx=3)                        # no raise
+    assert model.banks[0].state == BankState.REFRESHING
+    assert model.banks[3].state == BankState.ACTIVE
+
+
+def test_refpb_cmd_to_refreshing_bank_is_hard(model, timings):
+    model.on_refresh_bank()                          # bank 0 refreshing
+    _advance(model, 2)
+    with pytest.raises(AssertionError, match="cmd_during_refresh"):
+        model.on_activate(bank_idx=0, row=0x100)
+
+
+def test_refpb_bank_recovers_after_tRFCpb(model, timings):
+    model.on_refresh_bank()
+    _advance(model, model.tRFCpb_cycles)
+    assert model.banks[0].state == BankState.IDLE
+    model.on_activate(bank_idx=0, row=0x100)         # usable again

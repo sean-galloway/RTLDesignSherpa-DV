@@ -370,6 +370,8 @@ module host1_axil_adapter
     // ================================================================
 
     // Per-width path-active gates (see comment in adapter_generator.py).
+    logic aw_gate_ok;
+    logic ar_gate_ok;
     logic aw_path_active_32b;
     assign aw_path_active_32b = (comb_slave_select_aw[1] | comb_slave_select_aw[2] | comb_slave_select_aw[3]) && aw_gate_ok;
     logic w_path_active_32b;
@@ -638,8 +640,8 @@ module host1_axil_adapter
             r_aw_active_target <= comb_slave_select_aw;
         end
     end
-    wire aw_gate_ok = (aw_trk_wptr == aw_trk_rptr) ||
-                      (comb_slave_select_aw == r_aw_active_target);
+    assign aw_gate_ok = (aw_trk_wptr == aw_trk_rptr) ||
+                        (comb_slave_select_aw == r_aw_active_target);
 
     // -------- AW->W slave_select tracking FIFO --------
     // Same push as AW (records slave_select at handshake);
@@ -714,8 +716,8 @@ module host1_axil_adapter
             r_ar_active_target <= comb_slave_select_ar;
         end
     end
-    wire ar_gate_ok = (ar_trk_wptr == ar_trk_rptr) ||
-                      (comb_slave_select_ar == r_ar_active_target);
+    assign ar_gate_ok = (ar_trk_wptr == ar_trk_rptr) ||
+                        (comb_slave_select_ar == r_ar_active_target);
 
     // AW-ready MUX (combinational comb_slave_select_aw — awaddr is live during awvalid)
     always_comb begin

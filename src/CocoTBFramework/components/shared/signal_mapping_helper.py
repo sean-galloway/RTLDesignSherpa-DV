@@ -426,6 +426,66 @@ FIFO_BASE_PATTERNS = {
     ]
 }
 
+# =============================================================================
+# WHICH FIELDS MAY BE LISTED IN 'optional_fields'
+# =============================================================================
+# A field named in a config's 'optional_fields' is allowed to bind to nothing.
+# An unbound field READS 0 FOREVER. So a field may be optional ONLY IF the
+# protocol's own default for that signal, when a DUT omits it, is also 0.
+# Where those two agree, "the port is absent" and "the port is tied to its
+# spec default" are the same thing and the BFM still models the spec.
+#
+# Where they DISAGREE, silent-0 does not produce a missing value. It produces
+# a DIFFERENT, LEGAL, WRONG transaction -- worse than the bug the strict-bind
+# rule exists to stop, because it is protocol-valid and nothing objects:
+#
+#     signal    AXI default when omitted    what silent-0 would mean
+#     AxSIZE    full data bus width         1 byte per beat
+#     AxBURST   INCR (0b01)                 FIXED (0b00)
+#     WSTRB     all lanes enabled           no bytes written
+#     xLAST     1                           the burst never ends
+#
+# Those four stay REQUIRED however optional they may look. Not theoretical:
+# 55f9453 fixed AWSIZE/ARSIZE defaulting to 2 (4 bytes) rather than the bus
+# width -- the same non-zero-default trap one layer up, at packet construction,
+# where it made slaves mis-slice or drop every wide write.
+#
+# xID, AxLEN and xRESP DO default to 0 and this rule would permit them. They
+# are deliberately excluded anyway: an ID that silently reads 0 collapses
+# ID-reordering traffic into single-ID traffic and still passes, which is
+# precisely the silent-green the strict rule was written to stop. Erring
+# strict costs a loud construction error; erring loose costs a suite that
+# cannot fail.
+#
+# Enforced by tests/unit/test_signal_mapping_optional_fields.py -- add a field
+# here and that test tells you which half of the rule you are on.
+
+# AR/AW address-channel qualifiers. All default to 0 ("feature not used").
+AXI4_OPTIONAL_AX_FIELDS = ('lock', 'cache', 'prot', 'qos', 'region', 'user')
+# W/R/B channels carry only the user-defined extension.
+AXI4_OPTIONAL_DATA_FIELDS = ('user',)
+
+# AXI5 keeps the AXI4 qualifiers and adds its own, every one of which defaults
+# to 0 meaning "this optional feature is not in use". AxREGION is retained even
+# though AMBA5 removed the signal: that entry is what lets an AXI4-shaped BFM
+# bind against an AXI5 port instead of dying on a port that cannot exist.
+AXI5_OPTIONAL_AX_COMMON = AXI4_OPTIONAL_AX_FIELDS + (
+    'nsaid', 'trace', 'mpam', 'mecid', 'unique', 'tagop',
+)
+# The AXI5 address channels are NOT symmetric, so they do not share a set:
+# atomics and write tagging exist only on AW, read-data chunking only on AR.
+# One shared tuple put 'chunken' on AW and 'atop' on AR, which the stale-name
+# check in tests/unit/test_signal_mapping_optional_fields.py caught immediately.
+AXI5_OPTIONAL_AW_FIELDS = AXI5_OPTIONAL_AX_COMMON + ('atop', 'tag')
+AXI5_OPTIONAL_AR_FIELDS = AXI5_OPTIONAL_AX_COMMON + ('chunken',)
+AXI5_OPTIONAL_W_FIELDS = ('user', 'poison', 'tag', 'tagupdate')
+AXI5_OPTIONAL_B_FIELDS = ('user', 'trace', 'tag', 'tagmatch')
+# chunk* default 0 = no chunk in progress; tagmatch 0 = no MTE match. Both are
+# the correct reading for a DUT that implements neither feature.
+AXI5_OPTIONAL_R_FIELDS = ('user', 'poison', 'tag', 'trace', 'tagmatch',
+                          'chunknum', 'chunkstrb', 'chunkv')
+
+
 PROTOCOL_SIGNAL_CONFIGS = {
     # ===========================================================================
     # AXI4 PROTOCOL CONFIGURATIONS - NEW
@@ -435,6 +495,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
 
     # AXI4 Master variants (inverse roles)
     'axi4_ar_master': {
+        'optional_fields': AXI4_OPTIONAL_AX_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Master drives arvalid
             'i_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Master reads arready
@@ -446,6 +507,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_ar_slave': {
+        'optional_fields': AXI4_OPTIONAL_AX_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Slave reads arvalid
             'o_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Slave drives arready
@@ -457,6 +519,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_r_slave': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Slave reads rvalid
             'o_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Slave drives rready
@@ -468,6 +531,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_r_master': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Master drives rvalid
             'i_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Master reads rready
@@ -479,6 +543,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_aw_master': {
+        'optional_fields': AXI4_OPTIONAL_AX_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Master drives awvalid
             'i_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Master reads awready
@@ -490,6 +555,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_aw_slave': {
+        'optional_fields': AXI4_OPTIONAL_AX_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Slave reads awvalid
             'o_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Slave drives awready
@@ -501,6 +567,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_w_master': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Master drives wvalid
             'i_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Master reads wready
@@ -512,6 +579,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_w_slave': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Slave reads wvalid
             'o_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Slave drives wready
@@ -523,6 +591,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_b_slave': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Slave reads bvalid
             'o_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Slave drives bready
@@ -534,6 +603,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi4_b_master': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Master drives bvalid
             'i_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Master reads bready
@@ -552,6 +622,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     # which are handled via field_config, not in the base pattern matching.
 
     'axi5_ar_master': {
+        'optional_fields': AXI5_OPTIONAL_AR_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Master drives arvalid
             'i_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Master reads arready
@@ -563,6 +634,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_ar_slave': {
+        'optional_fields': AXI5_OPTIONAL_AR_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Slave reads arvalid
             'o_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Slave drives arready
@@ -574,6 +646,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_r_master': {
+        'optional_fields': AXI5_OPTIONAL_R_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Master drives rvalid
             'i_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Master reads rready
@@ -585,6 +658,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_r_slave': {
+        'optional_fields': AXI5_OPTIONAL_R_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Slave reads rvalid
             'o_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Slave drives rready
@@ -596,6 +670,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_aw_master': {
+        'optional_fields': AXI5_OPTIONAL_AW_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Master drives awvalid
             'i_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Master reads awready
@@ -607,6 +682,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_aw_slave': {
+        'optional_fields': AXI5_OPTIONAL_AW_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Slave reads awvalid
             'o_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Slave drives awready
@@ -618,6 +694,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_w_master': {
+        'optional_fields': AXI5_OPTIONAL_W_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Master drives wvalid
             'i_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Master reads wready
@@ -629,6 +706,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_w_slave': {
+        'optional_fields': AXI5_OPTIONAL_W_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Slave reads wvalid
             'o_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Slave drives wready
@@ -640,6 +718,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_b_master': {
+        'optional_fields': AXI5_OPTIONAL_B_FIELDS,
         'signal_map': {
             'o_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Master drives bvalid
             'i_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Master reads bready
@@ -651,6 +730,7 @@ PROTOCOL_SIGNAL_CONFIGS = {
     },
 
     'axi5_b_slave': {
+        'optional_fields': AXI5_OPTIONAL_B_FIELDS,
         'signal_map': {
             'i_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Slave reads bvalid
             'o_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Slave drives bready

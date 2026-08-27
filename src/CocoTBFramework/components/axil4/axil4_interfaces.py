@@ -29,6 +29,20 @@ import collections
 from typing import Any, Dict, List, Optional, Union
 
 import cocotb
+
+# AXIL4 has no per-channel entry in PROTOCOL_SIGNAL_CONFIGS -- its channels ride
+# the generic gaxi_* configs -- so the config-level optional_fields tier that
+# signal_mapping_helper defines for AXI4/AXI5 has nowhere to live for AXI-Lite.
+# This is that tier, applied by every AXIL4 interface class below.
+#
+# Same rule as signal_mapping_helper's: a field may be optional ONLY IF its
+# protocol default when omitted is 0, because an unbound field reads 0 forever.
+# AxPROT defaults to 0b000, so an absent port and a port tied to its default are
+# indistinguishable. AxSIZE/AxBURST/WSTRB/xLAST have non-zero defaults and must
+# never be added here -- silent-0 would mean a different, legal, wrong transfer.
+# (AXI-Lite has no LEN/SIZE/BURST at all, so only WSTRB/xLAST are live hazards.)
+AXIL4_DEFAULT_OPTIONAL_FIELDS = ('prot',)
+
 from cocotb.triggers import Event, Lock, RisingEdge
 
 from CocoTBFramework.components.axil4.axil4_compliance_checker import AXIL4ComplianceChecker
@@ -62,6 +76,15 @@ class AXIL4MasterRead:
         self.data_width = kwargs.get('data_width', 32)
         self.addr_width = kwargs.get('addr_width', 32)
         self.multi_sig = kwargs.get('multi_sig', False)
+        # Per-instance opt-out for fields a DUT genuinely cannot have (an
+        # AXI5 port has no AxREGION; a reduced write master may have no
+        # BUSER). Without this the strict bind rule is fatal on a port that
+        # cannot exist. Forwarded to EVERY channel below -- an opt-out that
+        # reaches only the first channel silently does nothing on the rest.
+        # See AXIL4_DEFAULT_OPTIONAL_FIELDS. Caller additions are unioned,
+        # not replaced -- an opt-out must never silently drop the default.
+        self.optional_fields = (set(kwargs.get('optional_fields') or ())
+                                | set(AXIL4_DEFAULT_OPTIONAL_FIELDS))
 
         # AR Channel (Address Read) - Master drives
         self.ar_channel = GAXIMaster(
@@ -74,7 +97,8 @@ class AXIL4MasterRead:
             ),
             pkt_prefix="ar",
             multi_sig=self.multi_sig,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # R Channel - Slave receives R data
@@ -88,7 +112,8 @@ class AXIL4MasterRead:
             ),
             pkt_prefix="r",
             multi_sig=self.multi_sig,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Store parameters for transaction methods
@@ -262,6 +287,15 @@ class AXIL4MasterWrite:
         self.data_width = kwargs.get('data_width', 32)
         self.addr_width = kwargs.get('addr_width', 32)
         self.multi_sig = kwargs.get('multi_sig', False)
+        # Per-instance opt-out for fields a DUT genuinely cannot have (an
+        # AXI5 port has no AxREGION; a reduced write master may have no
+        # BUSER). Without this the strict bind rule is fatal on a port that
+        # cannot exist. Forwarded to EVERY channel below -- an opt-out that
+        # reaches only the first channel silently does nothing on the rest.
+        # See AXIL4_DEFAULT_OPTIONAL_FIELDS. Caller additions are unioned,
+        # not replaced -- an opt-out must never silently drop the default.
+        self.optional_fields = (set(kwargs.get('optional_fields') or ())
+                                | set(AXIL4_DEFAULT_OPTIONAL_FIELDS))
 
         # AW Channel (Address Write) - Master drives
         self.aw_channel = GAXIMaster(
@@ -274,7 +308,8 @@ class AXIL4MasterWrite:
             ),
             pkt_prefix="aw",
             multi_sig=self.multi_sig,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # W Channel (Write Data) - Master drives
@@ -288,7 +323,8 @@ class AXIL4MasterWrite:
             ),
             pkt_prefix="w",
             multi_sig=self.multi_sig,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # B Channel (Write Response) - Slave receives responses
@@ -302,7 +338,8 @@ class AXIL4MasterWrite:
             ),
             pkt_prefix="b",
             multi_sig=self.multi_sig,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Store parameters
@@ -505,6 +542,15 @@ class AXIL4SlaveRead:
         self.data_width = kwargs.get('data_width', 32)
         self.addr_width = kwargs.get('addr_width', 32)
         self.multi_sig = kwargs.get('multi_sig', False)
+        # Per-instance opt-out for fields a DUT genuinely cannot have (an
+        # AXI5 port has no AxREGION; a reduced write master may have no
+        # BUSER). Without this the strict bind rule is fatal on a port that
+        # cannot exist. Forwarded to EVERY channel below -- an opt-out that
+        # reaches only the first channel silently does nothing on the rest.
+        # See AXIL4_DEFAULT_OPTIONAL_FIELDS. Caller additions are unioned,
+        # not replaced -- an opt-out must never silently drop the default.
+        self.optional_fields = (set(kwargs.get('optional_fields') or ())
+                                | set(AXIL4_DEFAULT_OPTIONAL_FIELDS))
 
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')
@@ -536,6 +582,7 @@ class AXIL4SlaveRead:
             pkt_prefix="ar",
             multi_sig=self.multi_sig,
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # R Channel - GAXIMaster drives R responses
@@ -550,6 +597,7 @@ class AXIL4SlaveRead:
             pkt_prefix="r",
             multi_sig=self.multi_sig,
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Set up callback from AR slave to trigger R responses
@@ -669,6 +717,15 @@ class AXIL4SlaveWrite:
         self.data_width = kwargs.get('data_width', 32)
         self.addr_width = kwargs.get('addr_width', 32)
         self.multi_sig = kwargs.get('multi_sig', False)
+        # Per-instance opt-out for fields a DUT genuinely cannot have (an
+        # AXI5 port has no AxREGION; a reduced write master may have no
+        # BUSER). Without this the strict bind rule is fatal on a port that
+        # cannot exist. Forwarded to EVERY channel below -- an opt-out that
+        # reaches only the first channel silently does nothing on the rest.
+        # See AXIL4_DEFAULT_OPTIONAL_FIELDS. Caller additions are unioned,
+        # not replaced -- an opt-out must never silently drop the default.
+        self.optional_fields = (set(kwargs.get('optional_fields') or ())
+                                | set(AXIL4_DEFAULT_OPTIONAL_FIELDS))
 
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')
@@ -694,6 +751,7 @@ class AXIL4SlaveWrite:
             pkt_prefix="aw",
             multi_sig=self.multi_sig,
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # W Channel - GAXISlave drives wready and receives W data
@@ -708,6 +766,7 @@ class AXIL4SlaveWrite:
             pkt_prefix="w",
             multi_sig=self.multi_sig,
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # B Channel - GAXIMaster drives B responses
@@ -722,6 +781,7 @@ class AXIL4SlaveWrite:
             pkt_prefix="b",
             multi_sig=self.multi_sig,
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Set up callbacks

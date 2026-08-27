@@ -97,6 +97,12 @@ class AXI5MasterRead:
         self.tag_width = kwargs.get('tag_width', 4)
         self.chunknum_width = kwargs.get('chunknum_width', 4)
         self.multi_sig = kwargs.get('multi_sig', True)
+        # Per-instance opt-out for fields a DUT genuinely cannot have (an
+        # AXI5 port has no AxREGION; a reduced write master may have no
+        # BUSER). Without this the strict bind rule is fatal on a port that
+        # cannot exist. Forwarded to EVERY channel below -- an opt-out that
+        # reaches only the first channel silently does nothing on the rest.
+        self.optional_fields = kwargs.get('optional_fields')
 
         # AR Channel (Address Read) - Master drives
         self.ar_channel = GAXIMaster(
@@ -113,7 +119,8 @@ class AXI5MasterRead:
             multi_sig=self.multi_sig,
             protocol_type='axi5_ar_master',
             super_debug=self.super_debug,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # R Channel - Slave receives responses
@@ -130,7 +137,8 @@ class AXI5MasterRead:
             multi_sig=self.multi_sig,
             protocol_type='axi5_r_slave',
             super_debug=self.super_debug,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Timeout configuration
@@ -316,6 +324,12 @@ class AXI5MasterWrite:
         self.tagop_width = kwargs.get('tagop_width', 2)
         self.tag_width = kwargs.get('tag_width', 4)
         self.multi_sig = kwargs.get('multi_sig', True)
+        # Per-instance opt-out for fields a DUT genuinely cannot have (an
+        # AXI5 port has no AxREGION; a reduced write master may have no
+        # BUSER). Without this the strict bind rule is fatal on a port that
+        # cannot exist. Forwarded to EVERY channel below -- an opt-out that
+        # reaches only the first channel silently does nothing on the rest.
+        self.optional_fields = kwargs.get('optional_fields')
 
         # Calculate derived widths
         self.num_tags = max(1, self.data_width // 128)
@@ -336,7 +350,8 @@ class AXI5MasterWrite:
             pkt_prefix="aw",
             multi_sig=self.multi_sig,
             protocol_type='axi5_aw_master',
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # W Channel (Write Data) - Master drives
@@ -351,7 +366,8 @@ class AXI5MasterWrite:
             pkt_prefix="w",
             multi_sig=self.multi_sig,
             protocol_type='axi5_w_master',
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # B Channel (Write Response) - Slave receives responses
@@ -366,7 +382,8 @@ class AXI5MasterWrite:
             pkt_prefix="b",
             multi_sig=self.multi_sig,
             protocol_type='axi5_b_slave',
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Timeout configuration
@@ -609,6 +626,12 @@ class AXI5SlaveRead:
         self.tag_width = kwargs.get('tag_width', 4)
         self.chunknum_width = kwargs.get('chunknum_width', 4)
         self.multi_sig = kwargs.get('multi_sig', True)
+        # Per-instance opt-out for fields a DUT genuinely cannot have (an
+        # AXI5 port has no AxREGION; a reduced write master may have no
+        # BUSER). Without this the strict bind rule is fatal on a port that
+        # cannot exist. Forwarded to EVERY channel below -- an opt-out that
+        # reaches only the first channel silently does nothing on the rest.
+        self.optional_fields = kwargs.get('optional_fields')
 
         # Memory model
         self.memory_model = kwargs.get('memory_model')
@@ -651,6 +674,7 @@ class AXI5SlaveRead:
             multi_sig=self.multi_sig,
             protocol_type='axi5_ar_slave',
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # R Channel - Master drives responses
@@ -668,6 +692,7 @@ class AXI5SlaveRead:
             protocol_type='axi5_r_master',
             log=log,
             super_debug=True,
+            optional_fields=self.optional_fields,
         )
 
         # Set up callback from AR slave to trigger R responses
@@ -880,6 +905,12 @@ class AXI5SlaveWrite:
         self.tagop_width = kwargs.get('tagop_width', 2)
         self.tag_width = kwargs.get('tag_width', 4)
         self.multi_sig = kwargs.get('multi_sig', True)
+        # Per-instance opt-out for fields a DUT genuinely cannot have (an
+        # AXI5 port has no AxREGION; a reduced write master may have no
+        # BUSER). Without this the strict bind rule is fatal on a port that
+        # cannot exist. Forwarded to EVERY channel below -- an opt-out that
+        # reaches only the first channel silently does nothing on the rest.
+        self.optional_fields = kwargs.get('optional_fields')
 
         # Memory model
         self.memory_model = kwargs.get('memory_model')
@@ -919,6 +950,7 @@ class AXI5SlaveWrite:
             multi_sig=self.multi_sig,
             protocol_type='axi5_aw_slave',
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # W Channel - Slave drives wready
@@ -934,6 +966,7 @@ class AXI5SlaveWrite:
             multi_sig=self.multi_sig,
             protocol_type='axi5_w_slave',
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # B Channel - Master drives responses
@@ -949,6 +982,7 @@ class AXI5SlaveWrite:
             multi_sig=self.multi_sig,
             protocol_type='axi5_b_master',
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Set up callbacks

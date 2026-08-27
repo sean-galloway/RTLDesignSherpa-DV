@@ -95,7 +95,8 @@ class AXI4MasterRead:
             multi_sig=self.multi_sig,
             protocol_type='axi4_r_slave',  # Use AXI4-specific patterns
             super_debug=self.super_debug,
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Store parameters for transaction methods
@@ -285,7 +286,8 @@ class AXI4MasterWrite:
             pkt_prefix="w",
             multi_sig=self.multi_sig,
             protocol_type='axi4_w_master',  # Use AXI4-specific patterns
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # B Channel (Write Response) - Slave receives responses
@@ -300,7 +302,8 @@ class AXI4MasterWrite:
             pkt_prefix="b",
             multi_sig=self.multi_sig,
             protocol_type='axi4_b_slave',  # Use AXI4-specific patterns
-            log=log
+            log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Store parameters for transaction methods
@@ -589,6 +592,7 @@ class AXI4SlaveRead:
             protocol_type='axi4_r_master',  # Use AXI4-specific patterns
             log=log,
             super_debug=True,
+            optional_fields=self.optional_fields,
         )
 
         # CRITICAL: Set up callback from AR slave to trigger R responses
@@ -1007,6 +1011,7 @@ class AXI4SlaveWrite:
             protocol_type='axi4_w_slave',  # Use AXI4-specific patterns
             super_debug=self.super_debug,
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # B Channel - GAXIMaster drives B responses
@@ -1023,6 +1028,7 @@ class AXI4SlaveWrite:
             protocol_type='axi4_b_master',  # Use AXI4-specific patterns
             super_debug=self.super_debug,
             log=log,
+            optional_fields=self.optional_fields,
         )
 
         # Set up callbacks

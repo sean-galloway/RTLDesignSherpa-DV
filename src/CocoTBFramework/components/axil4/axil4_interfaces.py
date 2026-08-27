@@ -29,6 +29,15 @@ import collections
 from typing import Any, Dict, List, Optional, Union
 
 import cocotb
+from cocotb.triggers import Event, Lock, RisingEdge
+
+from CocoTBFramework.components.axil4.axil4_compliance_checker import AXIL4ComplianceChecker
+from CocoTBFramework.components.axil4.axil4_field_configs import AXIL4FieldConfigHelper
+from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
+
+# Import GAXI components and field configs
+from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
+from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 
 # AXIL4 has no per-channel entry in PROTOCOL_SIGNAL_CONFIGS -- its channels ride
 # the generic gaxi_* configs -- so the config-level optional_fields tier that
@@ -43,16 +52,6 @@ import cocotb
 # (AXI-Lite has no LEN/SIZE/BURST at all, so only WSTRB/xLAST are live hazards.)
 AXIL4_DEFAULT_OPTIONAL_FIELDS = ('prot',)
 
-from cocotb.triggers import Event, Lock, RisingEdge
-
-from CocoTBFramework.components.axil4.axil4_compliance_checker import AXIL4ComplianceChecker
-from CocoTBFramework.components.axil4.axil4_field_configs import AXIL4FieldConfigHelper
-from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
-
-# Import GAXI components and field configs
-from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
-from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
-
 
 class AXIL4MasterRead:
     """
@@ -66,6 +65,21 @@ class AXIL4MasterRead:
 
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
+
+    # Extension hook: AXI5-Lite is AXI4-Lite plus optional signal groups, so
+    # CocoTBFramework.components.axil5 subclasses these interfaces and swaps in
+    # its own field-config helper rather than forking ~950 lines of identical
+    # channel logic. A fork is how two implementations of one protocol drift
+    # apart with nothing comparing them. AXIL5 overrides FIELD_CONFIG_HELPER and
+    # fills _field_config_options from its feature kwargs; with every feature
+    # off the two produce identical field configs, asserted in
+    # tests/unit/test_axil5_extends_axil4.py.
+    FIELD_CONFIG_HELPER = AXIL4FieldConfigHelper
+
+    @staticmethod
+    def _build_field_config_options(kwargs):
+        """Extra kwargs for FIELD_CONFIG_HELPER. None for AXI4-Lite."""
+        return {}
 
     def __init__(self, dut, clock, prefix="", log=None, **kwargs):
         """Initialize AXIL4 Master Read interface with automatic compliance checking."""
@@ -85,6 +99,9 @@ class AXIL4MasterRead:
         # not replaced -- an opt-out must never silently drop the default.
         self.optional_fields = (set(kwargs.get('optional_fields') or ())
                                 | set(AXIL4_DEFAULT_OPTIONAL_FIELDS))
+        # Extra keyword arguments for FIELD_CONFIG_HELPER -- empty for AXI4-Lite,
+        # populated by AXIL5 from its optional-signal-group kwargs.
+        self._field_config_options = self._build_field_config_options(kwargs)
 
         # AR Channel (Address Read) - Master drives
         self.ar_channel = GAXIMaster(
@@ -92,8 +109,8 @@ class AXIL4MasterRead:
             title="AR_Master",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_ar_field_config(
-                self.addr_width  # SIMPLIFIED: No user_width parameter
+            field_config=self.FIELD_CONFIG_HELPER.create_ar_field_config(
+                self.addr_width, **self._field_config_options  # SIMPLIFIED: No user_width parameter
             ),
             pkt_prefix="ar",
             multi_sig=self.multi_sig,
@@ -107,8 +124,8 @@ class AXIL4MasterRead:
             title="R_Slave",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_r_field_config(
-                self.data_width  # SIMPLIFIED: No user_width parameter
+            field_config=self.FIELD_CONFIG_HELPER.create_r_field_config(
+                self.data_width, **self._field_config_options  # SIMPLIFIED: No user_width parameter
             ),
             pkt_prefix="r",
             multi_sig=self.multi_sig,
@@ -278,6 +295,21 @@ class AXIL4MasterWrite:
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
+    # Extension hook: AXI5-Lite is AXI4-Lite plus optional signal groups, so
+    # CocoTBFramework.components.axil5 subclasses these interfaces and swaps in
+    # its own field-config helper rather than forking ~950 lines of identical
+    # channel logic. A fork is how two implementations of one protocol drift
+    # apart with nothing comparing them. AXIL5 overrides FIELD_CONFIG_HELPER and
+    # fills _field_config_options from its feature kwargs; with every feature
+    # off the two produce identical field configs, asserted in
+    # tests/unit/test_axil5_extends_axil4.py.
+    FIELD_CONFIG_HELPER = AXIL4FieldConfigHelper
+
+    @staticmethod
+    def _build_field_config_options(kwargs):
+        """Extra kwargs for FIELD_CONFIG_HELPER. None for AXI4-Lite."""
+        return {}
+
     def __init__(self, dut, clock, prefix="", log=None, **kwargs):
         """Initialize AXIL4 Master Write interface with automatic compliance checking."""
         self.clock = clock
@@ -296,6 +328,9 @@ class AXIL4MasterWrite:
         # not replaced -- an opt-out must never silently drop the default.
         self.optional_fields = (set(kwargs.get('optional_fields') or ())
                                 | set(AXIL4_DEFAULT_OPTIONAL_FIELDS))
+        # Extra keyword arguments for FIELD_CONFIG_HELPER -- empty for AXI4-Lite,
+        # populated by AXIL5 from its optional-signal-group kwargs.
+        self._field_config_options = self._build_field_config_options(kwargs)
 
         # AW Channel (Address Write) - Master drives
         self.aw_channel = GAXIMaster(
@@ -303,8 +338,8 @@ class AXIL4MasterWrite:
             title="AW_Master",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_aw_field_config(
-                self.addr_width  # SIMPLIFIED: No user_width parameter
+            field_config=self.FIELD_CONFIG_HELPER.create_aw_field_config(
+                self.addr_width, **self._field_config_options  # SIMPLIFIED: No user_width parameter
             ),
             pkt_prefix="aw",
             multi_sig=self.multi_sig,
@@ -318,8 +353,8 @@ class AXIL4MasterWrite:
             title="W_Master",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_w_field_config(
-                self.data_width  # SIMPLIFIED: No user_width parameter
+            field_config=self.FIELD_CONFIG_HELPER.create_w_field_config(
+                self.data_width, **self._field_config_options  # SIMPLIFIED: No user_width parameter
             ),
             pkt_prefix="w",
             multi_sig=self.multi_sig,
@@ -333,8 +368,9 @@ class AXIL4MasterWrite:
             title="B_Slave",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_b_field_config(
+            field_config=self.FIELD_CONFIG_HELPER.create_b_field_config(
                 # SIMPLIFIED: No user_width parameter
+                **self._field_config_options
             ),
             pkt_prefix="b",
             multi_sig=self.multi_sig,
@@ -533,6 +569,21 @@ class AXIL4SlaveRead:
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
+    # Extension hook: AXI5-Lite is AXI4-Lite plus optional signal groups, so
+    # CocoTBFramework.components.axil5 subclasses these interfaces and swaps in
+    # its own field-config helper rather than forking ~950 lines of identical
+    # channel logic. A fork is how two implementations of one protocol drift
+    # apart with nothing comparing them. AXIL5 overrides FIELD_CONFIG_HELPER and
+    # fills _field_config_options from its feature kwargs; with every feature
+    # off the two produce identical field configs, asserted in
+    # tests/unit/test_axil5_extends_axil4.py.
+    FIELD_CONFIG_HELPER = AXIL4FieldConfigHelper
+
+    @staticmethod
+    def _build_field_config_options(kwargs):
+        """Extra kwargs for FIELD_CONFIG_HELPER. None for AXI4-Lite."""
+        return {}
+
     def __init__(self, dut, clock, prefix="", log=None, **kwargs):
         """Initialize AXIL4 Slave Read interface."""
         self.clock = clock
@@ -551,6 +602,9 @@ class AXIL4SlaveRead:
         # not replaced -- an opt-out must never silently drop the default.
         self.optional_fields = (set(kwargs.get('optional_fields') or ())
                                 | set(AXIL4_DEFAULT_OPTIONAL_FIELDS))
+        # Extra keyword arguments for FIELD_CONFIG_HELPER -- empty for AXI4-Lite,
+        # populated by AXIL5 from its optional-signal-group kwargs.
+        self._field_config_options = self._build_field_config_options(kwargs)
 
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')
@@ -576,8 +630,8 @@ class AXIL4SlaveRead:
             title="AR_Slave",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_ar_field_config(
-                self.addr_width  # SIMPLIFIED: No user_width parameter
+            field_config=self.FIELD_CONFIG_HELPER.create_ar_field_config(
+                self.addr_width, **self._field_config_options  # SIMPLIFIED: No user_width parameter
             ),
             pkt_prefix="ar",
             multi_sig=self.multi_sig,
@@ -591,8 +645,8 @@ class AXIL4SlaveRead:
             title="R_Master",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_r_field_config(
-                self.data_width  # SIMPLIFIED: No user_width parameter
+            field_config=self.FIELD_CONFIG_HELPER.create_r_field_config(
+                self.data_width, **self._field_config_options  # SIMPLIFIED: No user_width parameter
             ),
             pkt_prefix="r",
             multi_sig=self.multi_sig,
@@ -708,6 +762,21 @@ class AXIL4SlaveWrite:
     SIMPLIFIED: No user signal support (AXIL4 spec compliant)
     """
 
+    # Extension hook: AXI5-Lite is AXI4-Lite plus optional signal groups, so
+    # CocoTBFramework.components.axil5 subclasses these interfaces and swaps in
+    # its own field-config helper rather than forking ~950 lines of identical
+    # channel logic. A fork is how two implementations of one protocol drift
+    # apart with nothing comparing them. AXIL5 overrides FIELD_CONFIG_HELPER and
+    # fills _field_config_options from its feature kwargs; with every feature
+    # off the two produce identical field configs, asserted in
+    # tests/unit/test_axil5_extends_axil4.py.
+    FIELD_CONFIG_HELPER = AXIL4FieldConfigHelper
+
+    @staticmethod
+    def _build_field_config_options(kwargs):
+        """Extra kwargs for FIELD_CONFIG_HELPER. None for AXI4-Lite."""
+        return {}
+
     def __init__(self, dut, clock, prefix="", log=None, **kwargs):
         """Initialize AXIL4 Slave Write interface."""
         self.clock = clock
@@ -726,6 +795,9 @@ class AXIL4SlaveWrite:
         # not replaced -- an opt-out must never silently drop the default.
         self.optional_fields = (set(kwargs.get('optional_fields') or ())
                                 | set(AXIL4_DEFAULT_OPTIONAL_FIELDS))
+        # Extra keyword arguments for FIELD_CONFIG_HELPER -- empty for AXI4-Lite,
+        # populated by AXIL5 from its optional-signal-group kwargs.
+        self._field_config_options = self._build_field_config_options(kwargs)
 
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')
@@ -745,8 +817,8 @@ class AXIL4SlaveWrite:
             title="AW_Slave",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_aw_field_config(
-                self.addr_width  # SIMPLIFIED: No user_width parameter
+            field_config=self.FIELD_CONFIG_HELPER.create_aw_field_config(
+                self.addr_width, **self._field_config_options  # SIMPLIFIED: No user_width parameter
             ),
             pkt_prefix="aw",
             multi_sig=self.multi_sig,
@@ -760,8 +832,8 @@ class AXIL4SlaveWrite:
             title="W_Slave",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_w_field_config(
-                self.data_width  # SIMPLIFIED: No user_width parameter
+            field_config=self.FIELD_CONFIG_HELPER.create_w_field_config(
+                self.data_width, **self._field_config_options  # SIMPLIFIED: No user_width parameter
             ),
             pkt_prefix="w",
             multi_sig=self.multi_sig,
@@ -775,8 +847,9 @@ class AXIL4SlaveWrite:
             title="B_Master",
             prefix=prefix,
             clock=clock,
-            field_config=AXIL4FieldConfigHelper.create_b_field_config(
+            field_config=self.FIELD_CONFIG_HELPER.create_b_field_config(
                 # SIMPLIFIED: No user_width parameter
+                **self._field_config_options
             ),
             pkt_prefix="b",
             multi_sig=self.multi_sig,

@@ -2,6 +2,122 @@
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-08-27
+
+### Fixed
+
+- **`optional_fields` was read but never populated, so every AMBA
+  qualifier became mandatory** ([#75]). 0.6.5 shipped the fatal binding
+  rule (a declared field that binds to nothing is a broken testbench,
+  not a warning) whose resolver reads a config-level escape list —
+  `self.config.get('optional_fields', ())` — that no entry in
+  `PROTOCOL_SIGNAL_CONFIGS` ever defined. The per-instance
+  `optional_fields=` kwarg that unions with it did not ship until this
+  release, so 0.6.5 carries the fatal rule with no escape hatch of
+  either kind: `AxUSER`, `AxREGION`, `AxQOS`, `AxLOCK`, `AxCACHE` and
+  `AxPROT` are mandatory on every DUT, and any DUT omitting one dies at
+  construction. Consumers on 0.6.5 should upgrade — in RDS this broke
+  every `val/amba` AXI4/AXIL4 test, and 12 of 32 AXI4 modules there omit
+  `ARREGION` alone.
+
+  The tier is now populated through named constants
+  (`AXI4_OPTIONAL_AX_FIELDS`, `AXI5_OPTIONAL_AR_FIELDS`, …) rather than
+  20 inline tuples. AXI-Lite has no per-channel protocol config — its
+  channels ride the generic `gaxi_*` ones — so its tier is
+  `AXIL4_DEFAULT_OPTIONAL_FIELDS`, unioned rather than replaced by the
+  four AXIL4 interface classes.
+
+  The rule deciding what may go in these sets is now stated once, above
+  `PROTOCOL_SIGNAL_CONFIGS`: an unbound field reads 0 forever, so a
+  field may be optional **only if** the protocol default for the omitted
+  signal is also 0. Where the two agree, an absent port and a port tied
+  to its default are indistinguishable. Where they disagree, silent-0
+  produces a different, *legal*, wrong transaction rather than a missing
+  one — `AxSIZE` defaults to the full bus width (0 means 1 byte per
+  beat), `AxBURST` to INCR (0 means FIXED), `WSTRB` to all lanes (0
+  writes nothing), `xLAST` to 1 (0 never ends the burst). Those four
+  stay required however optional they look. `xID`, `AxLEN` and `xRESP`
+  do default to 0 and the rule would permit them; they are excluded
+  anyway, because an ID that silently reads 0 collapses ID-reordering
+  traffic into single-ID traffic and still passes.
+
+  Guarded by `tests/unit/test_signal_mapping_optional_fields.py` —
+  static table checks, no DUT or simulator — and mutation-checked six
+  ways. Its stale-name check earned itself immediately: the AXI5 address
+  channels are not symmetric (atomics and write tagging are AW-only,
+  read-data chunking AR-only) and one shared tuple had put each on the
+  wrong channel.
+
+- **AXI4/AXIL4 BFM width defects: fixed-size-2 defaults, dropped narrow
+  writes, list-data crash** ([#71]). Three defects that coincide on a
+  32-bit bus and diverge on any wider one. `AXI4MasterWrite`/`Read`
+  defaulted `AWSIZE`/`ARSIZE` to 2 (4 bytes) while defaulting `WSTRB` to
+  all lanes of the full bus — an AXI violation above 32 bits, so slaves
+  legally mis-sliced or dropped the write. Defaults are now the full bus
+  width, and an explicitly narrow size gets lane-correct per-beat
+  strobes with lane-positioned data. `AXI4SlaveWrite` sliced W data to
+  `1 << AWSIZE` bytes but kept the bus-width strobe, so
+  `memory_model.write` rejected the mismatch and the write vanished; it
+  now writes the full bus word at the bus-aligned address with the wire
+  strobe, handling narrow and full beats identically.
+  `AXIL4MasterWrite.write_transaction` crashed formatting a debug log
+  when handed the AXI4 API's `[data]` list shape, and now accepts either.
+
+### Added
+
+- **Per-instance `optional_fields` opt-out** ([#73]). AMBA5 removed
+  `AxREGION`, so an AXI4-shaped BFM bound against an AXI5 port died
+  fatally on a port that cannot exist. `SignalResolver` takes
+  `optional_fields`, unioned with the protocol config's own set; the
+  GAXI bases plumb it through (stripping it before cocotb via
+  `FRAMEWORK_KWARGS`) and the AXI4/AXI5/AXIL4 interfaces forward it to
+  every channel. Pass nothing and binding stays exactly as fatal.
+
+- **`resp_override` on `AXI4SlaveRead`**, matching the AXIL4
+  convention. The AXI4 read slave hardcoded `resp=0` on every beat, so a
+  DUT's R-path error handling was untestable — the gap that blocked
+  reproducing a converter response-folding defect where `SLVERR|EXOKAY`
+  inflated to `DECERR`. Takes a callable `(address) -> resp code`, or
+  `None` to leave the natural response alone. Per-address, so a test can
+  fail exactly one sub-beat of a wide beat, which is what distinguishes
+  a severity-fold bug from blanket error propagation.
+
+- **LPDDR2 per-bank refresh (`REFpb`) in the DRAM state model**. JESD209-2
+  §6.6 semantics: the refreshed bank is chosen by the device's internal
+  rotor, so the command carries no bank address and the controller can
+  only track the sequence. `DramStateModel.on_refresh_bank()` requires
+  the rotor bank to be precharged, refreshes it alone for `tRFCpb`
+  (falling back to `tRFCab` when the timing set has no per-bank value),
+  and leaves every other bank accessible — `_check_not_refreshing` is
+  bank-aware, so demand to other banks during a `REFpb` window no longer
+  false-flags while the `REFab` window still blocks everything.
+  `refpb_rotor` / `refpb_total` are exposed for test observability.
+
+### Changed
+
+- **Bridge concurrency suite green 8/8** ([#72]), after three masking
+  layers were removed (converter-update compile breakage, default-fatal
+  style lint, and the BFM width defects above). Unmasked, it caught real
+  generator defects, fixed and regenerated in RDS — most seriously that
+  xbar request channels were bare OR-merges with no arbiter, so two
+  masters targeting one slave in the same cycle merged field-by-field
+  and both saw the ORed ready. Now per-slave round-robin arbitration
+  with grant locked until handshake.
+
+- **Bridge suite drives wide-unaligned upsize traffic end-to-end**
+  ([#74]). Mid-wide-word burst starts are supported, AXI-correct
+  behavior (addressed-lane data with byte enables), and the suite is the
+  end-to-end coverage for it. Doing so caught a real race: the write
+  converter's AW-lane queue popped on the wide side's `WLAST`, so a
+  back-to-back burst's first narrow beat could sample the previous
+  burst's stale lane.
+
+[#71]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/71
+[#72]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/72
+[#73]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/73
+[#74]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/74
+[#75]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/75
+
 ## [0.6.5] - 2026-08-24
 
 ### Added

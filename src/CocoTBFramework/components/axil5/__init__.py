@@ -20,6 +20,14 @@ from .axil5_factories import (
     create_axil5_slave_interface,
     create_axil5_slave_rd,
     create_axil5_slave_wr,
+    create_axil5_system,
+    create_simple_axil5_master,
+    create_simple_axil5_slave,
+    get_unified_compliance_reports,
+    is_unified_compliance_checking_enabled,
+    print_all_compliance_reports_from_system,
+    print_compliance_to_log,
+    print_unified_compliance_reports,
 )
 from .axil5_field_configs import (
     AXIL5_FEATURE_KWARGS,
@@ -48,5 +56,13 @@ __all__ = [
     "create_axil5_slave_interface",
     "create_axil5_slave_rd",
     "create_axil5_slave_wr",
+    "create_axil5_system",
+    "create_simple_axil5_master",
+    "create_simple_axil5_slave",
     "get_axil5_field_configs",
+    "get_unified_compliance_reports",
+    "is_unified_compliance_checking_enabled",
+    "print_all_compliance_reports_from_system",
+    "print_compliance_to_log",
+    "print_unified_compliance_reports",
 ]

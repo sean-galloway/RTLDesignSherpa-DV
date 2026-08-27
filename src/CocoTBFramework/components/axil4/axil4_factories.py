@@ -30,6 +30,121 @@ from typing import Any, Dict, Tuple
 
 from .axil4_interfaces import AXIL4MasterRead, AXIL4MasterWrite, AXIL4SlaveRead, AXIL4SlaveWrite
 
+# ==============================================================================
+# RETURN-DICT BUILDERS -- ONE definition of the factory contract
+# ==============================================================================
+# The dictionaries these return ARE the factory API: callers index them by key,
+# so a key present in one protocol's factory and absent from another's is a
+# KeyError in user code rather than a type error here. AXI5-Lite reuses these
+# builders (see components/axil5/axil5_factories.py) so its factories cannot
+# quietly return a smaller dict than AXI4-Lite's -- which is exactly what a
+# hand-written copy did first time round, dropping 'write', 'read', 'read_reg',
+# 'write_reg', 'simple_read', 'simple_write' and both compliance checkers.
+#
+# They take already-constructed interface objects, so they are protocol-family
+# agnostic and unit-testable without a simulator.
+
+def build_master_rd_components(read_if) -> Dict[str, Any]:
+    """Read-master factory dict (AR + R)."""
+    return {
+        'AR': read_if.ar_channel,
+        'R': read_if.r_channel,
+        'interface': read_if,
+        'compliance_checker': read_if.compliance_checker,
+        'read_transaction': read_if.read_transaction,
+        'single_read': read_if.single_read,
+        'simple_read': read_if.simple_read,
+        'read_register': read_if.read_register,
+    }
+
+
+def build_master_wr_components(write_if) -> Dict[str, Any]:
+    """Write-master factory dict (AW + W + B)."""
+    return {
+        'AW': write_if.aw_channel,
+        'W': write_if.w_channel,
+        'B': write_if.b_channel,
+        'interface': write_if,
+        'compliance_checker': write_if.compliance_checker,
+        'write_transaction': write_if.write_transaction,
+        'single_write': write_if.single_write,
+        'simple_write': write_if.simple_write,
+        'write_register': write_if.write_register,
+    }
+
+
+def build_slave_rd_components(read_if) -> Dict[str, Any]:
+    """Read-slave factory dict."""
+    return {
+        'AR': read_if.ar_channel,
+        'R': read_if.r_channel,
+        'interface': read_if,
+        'compliance_checker': read_if.compliance_checker,
+    }
+
+
+def build_slave_wr_components(write_if) -> Dict[str, Any]:
+    """Write-slave factory dict."""
+    return {
+        'AW': write_if.aw_channel,
+        'W': write_if.w_channel,
+        'B': write_if.b_channel,
+        'interface': write_if,
+        'compliance_checker': write_if.compliance_checker,
+    }
+
+
+def build_master_components(write_if, read_if) -> Dict[str, Any]:
+    """Full-master factory dict (both directions)."""
+    return {
+        'write': write_if,
+        'read': read_if,
+        'write_interface': write_if,
+        'read_interface': read_if,
+
+        'AW': write_if.aw_channel,
+        'W': write_if.w_channel,
+        'B': write_if.b_channel,
+        'AR': read_if.ar_channel,
+        'R': read_if.r_channel,
+
+        'read_transaction': read_if.read_transaction,
+        'write_transaction': write_if.write_transaction,
+        'single_read': read_if.single_read,
+        'single_write': write_if.single_write,
+        'simple_read': read_if.simple_read,
+        'simple_write': write_if.simple_write,
+        'read_register': read_if.read_register,
+        'write_register': write_if.write_register,
+
+        'read_reg': read_if.read_register,
+        'write_reg': write_if.write_register,
+
+        'write_compliance_checker': write_if.compliance_checker,
+        'read_compliance_checker': read_if.compliance_checker,
+    }
+
+
+def build_slave_components(write_if, read_if, memory_model=None) -> Dict[str, Any]:
+    """Full-slave factory dict (both directions)."""
+    return {
+        'write': write_if,
+        'read': read_if,
+        'write_interface': write_if,
+        'read_interface': read_if,
+
+        'AW': write_if.aw_channel,
+        'W': write_if.w_channel,
+        'B': write_if.b_channel,
+        'AR': read_if.ar_channel,
+        'R': read_if.r_channel,
+
+        'memory_model': memory_model,
+
+        'write_compliance_checker': write_if.compliance_checker,
+        'read_compliance_checker': read_if.compliance_checker,
+    }
+
 
 def create_axil4_master_rd(dut, clock, prefix="", log=None, **kwargs) -> Dict[str, Any]:
     """
@@ -43,19 +158,7 @@ def create_axil4_master_rd(dut, clock, prefix="", log=None, **kwargs) -> Dict[st
 
     master_read = AXIL4MasterRead(dut, clock, prefix, log=log, **kwargs)
 
-    # PERFECT API CONSISTENCY: Identical structure to AXI4
-    return {
-        'AR': master_read.ar_channel,    # AR master component
-        'R': master_read.r_channel,      # R slave component
-        'interface': master_read,        # High-level interface
-        'compliance_checker': master_read.compliance_checker,  # Compliance checker
-
-        # ALL TRANSACTION METHODS (identical to AXI4)
-        'read_transaction': master_read.read_transaction,
-        'single_read': master_read.single_read,           # NEW: API consistency with AXI4
-        'simple_read': master_read.simple_read,           # KEEP: backward compatibility
-        'read_register': master_read.read_register,       # NEW: semantic alias
-    }
+    return build_master_rd_components(master_read)
 
 
 def create_axil4_master_wr(dut, clock, prefix="", log=None, **kwargs) -> Dict[str, Any]:
@@ -71,19 +174,7 @@ def create_axil4_master_wr(dut, clock, prefix="", log=None, **kwargs) -> Dict[st
     master_write = AXIL4MasterWrite(dut, clock, prefix, log=log, **kwargs)
 
     # PERFECT API CONSISTENCY: Identical structure to AXI4
-    return {
-        'AW': master_write.aw_channel,   # AW master component
-        'W': master_write.w_channel,     # W master component
-        'B': master_write.b_channel,     # B slave component
-        'interface': master_write,       # High-level interface
-        'compliance_checker': master_write.compliance_checker,  # Compliance checker
-
-        # ALL TRANSACTION METHODS (identical to AXI4)
-        'write_transaction': master_write.write_transaction,
-        'single_write': master_write.single_write,         # NEW: API consistency with AXI4
-        'simple_write': master_write.simple_write,         # KEEP: backward compatibility
-        'write_register': master_write.write_register,     # NEW: semantic alias
-    }
+    return build_master_wr_components(master_write)
 
 
 def create_axil4_slave_rd(dut, clock, prefix="", log=None, **kwargs) -> Dict[str, Any]:
@@ -98,12 +189,7 @@ def create_axil4_slave_rd(dut, clock, prefix="", log=None, **kwargs) -> Dict[str
     slave_read = AXIL4SlaveRead(dut, clock, prefix, log=log, **kwargs)
 
     # PERFECT API CONSISTENCY: Identical structure to AXI4
-    return {
-        'AR': slave_read.ar_channel,     # AR slave component
-        'R': slave_read.r_channel,       # R master component
-        'interface': slave_read,         # High-level interface
-        'compliance_checker': slave_read.compliance_checker,  # Compliance checker
-    }
+    return build_slave_rd_components(slave_read)
 
 
 def create_axil4_slave_wr(dut, clock, prefix="", log=None, **kwargs) -> Dict[str, Any]:
@@ -118,13 +204,7 @@ def create_axil4_slave_wr(dut, clock, prefix="", log=None, **kwargs) -> Dict[str
     slave_write = AXIL4SlaveWrite(dut, clock, prefix, log=log, **kwargs)
 
     # PERFECT API CONSISTENCY: Identical structure to AXI4
-    return {
-        'AW': slave_write.aw_channel,    # AW slave component
-        'W': slave_write.w_channel,      # W slave component
-        'B': slave_write.b_channel,      # B master component
-        'interface': slave_write,        # High-level interface
-        'compliance_checker': slave_write.compliance_checker,  # Compliance checker
-    }
+    return build_slave_wr_components(slave_write)
 
 
 def create_axil4_master_interface(dut, clock, prefix="", log=None, **kwargs) -> Tuple[AXIL4MasterWrite, AXIL4MasterRead]:
@@ -168,38 +248,7 @@ def create_axil4_master(dut, clock, prefix="", log=None, **kwargs) -> Dict[str, 
     write_if = AXIL4MasterWrite(dut, clock, prefix, log=log, **kwargs)
     read_if = AXIL4MasterRead(dut, clock, prefix, log=log, **kwargs)
 
-    # PERFECT API CONSISTENCY: Identical structure to AXI4
-    return {
-        'write': write_if,
-        'read': read_if,
-        'write_interface': write_if,      # Alias for compatibility
-        'read_interface': read_if,        # Alias for compatibility
-
-        # Individual components for direct access
-        'AW': write_if.aw_channel,
-        'W': write_if.w_channel,
-        'B': write_if.b_channel,
-        'AR': read_if.ar_channel,
-        'R': read_if.r_channel,
-
-        # ALL TRANSACTION METHODS (identical to AXI4)
-        'read_transaction': read_if.read_transaction,
-        'write_transaction': write_if.write_transaction,
-        'single_read': read_if.single_read,               # NEW: matches AXI4
-        'single_write': write_if.single_write,            # NEW: matches AXI4
-        'simple_read': read_if.simple_read,               # KEEP: backward compatibility
-        'simple_write': write_if.simple_write,            # KEEP: backward compatibility
-        'read_register': read_if.read_register,           # NEW: semantic alias
-        'write_register': write_if.write_register,        # NEW: semantic alias
-
-        # Short aliases for convenience (identical to AXI4)
-        'read_reg': read_if.read_register,
-        'write_reg': write_if.write_register,
-
-        # Compliance checkers
-        'write_compliance_checker': write_if.compliance_checker,
-        'read_compliance_checker': read_if.compliance_checker,
-    }
+    return build_master_components(write_if, read_if)
 
 
 def create_axil4_slave(dut, clock, prefix="", log=None, **kwargs) -> Dict[str, Any]:
@@ -215,26 +264,7 @@ def create_axil4_slave(dut, clock, prefix="", log=None, **kwargs) -> Dict[str, A
     write_if = AXIL4SlaveWrite(dut, clock, prefix, log=log, **kwargs)
     read_if = AXIL4SlaveRead(dut, clock, prefix, log=log, **kwargs)
 
-    return {
-        'write': write_if,
-        'read': read_if,
-        'write_interface': write_if,      # Alias for compatibility
-        'read_interface': read_if,        # Alias for compatibility
-
-        # Individual components for direct access
-        'AW': write_if.aw_channel,
-        'W': write_if.w_channel,
-        'B': write_if.b_channel,
-        'AR': read_if.ar_channel,
-        'R': read_if.r_channel,
-
-        # Memory model access (if provided)
-        'memory_model': kwargs.get('memory_model'),
-
-        # Compliance checkers
-        'write_compliance_checker': write_if.compliance_checker,
-        'read_compliance_checker': read_if.compliance_checker,
-    }
+    return build_slave_components(write_if, read_if, kwargs.get('memory_model'))
 
 
 def create_axil4_system(dut, clock, prefix="", log=None, memory_model=None, **kwargs) -> Dict[str, Any]:

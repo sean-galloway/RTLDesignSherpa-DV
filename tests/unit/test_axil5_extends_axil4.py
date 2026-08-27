@@ -246,3 +246,120 @@ def test_axil5_does_not_strip_user_width_the_way_axil4_does():
         "an AXIL5 factory strips user_width; USER is a supported AXI5-Lite "
         "group and the switch must reach the field config"
     )
+
+
+# ---------------------------------------------------------------------------
+# Factory contract parity
+# ---------------------------------------------------------------------------
+class _MockInterface:
+    """Stand-in for a constructed AXIL interface.
+
+    The factory return dicts are built purely from interface attributes, so
+    they can be exercised without cocotb, a DUT or a simulator -- which is what
+    makes this parity check cheap enough to run on every commit.
+    """
+
+    def __init__(self):
+        for chan in ('aw_channel', 'w_channel', 'b_channel',
+                     'ar_channel', 'r_channel'):
+            setattr(self, chan, object())
+        self.compliance_checker = object()
+        for meth in ('read_transaction', 'write_transaction',
+                     'single_read', 'single_write',
+                     'simple_read', 'simple_write',
+                     'read_register', 'write_register'):
+            setattr(self, meth, lambda *a, **k: None)
+
+
+def test_axil5_factories_return_the_axil4_contract():
+    """AXIL5 factory dicts carry exactly the AXIL4 keys.
+
+    The returned dictionary IS the factory API -- callers index it by key. A
+    key AXI4-Lite provides and AXI5-Lite omits is a KeyError in user code, not
+    a type error in the framework, so nothing here would catch it except this.
+
+    It has already happened: the first hand-written axil5_factories dropped
+    'write', 'read', 'read_reg', 'write_reg', 'simple_read', 'simple_write',
+    'memory_model' and both compliance checkers, and every other test in this
+    file still passed.
+    """
+    from CocoTBFramework.components.axil4 import axil4_factories as f4
+
+    w, r = _MockInterface(), _MockInterface()
+    pairs = [
+        ("master_rd", f4.build_master_rd_components(r)),
+        ("master_wr", f4.build_master_wr_components(w)),
+        ("slave_rd", f4.build_slave_rd_components(r)),
+        ("slave_wr", f4.build_slave_wr_components(w)),
+        ("master", f4.build_master_components(w, r)),
+        ("slave", f4.build_slave_components(w, r, None)),
+    ]
+    # Every builder must produce a non-trivial dict; an empty one would make
+    # the parity assertion below vacuously true.
+    for name, d in pairs:
+        assert len(d) >= 4, f"{name} builder returned only {sorted(d)}"
+
+    # The AXIL5 factories are thin wrappers over these same builders, so
+    # parity is structural. Assert the wiring rather than trusting it.
+    import inspect
+
+    from CocoTBFramework.components.axil5 import axil5_factories as f5
+
+    src = inspect.getsource(f5)
+    for builder in ('build_master_rd_components', 'build_master_wr_components',
+                    'build_slave_rd_components', 'build_slave_wr_components',
+                    'build_master_components', 'build_slave_components'):
+        assert src.count(builder) >= 2, (
+            f"axil5_factories does not use {builder}; a hand-built dict there "
+            "will drift from the AXI4-Lite contract"
+        )
+    # The six per-direction factories must delegate; none may hand-build a
+    # dict. create_axil5_system is deliberately excluded -- it composes a
+    # master and a slave rather than wrapping one interface, exactly as
+    # create_axil4_system does, so its dict has no shared builder to come from.
+    for name in ('create_axil5_master_rd', 'create_axil5_master_wr',
+                 'create_axil5_slave_rd', 'create_axil5_slave_wr',
+                 'create_axil5_master', 'create_axil5_slave'):
+        body = inspect.getsource(getattr(f5, name))
+        assert "return {" not in body, (
+            f"{name} hand-builds its return dict instead of using the shared "
+            "builder -- that is how the contract drifted the first time"
+        )
+
+
+def test_axil5_factory_surface_matches_axil4():
+    """Every AXIL4 factory has an AXIL5 counterpart.
+
+    A missing factory sends a user back to the AXIL4 one, which constructs
+    AXI4-Lite components and silently ignores the AXI5-Lite groups they asked
+    for.
+    """
+    from CocoTBFramework.components.axil4 import axil4_factories as f4
+    from CocoTBFramework.components.axil5 import axil5_factories as f5
+
+    def factories(mod, tag):
+        return {n.replace(tag, '') for n in dir(mod)
+                if n.startswith('create_') and tag in n}
+
+    missing = factories(f4, 'axil4') - factories(f5, 'axil5')
+    assert not missing, f"AXIL5 has no counterpart for: {sorted(missing)}"
+
+
+def test_axil5_reexports_the_shared_compliance_helpers():
+    """The protocol-agnostic compliance helpers are shared, not re-implemented.
+
+    They walk the component dictionaries and never touch a protocol type, so a
+    fourth copy would be pure drift surface.
+    """
+    from CocoTBFramework.components.axil4 import axil4_factories as f4
+    from CocoTBFramework.components.axil5 import axil5_factories as f5
+
+    for name in ('get_unified_compliance_reports',
+                 'print_unified_compliance_reports',
+                 'is_unified_compliance_checking_enabled',
+                 'print_all_compliance_reports_from_system',
+                 'print_compliance_to_log'):
+        assert getattr(f5, name) is getattr(f4, name), (
+            f"{name} is a separate object in axil5_factories; it should be the "
+            "same shared helper, not a copy"
+        )

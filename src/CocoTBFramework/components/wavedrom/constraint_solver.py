@@ -1074,11 +1074,26 @@ class TemporalConstraintSolver:
                                              event_cycle_vars: Dict, window_size: int):
         """Add temporal relationship constraints to CP-SAT model"""
         if constraint.temporal_relation == TemporalRelation.SEQUENCE:
-            # Events must occur in order
+            # Events must occur in order.
+            #
+            # A SignalStatic is a level QUALIFIER, not a step: it says "this
+            # signal holds value V somewhere in here", and it has no edge to
+            # place. Requiring it to advance the cycle counter the way a
+            # transition does silently inflates the sequence's minimum length,
+            # so a chain like PSEL(0->1), PWRITE==1, PENABLE(0->1) demands TWO
+            # cycles between PSEL and PENABLE -- and then only matches a
+            # protocol-violating two-cycle APB setup phase. A static may
+            # therefore share a cycle with its neighbour; transitions must
+            # still strictly advance.
             for i in range(len(constraint.events) - 1):
-                curr_event = constraint.events[i].name
-                next_event = constraint.events[i + 1].name
-                model.Add(event_cycle_vars[next_event] > event_cycle_vars[curr_event])
+                curr = constraint.events[i]
+                nxt = constraint.events[i + 1]
+                static_involved = (isinstance(curr.pattern, SignalStatic) or
+                                   isinstance(nxt.pattern, SignalStatic))
+                if static_involved:
+                    model.Add(event_cycle_vars[nxt.name] >= event_cycle_vars[curr.name])
+                else:
+                    model.Add(event_cycle_vars[nxt.name] > event_cycle_vars[curr.name])
 
         elif constraint.temporal_relation == TemporalRelation.CONCURRENT:
             # All events must occur at the same time

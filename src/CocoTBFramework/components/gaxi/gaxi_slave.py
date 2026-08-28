@@ -368,7 +368,20 @@ class GAXISlave(GAXIMonitorBase):
             return phase_start
 
         if self.ready_policy == 'always':
+            # Assert ready NOW (independent of valid) but still wait for
+            # valid before returning: phase 3 captures the payload, so
+            # returning early makes it sample before the producer has
+            # driven anything and the packet is lost. The distinction that
+            # matters for 'always' is only that ready does not WAIT on
+            # valid -- not that the phase skips the handshake.
             self._set_ready(1)
+            if (hasattr(self, 'valid_sig') and self.valid_sig is not None and
+                    self.valid_sig.value.is_resolvable):
+                while self.valid_sig.value.integer == 0:
+                    await self.wait_cycles(1)
+                    if self.ready_policy != 'always':
+                        # policy changed under us (e.g. flipped to 'stall')
+                        return phase_start
             return phase_start
 
         # Check if valid on this cycle, if so we can't drop ready - exact original logic

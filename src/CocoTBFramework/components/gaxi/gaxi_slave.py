@@ -360,32 +360,25 @@ class GAXISlave(GAXIMonitorBase):
         # hold, so the handshake completes on the same cycle valid arrives.
         # Skipping the clocked wait-for-valid below is the whole point: that
         # wait is what pushes ready a cycle behind valid.
+        # The non-default policies only REPLACE the wait/delay decision
+        # below; they must still fall through to the shared
+        # `await FallingEdge(self.clock)` at the end of this method. That
+        # edge is not bookkeeping -- it is what places phase 3's sampling
+        # mid-cycle, where valid/ready are stable. Returning early instead
+        # (as the first cut of these policies did) makes phase 3 sample at
+        # the wrong point and silently MISS handshakes: measured on
+        # pumice's rd CAM drain as handshake_count=2 against 12 valid&&ready
+        # cycles observed on the pins.
         if self.ready_policy == 'stall':
-            # Consumer has no space: hold ready low and re-check next cycle,
-            # so a runtime flip back to 'always'/'valid_first' resumes.
+            # Consumer with no space: hold ready low, take the edge, retry.
             self._set_ready(0)
-            await self.wait_cycles(1)
-            return phase_start
 
-        if self.ready_policy == 'always':
-            # Assert ready NOW (independent of valid) but still wait for
-            # valid before returning: phase 3 captures the payload, so
-            # returning early makes it sample before the producer has
-            # driven anything and the packet is lost. The distinction that
-            # matters for 'always' is only that ready does not WAIT on
-            # valid -- not that the phase skips the handshake.
+        elif self.ready_policy == 'always':
+            # Ready asserted independent of valid. Nothing to wait for.
             self._set_ready(1)
-            if (hasattr(self, 'valid_sig') and self.valid_sig is not None and
-                    self.valid_sig.value.is_resolvable):
-                while self.valid_sig.value.integer == 0:
-                    await self.wait_cycles(1)
-                    if self.ready_policy != 'always':
-                        # policy changed under us (e.g. flipped to 'stall')
-                        return phase_start
-            return phase_start
 
         # Check if valid on this cycle, if so we can't drop ready - exact original logic
-        if not (hasattr(self, 'valid_sig') and self.valid_sig is not None and
+        elif not (hasattr(self, 'valid_sig') and self.valid_sig is not None and
                 hasattr(self, 'ready_sig') and self.ready_sig is not None and
                 self.valid_sig.value.is_resolvable and
                 self.ready_sig.value.is_resolvable and
@@ -415,8 +408,10 @@ class GAXISlave(GAXIMonitorBase):
                 self._set_ready(0)
                 await self.wait_cycles(ready_delay)
 
-        # Assert ready to accept data
-        self._set_ready(1)
+        # Assert ready to accept data -- except under 'stall', whose whole
+        # purpose is to hold it low.
+        if self.ready_policy != 'stall':
+            self._set_ready(1)
 
         if self.pipeline_debug:
             self.log.debug(f"Slave({self.title}) Phase2: ready asserted, waiting for falling edge")

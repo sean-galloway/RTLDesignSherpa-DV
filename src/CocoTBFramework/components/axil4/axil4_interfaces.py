@@ -53,6 +53,92 @@ from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 AXIL4_DEFAULT_OPTIONAL_FIELDS = ('prot',)
 
 
+def channel_field_kwargs(channel, pkt_prefix, transaction_kwargs, already):
+    """Values for a channel's OPTIONAL declared fields, from transaction kwargs.
+
+    Fields are addressed the way they are named on the wire -- ``awuser``,
+    ``wpoison``, ``arloop`` -- so a caller writes what the DUT's port is called
+    and there is no ambiguity when two channels declare the same field (AW and
+    W both have ``user``).
+
+    Only fields the channel actually DECLARES are consulted, so this is a no-op
+    for AXI4-Lite (whose channels declare nothing beyond addr/prot/data/strb)
+    and picks up the optional groups for AXI5-Lite automatically. A kwarg that
+    names no declared field is ignored here and caught by the caller.
+
+    Without this the optional groups were unreachable: write_transaction built
+    its packets with a hardcoded ``create_packet(addr=..., prot=...)``, so a
+    declared, correctly-bound AXI5-Lite field was driven as 0 forever. The
+    fields existed, bound, and meant nothing.
+    """
+    out = {}
+    for name in channel.field_config.field_names():
+        if name in already:
+            continue
+        key = f"{pkt_prefix}{name}"
+        if key in transaction_kwargs:
+            out[name] = transaction_kwargs[key]
+    return out
+
+
+# EXOKAY (0b01) reports a SUCCESSFUL exclusive access. Treating it as an error
+# is why exclusive access could not be used: an exclusive transaction that
+# worked raised RuntimeError. Only SLVERR and DECERR are failures.
+RESP_OKAY = 0b00
+RESP_EXOKAY = 0b01
+ERROR_RESPONSES = (0b10, 0b11)
+RESP_NAMES = {0: 'OKAY', 1: 'EXOKAY', 2: 'SLVERR', 3: 'DECERR'}
+
+
+
+# Field names an AXI-Lite channel may carry, beyond the always-present ones.
+# Used only to recognise a channel-prefixed kwarg as a FIELD name, so that
+# `awuser=5` on a component built without the USER group is an error while an
+# unrelated kwarg like `retry=True` passes through untouched. Policing every
+# name that merely starts with 'w', 'b' or 'r' would reject those.
+_OPTIONAL_FIELD_NAMES = (
+    'user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'poison', 'lock',
+    'prot', 'strb', 'addr', 'data', 'resp',
+)
+
+
+def reject_unknown_channel_kwargs(channels, transaction_kwargs, consumed):
+    """Raise if a kwarg names a channel field the component does not declare.
+
+    ``awuser=5`` against a BFM built without the USER group used to be
+    silently discarded: the caller believed the signal was driven, the DUT saw
+    0, and any check of it compared 0 against 0. Turning that into a loud
+    error is the whole lesson of the optional-field work -- a value that
+    cannot reach the wire must say so, not default quietly.
+
+    Only names that parse as ``<channel><known field>`` are policed, so
+    unrelated kwargs other layers consume pass through untouched.
+
+    Args:
+        channels: {pkt_prefix: channel} for the channels this call drives.
+        transaction_kwargs: the caller's kwargs.
+        consumed: names already applied by the caller (e.g. 'awprot').
+    """
+    legal = set(consumed)
+    recognised = set()
+    for pkt_prefix, channel in channels.items():
+        for field in channel.field_config.field_names():
+            legal.add(f"{pkt_prefix}{field}")
+        for field in _OPTIONAL_FIELD_NAMES:
+            recognised.add(f"{pkt_prefix}{field}")
+
+    unknown = sorted(k for k in transaction_kwargs
+                     if k in recognised and k not in legal)
+    if unknown:
+        raise ValueError(
+            f"transaction kwargs name no declared field: {unknown}. "
+            f"Available: {sorted(legal)}. An AXI5-Lite optional group must be "
+            "enabled when the component is built (e.g. user_width=4, "
+            "trace=True) before its field can be driven -- otherwise the value "
+            "would be silently dropped and the DUT would see 0."
+        )
+
+
 class AXIL4MasterRead:
     """
     AXIL4 Master Read Interface - Specification compliant with perfect API consistency.
@@ -102,6 +188,11 @@ class AXIL4MasterRead:
         # Extra keyword arguments for FIELD_CONFIG_HELPER -- empty for AXI4-Lite,
         # populated by AXIL5 from its optional-signal-group kwargs.
         self._field_config_options = self._build_field_config_options(kwargs)
+        # Last response packet seen, so a caller can read the AXI5-Lite
+        # response-channel sideband (BUSER/BTRACE/BLOOP, RUSER/RTRACE/RLOOP/
+        # RPOISON). None until the first transaction completes.
+        self.last_b_packet = None
+        self.last_r_packet = None
 
         # AR Channel (Address Read) - Master drives
         self.ar_channel = GAXIMaster(
@@ -192,9 +283,16 @@ class AXIL4MasterRead:
         # Create AR packet using generic field names (SIMPLIFIED - no user fields)
         ar_packet = self.ar_channel.create_packet(
             addr=address,
-            prot=transaction_kwargs.get('prot', 0)
-            # SIMPLIFIED: No user field handling
+            # Wire-named form wins; bare `prot` kept for existing callers.
+            prot=transaction_kwargs.get('arprot',
+                                        transaction_kwargs.get('prot', 0)),
+            # AXI5-Lite optional groups, named as on the wire (aruser, artrace,
+            # arloop, armpam, armecid, arnsaid, arlock). No-op for AXI4-Lite.
+            **channel_field_kwargs(self.ar_channel, 'ar', transaction_kwargs,
+                                   already={'addr', 'prot'})
         )
+        reject_unknown_channel_kwargs({'ar': self.ar_channel},
+                                      transaction_kwargs, consumed={'arprot'})
 
         # Register our waiter BEFORE sending AR so we can't miss a fast response
         evt = Event()
@@ -234,10 +332,13 @@ class AXIL4MasterRead:
         packet = slot[0]
         data_value = getattr(packet, 'data', 0)
 
-        # Check for errors
-        if hasattr(packet, 'resp') and packet.resp != 0:
-            resp_names = {0: 'OKAY', 1: 'EXOKAY', 2: 'SLVERR', 3: 'DECERR'}
-            resp_name = resp_names.get(packet.resp, 'UNKNOWN')
+        # Keep the whole R packet: on AXI5-Lite it carries RUSER/RTRACE/RLOOP
+        # and RPOISON, none of which survive returning just the data word.
+        self.last_r_packet = packet
+
+        # EXOKAY reports a SUCCESSFUL exclusive access; only SLVERR/DECERR fail.
+        if getattr(packet, 'resp', 0) in ERROR_RESPONSES:
+            resp_name = RESP_NAMES.get(packet.resp, 'UNKNOWN')
             raise RuntimeError(f"AXIL4 read error: {resp_name} (0x{packet.resp:X})")
 
         return data_value
@@ -331,6 +432,11 @@ class AXIL4MasterWrite:
         # Extra keyword arguments for FIELD_CONFIG_HELPER -- empty for AXI4-Lite,
         # populated by AXIL5 from its optional-signal-group kwargs.
         self._field_config_options = self._build_field_config_options(kwargs)
+        # Last response packet seen, so a caller can read the AXI5-Lite
+        # response-channel sideband (BUSER/BTRACE/BLOOP, RUSER/RTRACE/RLOOP/
+        # RPOISON). None until the first transaction completes.
+        self.last_b_packet = None
+        self.last_r_packet = None
 
         # AW Channel (Address Write) - Master drives
         self.aw_channel = GAXIMaster(
@@ -450,15 +556,25 @@ class AXIL4MasterWrite:
         # Create AW and W packets (SIMPLIFIED - no user fields)
         aw_packet = self.aw_channel.create_packet(
             addr=address,
-            prot=transaction_kwargs.get('prot', 0)
-            # SIMPLIFIED: No user field handling
+            # Wire-named form wins; bare `prot` kept for existing callers.
+            prot=transaction_kwargs.get('awprot',
+                                        transaction_kwargs.get('prot', 0)),
+            # AXI5-Lite optional groups, named as on the wire (awuser, awtrace,
+            # awloop, awmpam, awmecid, awnsaid, awlock). No-op for AXI4-Lite.
+            **channel_field_kwargs(self.aw_channel, 'aw', transaction_kwargs,
+                                   already={'addr', 'prot'})
         )
 
         w_packet = self.w_channel.create_packet(
             data=data,
-            strb=strb
-            # SIMPLIFIED: No user field handling
+            strb=strb,
+            # wuser, wpoison. No-op for AXI4-Lite.
+            **channel_field_kwargs(self.w_channel, 'w', transaction_kwargs,
+                                   already={'data', 'strb'})
         )
+        reject_unknown_channel_kwargs(
+            {'aw': self.aw_channel, 'w': self.w_channel},
+            transaction_kwargs, consumed={'awprot'})
 
         # Serialize AW+W issuance AND waiter registration so concurrent calls
         # have the same waiter-registration order as wire-issuance order.
@@ -510,10 +626,16 @@ class AXIL4MasterWrite:
         b_response = slot[0]
         resp_code = getattr(b_response, 'resp', 0)
 
-        # Check for errors
-        if resp_code != 0:
-            resp_names = {0: 'OKAY', 1: 'EXOKAY', 2: 'SLVERR', 3: 'DECERR'}
-            resp_name = resp_names.get(resp_code, 'UNKNOWN')
+        # Keep the whole B packet: on AXI5-Lite it carries BUSER/BTRACE/BLOOP,
+        # which a caller has no other way to see (write_transaction returns
+        # only the response code, and changing that would break every caller).
+        self.last_b_packet = b_response
+
+        # EXOKAY reports a SUCCESSFUL exclusive access -- only SLVERR and
+        # DECERR are failures. Raising on EXOKAY made exclusive access
+        # unusable: the transaction worked and the BFM reported an error.
+        if resp_code in ERROR_RESPONSES:
+            resp_name = RESP_NAMES.get(resp_code, 'UNKNOWN')
             raise RuntimeError(f"AXIL4 write error: {resp_name} (0x{resp_code:X})")
 
         return resp_code
@@ -605,6 +727,11 @@ class AXIL4SlaveRead:
         # Extra keyword arguments for FIELD_CONFIG_HELPER -- empty for AXI4-Lite,
         # populated by AXIL5 from its optional-signal-group kwargs.
         self._field_config_options = self._build_field_config_options(kwargs)
+        # Last response packet seen, so a caller can read the AXI5-Lite
+        # response-channel sideband (BUSER/BTRACE/BLOOP, RUSER/RTRACE/RLOOP/
+        # RPOISON). None until the first transaction completes.
+        self.last_b_packet = None
+        self.last_r_packet = None
 
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')
@@ -798,6 +925,11 @@ class AXIL4SlaveWrite:
         # Extra keyword arguments for FIELD_CONFIG_HELPER -- empty for AXI4-Lite,
         # populated by AXIL5 from its optional-signal-group kwargs.
         self._field_config_options = self._build_field_config_options(kwargs)
+        # Last response packet seen, so a caller can read the AXI5-Lite
+        # response-channel sideband (BUSER/BTRACE/BLOOP, RUSER/RTRACE/RLOOP/
+        # RPOISON). None until the first transaction completes.
+        self.last_b_packet = None
+        self.last_r_packet = None
 
         # Store memory model if provided
         self.memory_model = kwargs.get('memory_model')

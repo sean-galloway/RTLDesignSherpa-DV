@@ -363,3 +363,103 @@ def test_axil5_reexports_the_shared_compliance_helpers():
             f"{name} is a separate object in axil5_factories; it should be the "
             "same shared helper, not a copy"
         )
+
+
+# ---------------------------------------------------------------------------
+# Driving the optional fields
+# ---------------------------------------------------------------------------
+class _MockChannel:
+    """A channel exposing only a field_config, for the kwarg-routing helpers."""
+
+    def __init__(self, *names):
+        from CocoTBFramework.components.shared.field_config import (
+            FieldConfig,
+            FieldDefinition,
+        )
+        cfg = FieldConfig()
+        for n in names:
+            cfg.add_field(FieldDefinition(name=n, bits=8, default=0))
+        self.field_config = cfg
+
+
+def test_optional_field_values_reach_the_packet():
+    """A declared optional field can be SET, addressed as it is named on wire.
+
+    Regression guard for the defect that made the whole group unusable:
+    write_transaction built its packets with a hardcoded
+    `create_packet(addr=..., prot=...)`, so an AXI5-Lite field that declared
+    and bound correctly was still driven as 0 forever. It existed, it bound,
+    and it meant nothing.
+    """
+    from CocoTBFramework.components.axil4.axil4_interfaces import (
+        channel_field_kwargs,
+    )
+
+    aw = _MockChannel('addr', 'prot', 'user', 'trace', 'loop', 'mpam')
+    got = channel_field_kwargs(
+        aw, 'aw',
+        {'awuser': 5, 'awtrace': 1, 'awloop': 3, 'awmpam': 7, 'unrelated': 9},
+        already={'addr', 'prot'})
+    assert got == {'user': 5, 'trace': 1, 'loop': 3, 'mpam': 7}
+
+
+def test_undeclared_field_kwarg_raises_instead_of_being_dropped():
+    """`awuser=5` on a BFM without the USER group must fail loudly.
+
+    Silently discarding it is the exact failure this whole area keeps
+    producing: the caller believes the signal is driven, the DUT sees 0, and a
+    check of it compares 0 against 0.
+    """
+    import pytest as _pytest
+
+    from CocoTBFramework.components.axil4.axil4_interfaces import (
+        reject_unknown_channel_kwargs,
+    )
+
+    plain_aw = _MockChannel('addr', 'prot')   # AXI4-Lite: no optional groups
+    with _pytest.raises(ValueError, match="no declared field"):
+        reject_unknown_channel_kwargs({'aw': plain_aw}, {'awuser': 5},
+                                      consumed={'awprot'})
+
+    # A bare kwarg other layers consume must still pass through.
+    reject_unknown_channel_kwargs({'aw': plain_aw}, {'prot': 2, 'strb': 0xF},
+                                  consumed={'awprot'})
+
+
+def test_exokay_is_not_an_error():
+    """EXOKAY reports a SUCCESSFUL exclusive access.
+
+    Both transaction methods used to raise on any non-zero response, so an
+    exclusive access that worked surfaced as RuntimeError and exclusive access
+    was unusable.
+    """
+    from CocoTBFramework.components.axil4.axil4_interfaces import (
+        ERROR_RESPONSES,
+        RESP_EXOKAY,
+        RESP_OKAY,
+    )
+
+    assert RESP_OKAY not in ERROR_RESPONSES
+    assert RESP_EXOKAY not in ERROR_RESPONSES, (
+        "EXOKAY is a successful exclusive access, not an error"
+    )
+    assert set(ERROR_RESPONSES) == {0b10, 0b11}, "only SLVERR/DECERR are errors"
+
+
+def test_unrelated_kwargs_are_not_policed():
+    """The guard must reject field names, not every kwarg starting with w/b/r.
+
+    An early version policed anything beginning with a channel prefix, which
+    made `retry=True` or `burst_type=1` an error -- the guard would have broken
+    unrelated callers to protect against a typo.
+    """
+    from CocoTBFramework.components.axil4.axil4_interfaces import (
+        reject_unknown_channel_kwargs,
+    )
+
+    plain_aw = _MockChannel('addr', 'prot')
+    # None of these parse as <channel><field>; all must pass through.
+    reject_unknown_channel_kwargs(
+        {'aw': plain_aw},
+        {'retry': True, 'burst_type': 1, 'writeback': 0, 'rate': 5},
+        consumed={'awprot'})

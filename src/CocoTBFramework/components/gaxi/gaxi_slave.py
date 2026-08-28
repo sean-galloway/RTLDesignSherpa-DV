@@ -114,6 +114,31 @@ class GAXISlave(GAXIMonitorBase):
                           GAXIComponentBase._build_packet.
             **kwargs: Additional arguments
         """
+        # ready_policy: how this slave decides to assert ready.
+        #   'valid_first' (default, unchanged): wait for valid, then apply the
+        #       randomizer's ready_delay and assert. Because the wait is
+        #       CLOCKED, ready lands one cycle AFTER valid even at
+        #       ready_delay=0 -- measured 2026-08-28 on pumice's cmd port as
+        #       "10 11", i.e. valid alone for a cycle, then the handshake.
+        #   'always': ready is asserted up front and held, independent of
+        #       valid, so valid and ready coincide on the SAME cycle. This is
+        #       legal AXI (a slave may assert ready before valid) and is what
+        #       a consumer with permanent space actually looks like -- it is
+        #       the correct model for a testbench that previously tied a
+        #       downstream ready to constant 1, where the extra cycle of
+        #       valid-only shifts DUT timing.
+        #   'stall': ready held LOW -- a consumer with no space. Set this at
+        #       RUNTIME (self.ready_policy = 'stall') to apply deterministic
+        #       consumer backpressure, which is how a test proves a producer
+        #       holds its payload while ready is deasserted. Randomized
+        #       ready_delay cannot do that: it is not controllable.
+        # Opt-in so existing users keep their exact timing.
+        self.ready_policy = kwargs.pop('ready_policy', 'valid_first')
+        if self.ready_policy not in ('valid_first', 'always', 'stall'):
+            raise ValueError(
+                f"GAXISlave({title}): ready_policy must be 'valid_first', "
+                f"'always' or 'stall', got {self.ready_policy!r}")
+
         # CRITICAL: Set pipeline attributes FIRST before any method calls
         # This prevents "pipeline_debug does not exist" errors in _log_pipeline_transition
         self.pipeline_debug = pipeline_debug or super_debug
@@ -182,7 +207,9 @@ class GAXISlave(GAXIMonitorBase):
         try:
             # Initialize ready signal using inherited signal resolver
             if hasattr(self, 'ready_sig') and self.ready_sig is not None:
-                self.ready_sig.setimmediatevalue(0)
+                self.ready_sig.setimmediatevalue(
+                    1 if getattr(self, 'ready_policy', 'valid_first') == 'always'
+                    else 0)
 
         except Exception as e:
             self.log.error(f"GAXISlave '{self.title}': Error initializing signals: {e}")
@@ -220,6 +247,26 @@ class GAXISlave(GAXIMonitorBase):
         self._recvQ.clear()
 
         self._log_pipeline_transition("reset", "idle", "reset complete")
+
+    def set_ready_policy(self, policy: str) -> None:
+        """Change the ready policy and apply it to the pin IMMEDIATELY.
+
+        Assigning `self.ready_policy` alone only takes effect when the
+        receive loop next reaches phase 2, which is up to a cycle later --
+        long enough for an in-flight transfer to complete before the stall
+        lands. Tests that assert "producer holds its payload while ready is
+        low" need the deassertion to be observable on the same cycle they
+        ask for it, so apply it here too.
+        """
+        if policy not in ('valid_first', 'always', 'stall'):
+            raise ValueError(
+                f"GAXISlave({self.title}): ready_policy must be "
+                f"'valid_first', 'always' or 'stall', got {policy!r}")
+        self.ready_policy = policy
+        if policy == 'stall':
+            self._set_ready(0)
+        elif policy == 'always':
+            self._set_ready(1)
 
     def _set_ready(self, value):
         """Set ready signal with pipeline state awareness"""
@@ -308,6 +355,21 @@ class GAXISlave(GAXIMonitorBase):
         """
         phase_start = get_sim_time('ns')
         self.phase_statistics['phase2_count'] += 1
+
+        # 'always' policy: ready does not depend on valid at all -- assert and
+        # hold, so the handshake completes on the same cycle valid arrives.
+        # Skipping the clocked wait-for-valid below is the whole point: that
+        # wait is what pushes ready a cycle behind valid.
+        if self.ready_policy == 'stall':
+            # Consumer has no space: hold ready low and re-check next cycle,
+            # so a runtime flip back to 'always'/'valid_first' resumes.
+            self._set_ready(0)
+            await self.wait_cycles(1)
+            return phase_start
+
+        if self.ready_policy == 'always':
+            self._set_ready(1)
+            return phase_start
 
         # Check if valid on this cycle, if so we can't drop ready - exact original logic
         if not (hasattr(self, 'valid_sig') and self.valid_sig is not None and

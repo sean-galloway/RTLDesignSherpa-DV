@@ -2,6 +2,80 @@
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-08-27
+
+### Added
+
+- **AXI5-Lite components** (`CocoTBFramework.components.axil5`) ([#76]).
+  AXI5-Lite is AXI4-Lite plus optional signal groups: it changes no
+  channel's handshake, ordering or response semantics, so the four
+  interfaces subclass the AXIL4 ones and swap in an AXI5-Lite
+  field-config helper rather than forking ~950 lines of identical channel
+  logic. 753 lines including tests, against the ~3400 a copy of `axil4`
+  would have been.
+
+  That is deliberate rather than an optimisation. `axi5` was built as a
+  standalone duplicate of `axi4`, and a second implementation of one
+  protocol with nothing comparing the two is how they drift. Here the
+  comparison is executable: `test_axil5_with_no_features_is_axil4`
+  asserts that with every switch off the two produce field-for-field
+  identical configs, which is what makes "AXIL5 is AXIL4 plus options"
+  true rather than aspirational — and what lets an AXIL5 BFM drive an
+  AXI4-Lite DUT.
+
+  Optional groups, each off by default and each defaulting to 0 so they
+  are all legal `optional_fields` entries under the zero-default rule
+  from [#75]: USER, TRACE, LOOP, MPAM, MECID, NSAID, POISON (width
+  derived from the data width) and exclusive access. Deliberately not
+  modelled: bursts, cache/QoS attributes, atomics, memory tagging,
+  read-data chunking and coherency — AXI5-full features a single-beat
+  Lite interface does not carry, and offering them would let a testbench
+  drive traffic no AXI5-Lite DUT can legally see.
+
+  Functional coverage lives in the RDS consumer
+  (`val/amba/test_axil5_master_rd.py`), which drives the existing
+  `axil4_master_rd` RTL with AXI5-Lite BFMs — real construction, real
+  signal resolution, real read data checked against a memory model. The
+  optional groups themselves have no functional test: that needs RTL with
+  those ports, and no AXI5-Lite DUT exists yet.
+
+### Fixed
+
+- **AXIL5 factories returned a subset of the AXI4-Lite contract**
+  ([#76]). The first, hand-written `axil5_factories` dropped `write`,
+  `read`, `read_reg`, `write_reg`, `simple_read`, `simple_write` and both
+  compliance checkers from `create_axil5_master`; the slave also dropped
+  `memory_model`; and `create_axil5_system`,
+  `create_simple_axil5_master` and `create_simple_axil5_slave` did not
+  exist. The returned dictionary *is* the factory API — callers index it
+  by key — so every omission was a `KeyError` in user code rather than an
+  error in the framework, and all 29 axil5 tests passed anyway because
+  nothing compared the two contracts.
+
+  The contract now has one definition: `axil4_factories` grows six
+  `build_*_components()` helpers holding the return-dict construction,
+  and both protocols' factories call them. The protocol-agnostic
+  compliance helpers are re-exported rather than copied.
+
+- **CI lint break from 0.6.6.** `AXIL4_DEFAULT_OPTIONAL_FIELDS` was
+  inserted between the imports, pushing four below module-level code
+  (E402). Moved below the import block. The published 0.6.6 wheel is
+  unaffected — E402 is style-only and every build-and-verify job passed.
+
+### Changed
+
+- **`AXIL4` gains two extension points**, both behaviour-preserving: the
+  `FIELD_CONFIG_HELPER` class attribute with a
+  `_build_field_config_options()` hook (all ten channel constructions now
+  route through them; the base hook returns `{}`), and the factory
+  return-dict builders above. A guard asserts no call site bypasses the
+  field-config hook — one left pointing at the concrete helper would pass
+  every AXI4-Lite test while silently handing an AXIL5 component an
+  AXI4-Lite channel, leaving the DUT's optional signals undriven and
+  unchecked.
+
+[#76]: https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/76
+
 ## [0.6.6] - 2026-08-27
 
 ### Fixed

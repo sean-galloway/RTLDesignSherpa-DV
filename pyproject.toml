@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cocotb-framework"
-version = "0.6.6"
+version = "0.6.7"
 description = "Reusable CocoTB verification infrastructure for RTL testing — BFMs, testbenches, and scoreboards for AMBA protocols and more"
 readme = "README.md"
 license = "MIT"

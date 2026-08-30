@@ -39,7 +39,7 @@ import random
 from typing import Any, Dict, List, Optional, Union
 
 import cocotb
-from cocotb.triggers import Lock, RisingEdge
+from cocotb.triggers import Event, Lock, RisingEdge
 
 from CocoTBFramework.components.axi5.axi5_field_configs import AXI5FieldConfigHelper
 
@@ -396,12 +396,15 @@ class AXI5MasterWrite:
         self._response_by_id = collections.defaultdict(collections.deque)
         self.b_channel.add_callback(self._on_b_response)
 
-        # AW+W issuance lock (see AXI4MasterWrite.__init__ for rationale).
-        # AXI5 W has no ID; W beats are matched to AWs by arrival order
-        # plus WLAST counting -- so concurrent write_transaction calls must
-        # serialize their AW+W critical section to keep each transaction's
-        # W stream wire-contiguous.
-        self._aw_w_lock = Lock(name=f"AW_W_Lock{self.ifc_name}")
+        # AW/W issuance ordering (see AXI4MasterWrite.__init__ for the full
+        # rationale). AXI5 W has no ID; W beats are matched to AWs by arrival
+        # order plus WLAST counting, so concurrent write_transaction calls
+        # must keep each transaction's W stream wire-contiguous AND in AW
+        # order -- but AW issuance itself does not have to wait for the
+        # previous transaction's W beats, and holding one lock across both
+        # capped this master at roughly one write outstanding.
+        self._aw_lock = Lock(name=f"AW_Lock{self.ifc_name}")
+        self._w_prev_done = None
 
     def _on_b_response(self, pkt):
         """Route incoming B response into its per-ID deque."""
@@ -486,11 +489,21 @@ class AXI5MasterWrite:
                 tag=transaction_kwargs.get('tag', 0),
             )
 
-            # Serialize AW+W issuance so concurrent same-ID write_transaction
-            # calls don't interleave W beats on the wire (see __init__).
-            async with self._aw_w_lock:
-                # Send address
+            # Take this transaction's place in the W order and send its AW.
+            # Only the bookkeeping and the AW handshake are serialized, so the
+            # next caller issues its AW without waiting for these W beats.
+            my_w_done = Event(name=f"W_Done{self.ifc_name}")
+            async with self._aw_lock:
+                prev_w_done = self._w_prev_done
+                self._w_prev_done = my_w_done
                 await self.aw_channel.send(aw_packet)
+
+            # Stream W in AW order, contiguously. The finally is load-bearing:
+            # if this transaction raises midway its successor must still be
+            # released, or every later write on this interface deadlocks.
+            try:
+                if prev_w_done is not None:
+                    await prev_w_done.wait()
 
                 # Send data beats with AXI5 fields
                 strb_width = self.data_width // 8
@@ -508,6 +521,8 @@ class AXI5MasterWrite:
                         tagupdate=transaction_kwargs.get('tagupdate', 0),
                     )
                     await self.w_channel.send(w_packet)
+            finally:
+                my_w_done.set()
 
             # Wait for B response in this transaction's ID deque.
             # See AXI5MasterRead.read_transaction for concurrency rationale --

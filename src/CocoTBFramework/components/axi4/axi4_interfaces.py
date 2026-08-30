@@ -28,7 +28,7 @@ import random
 from typing import Any, Dict, List, Optional, Union
 
 import cocotb
-from cocotb.triggers import Lock, RisingEdge
+from cocotb.triggers import Event, Lock, RisingEdge
 
 from CocoTBFramework.components.axi4.axi4_compliance_checker import AXI4ComplianceChecker
 from CocoTBFramework.components.axi4.axi4_field_configs import AXI4FieldConfigHelper
@@ -333,17 +333,38 @@ class AXI4MasterWrite:
         self._response_by_id = collections.defaultdict(collections.deque)
         self.b_channel.add_callback(self._on_b_response)
 
-        # AW+W issuance lock. AXI4 requires W beats to arrive in the order
+        # AW/W issuance ordering. AXI4 requires W beats to arrive in the order
         # of their corresponding AWs (matched by AWLEN/WLAST -- W has no ID).
-        # Without serialization, two concurrent write_transaction() calls
-        # interleave W beats on the wire: AW0's burst gets AW1's W data
-        # and vice versa. Lock the entire (send AW, send all W beats)
-        # critical section so each transaction's W stream is wire-contiguous.
-        # Sequential callers see an uncontended lock -- no behavior change.
-        # NOTE: cocotb.triggers.Lock (not asyncio.Lock) -- cocotb's scheduler
+        # Without ordering, two concurrent write_transaction() calls interleave
+        # W beats on the wire: AW0's burst gets AW1's W data and vice versa.
+        #
+        # This used to be ONE lock held across (send AW, send all W beats).
+        # That is stricter than AXI4 requires, and the cost is real: a
+        # transaction could not issue its AW until the previous transaction
+        # had streamed every W beat, so no matter how many callers ran
+        # concurrently the master kept only about one write outstanding.
+        # AXI4 explicitly permits AW0, AW1, then W0, W1 -- address issuance
+        # is independent of the write data stream.
+        #
+        # So the two are now separated:
+        #   _aw_lock   held only across "take a place in the W queue, send
+        #              this AW", so AW order and W order are the same order.
+        #   handoff    each transaction waits for its PREDECESSOR to finish
+        #              streaming W, then streams its own beats contiguously
+        #              and releases its successor.
+        #
+        # AWs therefore pipeline as fast as the slave accepts them, while W
+        # remains in-order and contiguous. Sequential callers see both
+        # uncontended and an already-set predecessor -- no behavior change.
+        #
+        # NOTE: cocotb.triggers.Lock/Event (not asyncio) -- cocotb's scheduler
         # is not asyncio, so asyncio.Lock() raises NoneType.create_future on
         # acquire because there's no running asyncio loop.
-        self._aw_w_lock = Lock(name=f"AW_W_Lock{self.ifc_name}")
+        self._aw_lock = Lock(name=f"AW_Lock{self.ifc_name}")
+        # Completion event of the most recently queued W stream, or None when
+        # nothing is queued. Event.wait() on an already-set Event fires
+        # immediately, so the uncontended path does not block.
+        self._w_prev_done = None
 
     def _on_b_response(self, pkt):
         """Route incoming B response into its per-ID deque."""
@@ -401,11 +422,22 @@ class AXI4MasterWrite:
             if 'user' in transaction_kwargs and hasattr(aw_packet, 'user'):
                 aw_packet.user = transaction_kwargs['user']
 
-            # Serialize AW+W issuance so concurrent same-ID write_transaction
-            # calls don't interleave W beats on the wire (see __init__).
-            async with self._aw_w_lock:
-                # Send address
+            # Take this transaction's place in the W order and send its AW.
+            # Only the queue bookkeeping and the AW handshake are serialized,
+            # so the NEXT caller can issue its AW as soon as this one is
+            # accepted -- it does not wait for these W beats (see __init__).
+            my_w_done = Event(name=f"W_Done{self.ifc_name}")
+            async with self._aw_lock:
+                prev_w_done = self._w_prev_done
+                self._w_prev_done = my_w_done
                 await self.aw_channel.send(aw_packet)
+
+            # Stream W in AW order, contiguously. The finally is load-bearing:
+            # if this transaction raises midway, its successor must still be
+            # released or every later write on this interface deadlocks.
+            try:
+                if prev_w_done is not None:
+                    await prev_w_done.wait()
 
                 # Send data beats using GENERIC field names
                 strb_width = self.data_width // 8
@@ -432,6 +464,8 @@ class AXI4MasterWrite:
                         **{k: v for k, v in transaction_kwargs.items() if k.startswith('w')}
                     )
                     await self.w_channel.send(w_packet)
+            finally:
+                my_w_done.set()
 
             # Wait for B response in this transaction's ID deque.
             # See AXI4MasterRead.read_transaction for concurrency rationale --

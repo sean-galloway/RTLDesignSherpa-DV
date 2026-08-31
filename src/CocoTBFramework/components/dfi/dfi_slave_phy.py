@@ -568,7 +568,19 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
         return (1 << self.mapping._widths["col"]) - 1
 
     def _byte_addr(self, flat: int) -> int:
-        return flat * self.bytes_per_beat
+        # `flat` is a COLUMN index, and a DRAM column addresses one DEVICE
+        # word -- so it scales by device_bytes, not by bytes_per_beat (one DFI
+        # phase's slice). The two are equal in the default single-granularity
+        # setup (dfi_phase_bytes defaults to the memory line = device word),
+        # which is why this was invisible: it only diverges once a narrow
+        # device sits behind a wider beat, e.g. an x16 part (2 B) with a 32-bit
+        # pumice beat (4 B), where it doubled every address.
+        #
+        # A round-trip test cannot see it either -- writes and reads go through
+        # the same scale, so a consistent error cancels. It shows up only when
+        # a test checks memory at an ABSOLUTE address, i.e. asserts that an AXI
+        # write to 0x2000 is readable at 0x2000.
+        return flat * self.device_bytes
 
     # ----- Command dispatch -----
 

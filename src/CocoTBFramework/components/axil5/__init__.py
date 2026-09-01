@@ -41,25 +41,36 @@ from .axil5_interfaces import (
     AXIL5SlaveWrite,
 )
 
+from .axil5_timing_config import (
+    create_axil5_randomizer_configs,
+    create_axil5_timing_from_profile,
+    get_axil5_timing_profiles,
+    get_timing_for_axil5_feature,
+)
+
 __all__ = [
-    "AXIL5_FEATURE_KWARGS",
     "AXIL5FieldConfigHelper",
     "AXIL5MasterRead",
     "AXIL5MasterWrite",
     "AXIL5SlaveRead",
     "AXIL5SlaveWrite",
+    "AXIL5_FEATURE_KWARGS",
     "create_axil5_master",
     "create_axil5_master_interface",
     "create_axil5_master_rd",
     "create_axil5_master_wr",
+    "create_axil5_randomizer_configs",
     "create_axil5_slave",
     "create_axil5_slave_interface",
     "create_axil5_slave_rd",
     "create_axil5_slave_wr",
     "create_axil5_system",
+    "create_axil5_timing_from_profile",
     "create_simple_axil5_master",
     "create_simple_axil5_slave",
     "get_axil5_field_configs",
+    "get_axil5_timing_profiles",
+    "get_timing_for_axil5_feature",
     "get_unified_compliance_reports",
     "is_unified_compliance_checking_enabled",
     "print_all_compliance_reports_from_system",

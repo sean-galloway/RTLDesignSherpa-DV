@@ -23,6 +23,11 @@ Provides common timing profiles for AXI4 testing.
 from typing import Any, Dict
 
 from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
+from CocoTBFramework.components.shared.amba_timing_profiles import (
+    canonical_names,
+    canonical_profiles_for,
+    resolve_profile_name,
+)
 
 
 def create_axi4_timing_from_profile(profile_name: str) -> Dict[str, Any]:
@@ -68,9 +73,19 @@ def create_axi4_timing_from_profile(profile_name: str) -> Dict[str, Any]:
             'r_ready_delay': ([(0, 0), (8, 20)], [0.5, 0.5]),
         }
     }
+    # The seven canonical AMBA profiles from AXI_RANDOMIZER_CONFIGS, so a
+    # name means the same delays on every AMBA family rather than whatever
+    # each family happened to define. The canonical definition WINS where a
+    # name collides ('fast', 'backtoback'): a name that means two things is
+    # worse than a name that means the less convenient one. Verified before
+    # changing it that no caller in either repo passes a colliding name --
+    # every consumer passes 'axi4_normal', which does not collide.
+    timing_profiles.update(canonical_profiles_for('axi4'))
+
+    resolved = resolve_profile_name(profile_name, 'axi4', timing_profiles)
 
     # Get profile or default to normal
-    constraints = timing_profiles.get(profile_name, timing_profiles['axi4_normal'])
+    constraints = timing_profiles.get(resolved, timing_profiles['axi4_normal'])
 
     # Create FlexRandomizer with the constraints
     randomizer = FlexRandomizer(constraints)
@@ -84,7 +99,11 @@ def create_axi4_timing_from_profile(profile_name: str) -> Dict[str, Any]:
 
 def get_axi4_timing_profiles():
     """Get list of available AXI4 timing profiles."""
-    return ['axi4_normal', 'axi4_fast', 'axi4_slow', 'axi4_backtoback', 'axi4_stress']
+    base = ['axi4_normal', 'axi4_fast', 'axi4_slow', 'axi4_backtoback', 'axi4_stress']
+    # Canonical AMBA names are valid too; report them so a caller
+    # enumerating profiles sees everything create_*_from_profile accepts.
+    return base + [f'axi4_{n}' for n in canonical_names()
+                    if f'axi4_{n}' not in base]
 
 
 def create_axi4_randomizer_configs():

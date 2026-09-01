@@ -27,6 +27,11 @@ weight per range.
 from typing import Any, Dict, List
 
 from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
+from CocoTBFramework.components.shared.amba_timing_profiles import (
+    canonical_names,
+    canonical_profiles_for,
+    resolve_profile_name,
+)
 
 
 # All five channels. AXI4-Lite has the same channel set as AXI4 -- it drops
@@ -94,6 +99,18 @@ _TIMING_PROFILES: Dict[str, Dict[str, Any]] = {
     },
 }
 
+# The seven canonical AMBA profiles (fixed, constrained, fast, backtoback,
+# burst_pause, slow_producer, high_throughput) come from the shared table, so
+# a profile name means the same delays on every AMBA family rather than
+# whatever each family happened to define.
+#
+# The canonical definition WINS where a name collides. 'fast' meaning one set
+# of delays on AXI4 and another on AXI4-Lite is precisely the confusion this
+# table exists to remove, and a name that means two things is worse than a
+# name that means the less convenient one. Family-specific profiles that do
+# NOT collide -- normal, slow, stress, secure -- are untouched.
+_TIMING_PROFILES.update(canonical_profiles_for('axil4'))
+
 DEFAULT_PROFILE = 'axil4_normal'
 
 
@@ -104,7 +121,8 @@ def create_axil4_timing_from_profile(profile_name: str) -> Dict[str, Any]:
     behaviour. ``profile_name`` in the result is the name ASKED FOR, so a
     caller can see it was not honoured.
     """
-    constraints = _TIMING_PROFILES.get(profile_name, _TIMING_PROFILES[DEFAULT_PROFILE])
+    resolved = resolve_profile_name(profile_name, 'axil4', _TIMING_PROFILES)
+    constraints = _TIMING_PROFILES.get(resolved, _TIMING_PROFILES[DEFAULT_PROFILE])
     return {
         'profile_name': profile_name,
         'randomizer': FlexRandomizer(constraints),

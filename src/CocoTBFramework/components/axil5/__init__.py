@@ -48,12 +48,45 @@ from .axil5_timing_config import (
     get_timing_for_axil5_feature,
 )
 
+from .axil5_transaction import (
+    AXIL5Transaction,
+    AXIL5TransactionTracker,
+)
+from .axil5_randomization_config import (
+    AXIL5ConstraintSet,
+    AXIL5ProtocolMode,
+    AXIL5RandomizationConfig,
+    AXIL5RandomizationProfile,
+)
+from .axil5_randomization_manager import (
+    AXIL5RandomizationManager,
+)
+from .axil5_packet import (
+    AXIL5Packet,
+)
+from .axil5_compliance_checker import (
+    AXIL5ComplianceChecker,
+    AXIL5Violation,
+    AXIL5ViolationType,
+)
+
 __all__ = [
+    "AXIL5ComplianceChecker",
+    "AXIL5ConstraintSet",
     "AXIL5FieldConfigHelper",
     "AXIL5MasterRead",
     "AXIL5MasterWrite",
+    "AXIL5Packet",
+    "AXIL5ProtocolMode",
+    "AXIL5RandomizationConfig",
+    "AXIL5RandomizationManager",
+    "AXIL5RandomizationProfile",
     "AXIL5SlaveRead",
     "AXIL5SlaveWrite",
+    "AXIL5Transaction",
+    "AXIL5TransactionTracker",
+    "AXIL5Violation",
+    "AXIL5ViolationType",
     "AXIL5_FEATURE_KWARGS",
     "create_axil5_master",
     "create_axil5_master_interface",

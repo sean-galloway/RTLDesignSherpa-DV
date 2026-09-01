@@ -32,7 +32,7 @@ Inherited from AXI4-Lite unchanged:
   not mean relearning the vocabulary.
 
 """
-from typing import Any, Optional
+from typing import Any
 
 from CocoTBFramework.components.axil4.axil4_transaction import (
     AXIL4Transaction,

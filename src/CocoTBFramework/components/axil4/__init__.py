@@ -16,15 +16,8 @@ from .axil4_interfaces import (
     AXIL4SlaveRead,
     AXIL4SlaveWrite,
 )
-from .axil4_timing_config import (
-    create_axil4_randomizer_configs,
-    create_axil4_timing_from_profile,
-    get_axil4_timing_profiles,
-)
-
-from .axil4_transaction import (
-    AXIL4Transaction,
-    AXIL4TransactionTracker,
+from .axil4_packet import (
+    AXIL4Packet,
 )
 from .axil4_randomization_config import (
     AXIL4ConstraintSet,
@@ -39,8 +32,14 @@ from .axil4_randomization_config import (
 from .axil4_randomization_manager import (
     AXIL4RandomizationManager,
 )
-from .axil4_packet import (
-    AXIL4Packet,
+from .axil4_timing_config import (
+    create_axil4_randomizer_configs,
+    create_axil4_timing_from_profile,
+    get_axil4_timing_profiles,
+)
+from .axil4_transaction import (
+    AXIL4Transaction,
+    AXIL4TransactionTracker,
 )
 
 __all__ = [

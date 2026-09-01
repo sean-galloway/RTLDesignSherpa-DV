@@ -509,8 +509,14 @@ class AXI5MasterWrite:
                 strb_width = self.data_width // 8
                 default_strb = (1 << strb_width) - 1
 
-                for i, data_value in enumerate(data_list):
-                    w_packet = self.w_channel.create_packet(
+                # Build every beat FIRST, then hand the whole burst to the
+                # driver in one call. Sending beat-by-beat with send() drains
+                # the transmit pipeline between beats, so WVALID drops after
+                # every beat and a burst can never stream. See
+                # GAXIMaster.send_burst; per-beat valid_delay still applies,
+                # so gapped profiles still gap.
+                w_packets = [
+                    self.w_channel.create_packet(
                         data=data_value,
                         last=1 if i == len(data_list) - 1 else 0,
                         strb=transaction_kwargs.get('strb', default_strb),
@@ -520,7 +526,9 @@ class AXI5MasterWrite:
                         tag=transaction_kwargs.get('wtag', 0),
                         tagupdate=transaction_kwargs.get('tagupdate', 0),
                     )
-                    await self.w_channel.send(w_packet)
+                    for i, data_value in enumerate(data_list)
+                ]
+                await self.w_channel.send_burst(w_packets)
             finally:
                 my_w_done.set()
 

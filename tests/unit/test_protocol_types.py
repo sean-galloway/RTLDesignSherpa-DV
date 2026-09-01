@@ -62,5 +62,34 @@ def test_set_contains_both_fifo_and_gaxi():
 
 
 def test_set_size_matches_expected_channels():
-    """24 GAXI/AXIS/AXI4/AXI5 channels + 2 FIFO = 26."""
-    assert len(PROTOCOL_TYPES) == 26
+    """Every identifier is accounted for, by CATEGORY rather than a bare total.
+
+    This asserted ``== 26`` and broke when the twenty AXI4-Lite / AXI5-Lite
+    channels landed -- correctly, since a bare total is exactly the guard that
+    should fire on an unreviewed addition. But a bare total also cannot say
+    WHICH group grew, so the failure reads as "the number changed" and the
+    reviewer has to go and diff two sets by hand.
+
+    Counting per family keeps the same protection and names the group instead.
+    """
+    fifo = {t for t in PROTOCOL_TYPES if t.startswith("fifo_")}
+    gaxi = {t for t in PROTOCOL_TYPES if t.startswith("gaxi_")}
+    axis = {t for t in PROTOCOL_TYPES if t.startswith("axis_")}
+    # startswith("axi4_") does NOT match "axil4_" -- the fifth character is
+    # 'l', not '_'. Matching the families loosely is how the Lite entries got
+    # past a different guard in signal_mapping_helper's test.
+    per_family = {
+        fam: {t for t in PROTOCOL_TYPES if t.startswith(fam + "_")}
+        for fam in ("axi4", "axi5", "axil4", "axil5")
+    }
+
+    assert len(fifo) == 2, sorted(fifo)
+    assert len(gaxi) == 2, sorted(gaxi)
+    assert len(axis) == 2, sorted(axis)
+    for fam, members in per_family.items():
+        assert len(members) == 10, f"{fam}: {sorted(members)}"
+
+    counted = fifo | gaxi | axis | set().union(*per_family.values())
+    assert counted == PROTOCOL_TYPES, (
+        f"unaccounted identifiers: {sorted(PROTOCOL_TYPES - counted)}"
+    )

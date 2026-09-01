@@ -26,13 +26,11 @@ weight per range.
 """
 from typing import Any, Dict, List
 
-from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 from CocoTBFramework.components.shared.amba_timing_profiles import (
-    canonical_names,
     canonical_profiles_for,
     resolve_profile_name,
 )
-
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
 # All five channels. AXI5-Lite has the same channel set as AXI4 -- it drops
 # bursts and IDs, not channels -- so nothing here is read- or write-only.

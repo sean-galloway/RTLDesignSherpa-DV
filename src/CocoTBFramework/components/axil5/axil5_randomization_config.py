@@ -25,9 +25,9 @@ back here after being deliberately dropped from the AXIL4 constraint set:
   AXI5's enum also lists modes for atomics and cache coherence; Lite has
   neither, so those stay absent.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from CocoTBFramework.components.axil4.axil4_randomization_config import (
     AXIL4ConstraintSet,

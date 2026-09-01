@@ -23,7 +23,7 @@ through a single handle instead of wiring two unrelated objects together.
 The channel list is all five. AXI5-Lite has the same channel set as AXI4, so
 there is nothing to trim.
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from CocoTBFramework.components.axil4.axil4_randomization_manager import (
     AXIL4RandomizationManager,

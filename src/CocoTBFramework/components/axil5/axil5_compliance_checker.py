@@ -39,12 +39,11 @@ The added rules, and why each one is a rule:
 """
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from CocoTBFramework.components.axil4.axil4_compliance_checker import (
     AXIL4ComplianceChecker,
     AXIL4Violation,
-    AXIL4ViolationType,
 )
 
 

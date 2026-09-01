@@ -22,12 +22,12 @@ Provides common timing profiles for AXI4 testing.
 
 from typing import Any, Dict
 
-from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 from CocoTBFramework.components.shared.amba_timing_profiles import (
     canonical_names,
     canonical_profiles_for,
     resolve_profile_name,
 )
+from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
 
 def create_axi4_timing_from_profile(profile_name: str) -> Dict[str, Any]:

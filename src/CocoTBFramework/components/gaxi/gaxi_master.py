@@ -490,6 +490,40 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
             await RisingEdge(self.clock)
         return True
 
+    async def send_burst(self, packets):
+        """Queue EVERY packet, then wait once for the pipeline to drain.
+
+        Use this for a multi-beat burst. `send()` waits for the pipeline to
+        go idle before it returns, so a caller looping `await send(beat)`
+        hands the driver one beat at a time: the pipeline drains, phase3
+        sees an empty queue and deasserts valid, the coroutine exits, and
+        the next beat restarts it -- paying `_transmit_pipeline`'s one-cycle
+        spin-up again. Valid is therefore never held across two cycles and a
+        burst can never stream: max run length is 1 no matter what the
+        randomizer profile says, which silently caps every throughput
+        measurement taken through this master.
+
+        Queuing the whole burst first is what makes phase3's zero-bubble
+        path reachable at all -- it keeps valid asserted precisely when more
+        beats are already queued.
+
+        Randomization is NOT bypassed: phase1 runs per packet, so a profile
+        with a non-zero valid_delay still gaps between beats. This restores
+        contiguity when the profile asks for it; it does not force it.
+        """
+        packets = list(packets)
+        if not packets:
+            return True
+        # No awaits between enqueues -- _driver_send only appends and
+        # start_soon()s the pipeline, and start_soon does not run until this
+        # coroutine yields, so the pipeline starts with the full burst
+        # already queued.
+        for packet in packets:
+            await self._driver_send(packet, sync=True)
+        while self.transmit_coroutine is not None:
+            await RisingEdge(self.clock)
+        return True
+
     async def busy_send(self, transaction):
         """Send a transaction and wait for completion"""
         await self.send(transaction)

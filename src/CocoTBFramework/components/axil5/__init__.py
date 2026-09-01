@@ -11,6 +11,11 @@ With no feature switches an AXIL5 component is field-for-field an AXI4-Lite
 component; see ``tests/unit/test_axil5_extends_axil4.py``.
 """
 
+from .axil5_compliance_checker import (
+    AXIL5ComplianceChecker,
+    AXIL5Violation,
+    AXIL5ViolationType,
+)
 from .axil5_factories import (
     create_axil5_master,
     create_axil5_master_interface,
@@ -40,17 +45,8 @@ from .axil5_interfaces import (
     AXIL5SlaveRead,
     AXIL5SlaveWrite,
 )
-
-from .axil5_timing_config import (
-    create_axil5_randomizer_configs,
-    create_axil5_timing_from_profile,
-    get_axil5_timing_profiles,
-    get_timing_for_axil5_feature,
-)
-
-from .axil5_transaction import (
-    AXIL5Transaction,
-    AXIL5TransactionTracker,
+from .axil5_packet import (
+    AXIL5Packet,
 )
 from .axil5_randomization_config import (
     AXIL5ConstraintSet,
@@ -61,13 +57,15 @@ from .axil5_randomization_config import (
 from .axil5_randomization_manager import (
     AXIL5RandomizationManager,
 )
-from .axil5_packet import (
-    AXIL5Packet,
+from .axil5_timing_config import (
+    create_axil5_randomizer_configs,
+    create_axil5_timing_from_profile,
+    get_axil5_timing_profiles,
+    get_timing_for_axil5_feature,
 )
-from .axil5_compliance_checker import (
-    AXIL5ComplianceChecker,
-    AXIL5Violation,
-    AXIL5ViolationType,
+from .axil5_transaction import (
+    AXIL5Transaction,
+    AXIL5TransactionTracker,
 )
 
 __all__ = [

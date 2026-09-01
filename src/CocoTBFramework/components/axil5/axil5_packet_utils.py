@@ -38,7 +38,6 @@ from typing import Dict, Optional, Tuple
 from CocoTBFramework.components.axil5.axil5_field_configs import AXIL5FieldConfigHelper
 from CocoTBFramework.components.axil5.axil5_packet import AXIL5Packet
 
-
 #: Keyword arguments that shape the FIELD SET rather than set a field value.
 #: Without splitting these out every helper below would accept e.g.
 #: ``user_width=4``, quietly build an AXI4-Lite field config, and drop it --

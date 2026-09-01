@@ -485,6 +485,34 @@ AXI5_OPTIONAL_B_FIELDS = ('user', 'trace', 'tag', 'tagmatch')
 AXI5_OPTIONAL_R_FIELDS = ('user', 'poison', 'tag', 'trace', 'tagmatch',
                           'chunknum', 'chunkstrb', 'chunkv')
 
+# AXI4-Lite. The Lite channel set is addr+prot / data+strb / resp, so very
+# little CAN be optional -- and the two that look optional are exactly the two
+# the rule above forbids:
+#   WSTRB  omitted means ALL LANES ENABLED, not none. Stays required.
+#   xRESP  defaults to 0 (OKAY) and the rule would permit it, but it is
+#          excluded on the same precedent as AXI4's: a silent OKAY turns every
+#          error response into a pass and nothing objects.
+# That leaves PROT, whose omitted default really is 0 (unprivileged, secure,
+# data access).
+AXIL4_OPTIONAL_AX_FIELDS = ('prot',)
+AXIL4_OPTIONAL_DATA_FIELDS = ()
+
+# AXI5-Lite keeps that and adds the optional signal groups, every one of which
+# defaults to 0 meaning "this optional feature is not in use": LOCK 0 = normal
+# (non-exclusive) access, POISON 0 = data not poisoned, TRACE/LOOP/MPAM/MECID/
+# NSAID 0 = not in use. All satisfy the rule.
+AXIL5_OPTIONAL_AX_COMMON = AXIL4_OPTIONAL_AX_FIELDS + (
+    'user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'lock',
+)
+# Unlike AXI5 the two Lite address channels ARE symmetric: Lite has no atomics
+# and no read-data chunking, so nothing distinguishes AW from AR. They still
+# get separate names so that stops being true loudly rather than silently.
+AXIL5_OPTIONAL_AW_FIELDS = AXIL5_OPTIONAL_AX_COMMON
+AXIL5_OPTIONAL_AR_FIELDS = AXIL5_OPTIONAL_AX_COMMON
+AXIL5_OPTIONAL_W_FIELDS = ('user', 'poison')
+AXIL5_OPTIONAL_B_FIELDS = ('user', 'trace', 'loop')
+AXIL5_OPTIONAL_R_FIELDS = ('user', 'trace', 'loop', 'poison')
+
 
 PROTOCOL_SIGNAL_CONFIGS = {
     # ===========================================================================
@@ -960,7 +988,259 @@ PROTOCOL_SIGNAL_CONFIGS = {
                 '{prefix}{bus_name}r{field_name}',
             ]
         }
-    }
+    },
+
+    # ===========================================================================
+    # AXI4-Lite and AXI5-Lite
+    #
+    # These reuse AXI4_BASE_PATTERNS wholesale: AXI4-Lite renamed no handshake
+    # signal, so awvalid is awvalid. What the Lite families needed entries of
+    # their own for is 'optional_fields'. Riding the generic gaxi_master /
+    # gaxi_slave entries meant NOTHING was allowed to be unbound, so an
+    # AXI5-Lite BFM configured with a group its DUT was built without died at
+    # signal resolution instead of reading the spec default of 0.
+    # ===========================================================================
+
+
+    'axil4_aw_master': {
+        'optional_fields': AXIL4_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Master drives awvalid
+            'i_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Master reads awready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['aw_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['aw_field_base']
+        }
+    },
+
+    'axil5_aw_master': {
+        'optional_fields': AXIL5_OPTIONAL_AW_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Master drives awvalid
+            'i_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Master reads awready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['aw_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['aw_field_base']
+        }
+    },
+
+    'axil4_aw_slave': {
+        'optional_fields': AXIL4_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Slave reads awvalid
+            'o_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Slave drives awready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['aw_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['aw_field_base']
+        }
+    },
+
+    'axil5_aw_slave': {
+        'optional_fields': AXIL5_OPTIONAL_AW_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Slave reads awvalid
+            'o_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Slave drives awready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['aw_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['aw_field_base']
+        }
+    },
+
+    'axil4_ar_master': {
+        'optional_fields': AXIL4_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Master drives arvalid
+            'i_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Master reads arready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['ar_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['ar_field_base']
+        }
+    },
+
+    'axil5_ar_master': {
+        'optional_fields': AXIL5_OPTIONAL_AR_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Master drives arvalid
+            'i_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Master reads arready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['ar_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['ar_field_base']
+        }
+    },
+
+    'axil4_ar_slave': {
+        'optional_fields': AXIL4_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Slave reads arvalid
+            'o_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Slave drives arready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['ar_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['ar_field_base']
+        }
+    },
+
+    'axil5_ar_slave': {
+        'optional_fields': AXIL5_OPTIONAL_AR_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Slave reads arvalid
+            'o_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Slave drives arready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['ar_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['ar_field_base']
+        }
+    },
+
+    'axil4_w_master': {
+        'optional_fields': AXIL4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Master drives wvalid
+            'i_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Master reads wready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['w_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['w_field_base']
+        }
+    },
+
+    'axil5_w_master': {
+        'optional_fields': AXIL5_OPTIONAL_W_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Master drives wvalid
+            'i_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Master reads wready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['w_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['w_field_base']
+        }
+    },
+
+    'axil4_w_slave': {
+        'optional_fields': AXIL4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Slave reads wvalid
+            'o_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Slave drives wready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['w_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['w_field_base']
+        }
+    },
+
+    'axil5_w_slave': {
+        'optional_fields': AXIL5_OPTIONAL_W_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Slave reads wvalid
+            'o_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Slave drives wready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['w_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['w_field_base']
+        }
+    },
+
+    'axil4_b_master': {
+        'optional_fields': AXIL4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Master reads bvalid
+            'o_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Master drives bready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['b_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
+        }
+    },
+
+    'axil5_b_master': {
+        'optional_fields': AXIL5_OPTIONAL_B_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Master reads bvalid
+            'o_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Master drives bready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['b_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
+        }
+    },
+
+    'axil4_b_slave': {
+        'optional_fields': AXIL4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Slave drives bvalid
+            'i_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Slave reads bready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['b_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
+        }
+    },
+
+    'axil5_b_slave': {
+        'optional_fields': AXIL5_OPTIONAL_B_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Slave drives bvalid
+            'i_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Slave reads bready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['b_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
+        }
+    },
+
+    'axil4_r_master': {
+        'optional_fields': AXIL4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Master reads rvalid
+            'o_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Master drives rready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['r_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['r_field_base']
+        }
+    },
+
+    'axil5_r_master': {
+        'optional_fields': AXIL5_OPTIONAL_R_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Master reads rvalid
+            'o_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Master drives rready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['r_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['r_field_base']
+        }
+    },
+
+    'axil4_r_slave': {
+        'optional_fields': AXIL4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Slave drives rvalid
+            'i_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Slave reads rready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['r_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['r_field_base']
+        }
+    },
+
+    'axil5_r_slave': {
+        'optional_fields': AXIL5_OPTIONAL_R_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Slave drives rvalid
+            'i_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Slave reads rready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['r_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['r_field_base']
+        }
+    },
 }
 
 

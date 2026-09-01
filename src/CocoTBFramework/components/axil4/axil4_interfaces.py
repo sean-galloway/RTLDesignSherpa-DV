@@ -162,6 +162,12 @@ class AXIL4MasterRead:
     # tests/unit/test_axil5_extends_axil4.py.
     FIELD_CONFIG_HELPER = AXIL4FieldConfigHelper
 
+    # Signal-resolution protocol family. Every channel below resolves as
+    # f"{PROTOCOL_FAMILY}_{channel}_{role}", so AXIL5 gets its own
+    # optional_fields sets by overriding this one attribute rather than by
+    # restating ten constructor calls.
+    PROTOCOL_FAMILY = 'axil4'
+
     @staticmethod
     def _build_field_config_options(kwargs):
         """Extra kwargs for FIELD_CONFIG_HELPER. None for AXI4-Lite."""
@@ -207,6 +213,7 @@ class AXIL4MasterRead:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_ar_master',
         )
 
         # R Channel - Slave receives R data
@@ -222,6 +229,7 @@ class AXIL4MasterRead:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_r_slave',
         )
 
         # Store parameters for transaction methods
@@ -406,6 +414,12 @@ class AXIL4MasterWrite:
     # tests/unit/test_axil5_extends_axil4.py.
     FIELD_CONFIG_HELPER = AXIL4FieldConfigHelper
 
+    # Signal-resolution protocol family. Every channel below resolves as
+    # f"{PROTOCOL_FAMILY}_{channel}_{role}", so AXIL5 gets its own
+    # optional_fields sets by overriding this one attribute rather than by
+    # restating ten constructor calls.
+    PROTOCOL_FAMILY = 'axil4'
+
     @staticmethod
     def _build_field_config_options(kwargs):
         """Extra kwargs for FIELD_CONFIG_HELPER. None for AXI4-Lite."""
@@ -451,6 +465,7 @@ class AXIL4MasterWrite:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_aw_master',
         )
 
         # W Channel (Write Data) - Master drives
@@ -466,6 +481,7 @@ class AXIL4MasterWrite:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_w_master',
         )
 
         # B Channel (Write Response) - Slave receives responses
@@ -482,6 +498,7 @@ class AXIL4MasterWrite:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_b_slave',
         )
 
         # Store parameters
@@ -701,6 +718,12 @@ class AXIL4SlaveRead:
     # tests/unit/test_axil5_extends_axil4.py.
     FIELD_CONFIG_HELPER = AXIL4FieldConfigHelper
 
+    # Signal-resolution protocol family. Every channel below resolves as
+    # f"{PROTOCOL_FAMILY}_{channel}_{role}", so AXIL5 gets its own
+    # optional_fields sets by overriding this one attribute rather than by
+    # restating ten constructor calls.
+    PROTOCOL_FAMILY = 'axil4'
+
     @staticmethod
     def _build_field_config_options(kwargs):
         """Extra kwargs for FIELD_CONFIG_HELPER. None for AXI4-Lite."""
@@ -764,6 +787,7 @@ class AXIL4SlaveRead:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_ar_slave',
         )
 
         # R Channel - GAXIMaster drives R responses
@@ -779,6 +803,7 @@ class AXIL4SlaveRead:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_r_master',
         )
 
         # Set up callback from AR slave to trigger R responses
@@ -899,6 +924,12 @@ class AXIL4SlaveWrite:
     # tests/unit/test_axil5_extends_axil4.py.
     FIELD_CONFIG_HELPER = AXIL4FieldConfigHelper
 
+    # Signal-resolution protocol family. Every channel below resolves as
+    # f"{PROTOCOL_FAMILY}_{channel}_{role}", so AXIL5 gets its own
+    # optional_fields sets by overriding this one attribute rather than by
+    # restating ten constructor calls.
+    PROTOCOL_FAMILY = 'axil4'
+
     @staticmethod
     def _build_field_config_options(kwargs):
         """Extra kwargs for FIELD_CONFIG_HELPER. None for AXI4-Lite."""
@@ -956,6 +987,7 @@ class AXIL4SlaveWrite:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_aw_slave',
         )
 
         # W Channel - GAXISlave drives wready and receives W data
@@ -971,6 +1003,7 @@ class AXIL4SlaveWrite:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_w_slave',
         )
 
         # B Channel - GAXIMaster drives B responses
@@ -987,6 +1020,7 @@ class AXIL4SlaveWrite:
             multi_sig=self.multi_sig,
             log=log,
             optional_fields=self.optional_fields,
+            protocol_type=f'{self.PROTOCOL_FAMILY}_b_master',
         )
 
         # Set up callbacks

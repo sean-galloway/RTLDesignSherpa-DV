@@ -99,7 +99,15 @@ def test_axil5_adds_no_transaction_methods_of_its_own(axil5_cls, axil4_cls):
     A public method defined on the AXIL5 class is a second implementation of
     something AXIL4 already does. Configuration hooks are the allowed exception.
     """
-    ALLOWED = {'FIELD_CONFIG_HELPER', '_build_field_config_options'}
+    # Configuration hooks, not behaviour. Both name WHICH table to consult --
+    # which field-config helper, and which PROTOCOL_SIGNAL_CONFIGS family --
+    # and neither carries a line of transaction logic. PROTOCOL_FAMILY exists
+    # so AXIL5 can select the axil5_* signal configs, whose optional_fields
+    # sets let an AXI5-Lite group be absent from a DUT built without it;
+    # overriding one class attribute is what keeps that from becoming ten
+    # restated constructor calls.
+    ALLOWED = {'FIELD_CONFIG_HELPER', '_build_field_config_options',
+               'PROTOCOL_FAMILY'}
     own = {
         n for cls in axil5_cls.__mro__
         if cls.__module__.endswith('axil5_interfaces')

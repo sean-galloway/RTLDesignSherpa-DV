@@ -73,6 +73,12 @@ class _AXIL5FeatureMixin:
 
     FIELD_CONFIG_HELPER = AXIL5FieldConfigHelper
 
+    # Resolve through the axil5_* protocol entries, whose optional_fields sets
+    # allow the AXI5-Lite groups to be absent from a DUT that was built without
+    # them. Under axil4_* they were not optional and a mismatch died at signal
+    # resolution instead of reading the spec default of 0.
+    PROTOCOL_FAMILY = 'axil5'
+
     @staticmethod
     def _build_field_config_options(kwargs):
         return {k: kwargs[k] for k in AXIL5_FEATURE_KWARGS if k in kwargs}

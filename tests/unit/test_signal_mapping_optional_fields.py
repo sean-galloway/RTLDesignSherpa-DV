@@ -48,16 +48,22 @@ DELIBERATELY_STRICT_FIELDS = {
     'resp': 'a silently-zero RESP reads as OKAY and hides every error',
 }
 
+# NOTE the prefixes are exact: 'axil4_aw_master'.startswith('axi4_') is False,
+# because the fifth character is 'l', not '_'. The Lite families therefore need
+# listing explicitly -- when they were first added they sat outside this guard
+# entirely and the contract went unenforced for twenty configs.
 AXI_CONFIG_KEYS = sorted(
     k for k in PROTOCOL_SIGNAL_CONFIGS
-    if k.startswith(('axi4_', 'axi5_')) and k.endswith(('_master', '_slave'))
+    if k.startswith(('axi4_', 'axi5_', 'axil4_', 'axil5_'))
+    and k.endswith(('_master', '_slave'))
 )
 
 
 def test_axi_configs_are_present():
     """Guard the guard: if the table is empty these checks prove nothing."""
-    assert len(AXI_CONFIG_KEYS) == 20, (
-        f"expected 20 AXI4/AXI5 channel configs, found {len(AXI_CONFIG_KEYS)}: "
+    assert len(AXI_CONFIG_KEYS) == 40, (
+        f"expected 40 AXI4/AXI5/AXI4-Lite/AXI5-Lite channel configs, "
+        f"found {len(AXI_CONFIG_KEYS)}: "
         f"{AXI_CONFIG_KEYS}"
     )
 

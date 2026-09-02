@@ -78,6 +78,47 @@ class APBSignalMixin:
             return list(signals), []
         return list(cls._required_signal_defaults), list(cls._optional_signal_defaults)
 
+    @staticmethod
+    def _match_optional_case(entity, prefix, optional):
+        """Rebind optional signal names onto the DUT's ACTUAL casing.
+
+        ``cocotb_bus`` is asymmetric here, and silently so. Required signals
+        go through ``_add_signal(..., case_insensitive)``, but optional ones
+        are gated on a bare, CASE-SENSITIVE ``hasattr(entity, signame)``
+        before that lookup is ever reached::
+
+            if hasattr(entity, signame):
+                self._add_signal(attr_name, signame, array_idx, case_insensitive)
+            else:
+                ...  # "Ignoring optional missing signal", at DEBUG level
+
+        So on a DUT whose ports are lowercase (``s_apb_pstrb``), PSEL/PADDR/
+        PWDATA bind fine and PSTRB/PPROT/PSLVERR vanish. The failure mode is
+        maximally quiet: the master then never drives PSTRB, every write goes
+        out with zero byte-strobes, and a regblock correctly writes NOTHING
+        while returning no error -- the register just reads back its reset
+        value, exactly as if the write had been ignored.
+
+        Found on axi4_intf_master_observer, whose APB ports are lowercase
+        while every other APB block in that repo is uppercase; it was the only
+        one without a component test, so nobody had ever issued an APB write
+        to it in simulation.
+
+        Returns a dict {canonical_name: actual_suffix} for cocotb_bus. Exact
+        matches are returned unchanged, so uppercase DUTs are bit-identical to
+        the previous behavior.
+        """
+        if not optional:
+            return optional
+        base = prefix.rstrip('_')
+        resolved = {}
+        for sig in optional:
+            for cand in (sig, sig.lower(), sig.upper()):
+                if hasattr(entity, f"{base}_{cand}"):
+                    resolved[sig] = cand
+                    break
+        return resolved
+
     def is_signal_present(self, signal_name):
         """True if the (optional) signal was found on the bus at bind time."""
         return hasattr(self.bus, signal_name) and getattr(self.bus, signal_name) is not None
@@ -111,6 +152,8 @@ class APBMonitor(APBSignalMixin, BusMonitor):
         # Normalize prefix: remove trailing underscore if present
         # BusMonitor adds underscore separator automatically
         prefix = prefix.rstrip('_')
+        self._optional_signals = self._match_optional_case(
+            entity, prefix, self._optional_signals)
 
         BusMonitor.__init__(self, entity, prefix, clock, **kwargs)
         self.clock = clock
@@ -261,6 +304,8 @@ class APBSlave(APBSignalMixin, BusMonitor):
         # Normalize prefix: remove trailing underscore if present
         # BusMonitor adds underscore separator automatically
         prefix = prefix.rstrip('_')
+        self._optional_signals = self._match_optional_case(
+            entity, prefix, self._optional_signals)
 
         BusMonitor.__init__(self, entity, prefix, clock, **kwargs)
         self.clock          = clock
@@ -520,6 +565,8 @@ class APBMaster(APBSignalMixin, BusDriver):
         # Normalize prefix: remove trailing underscore if present
         # BusDriver adds underscore separator automatically
         prefix = prefix.rstrip('_')
+        self._optional_signals = self._match_optional_case(
+            entity, prefix, self._optional_signals)
 
         BusDriver.__init__(self, entity, prefix, clock, **kwargs)
         self.title = title

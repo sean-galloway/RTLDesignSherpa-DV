@@ -99,6 +99,11 @@ nav:
       - Components: components/apb5/components_apb5_components.md
       - Packet: components/apb5/components_apb5_packet.md
 
+    - Wishbone B4:
+      - Index: components/wb4/components_wb4_index.md
+      - Overview: components/wb4/components_wb4_overview.md
+      - Components: components/wb4/components_wb4_wb4_components.md
+      - Packet: components/wb4/components_wb4_wb4_packet.md
     - AXI-Stream:
       - Overview: components/axis4/components_axis4_overview.md
       - Master: components/axis4/axis_master.md

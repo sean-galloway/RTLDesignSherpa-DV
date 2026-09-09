@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Wishbone B4 components** (`CocoTBFramework.components.wb4`): `WB4Master`,
+  `WB4Slave`, `WB4Monitor`, `WB4Packet`, factories, and the shared constants
+  in `components/shared/wb4_common.py`. B4 PIPELINED mode: STB under a CYC
+  envelope with STALL as an inverted ready, one of ACK/ERR/RTY per clock
+  terminating accepted requests in order. Not a GAXI composition -- STALL may
+  assert with nothing pending, CYC spans the cycle, the termination has no
+  ready and pairs with the oldest request -- so the family follows the APB
+  shape (own driver, responder, monitor on `cocotb_bus`) and reuses every
+  shared part: `FlexRandomizer` timing, `MemoryModel`, `Packet`/`FieldConfig`.
+  The slave answers from a memory model with a per-request `status_hook`;
+  the master bounds requests in flight and can `abort()` (drop CYC with
+  requests outstanding) with `hold()`/`resume()` so a test can reconcile its
+  bookkeeping; the monitor counts protocol violations and the peak in-flight
+  count, which is how a test proves pipelining actually happened. Data
+  signals bind as `DAT_W`/`DAT_O` and `DAT_R`/`DAT_I`; ERR and RTY are
+  optional. Driven by the main repo's `wb4_master`/`wb4_slave` RTL and their
+  three `val/amba` tests. There is no Wishbone B5.
+
 ## [0.6.7] - 2026-08-27
 
 ### Added

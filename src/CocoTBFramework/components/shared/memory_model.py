@@ -22,6 +22,33 @@ access tracking, and region management capabilities for hardware verification.
 
 import numpy as np
 
+# ---------------------------------------------------------------------------
+# Out-of-range contract (one definition, every slave BFM)
+# ---------------------------------------------------------------------------
+# An access a slave's memory model cannot back -- any byte of it beyond
+# ``size`` -- is answered as an ERROR by every memory-backed slave BFM:
+#   * response  SLVERR (RRESP/BRESP = 2; PSLVERR = 1),
+#   * no side effect (nothing written; a write burst that overruns is not
+#     written at all, not partially),
+#   * read data = OOR_READ_PATTERN replicated to the beat width,
+#   * one WARNING line naming the slave, the address and the model size.
+# Before 2026-09-09 the four families disagreed: AXI4/AXI5 slaves answered
+# OKAY, dropped the write and returned the ADDRESS as read data; AXIL4/AXIL5
+# answered SLVERR; APB grew its memory. A bridge boundary probe that reached
+# the right slave at an offset past the model got OKAY from one slave type
+# and SLVERR from another, and the test comment describing the behaviour was
+# true of only one of them (BRIDGE-008). An address the RTL does not decode
+# at all is a different thing -- that is the design's own error path (DECERR
+# from a subtractive slave, say), not the model's.
+OOR_READ_PATTERN = 0xDEADDEAD
+
+
+def oor_read_data(num_bytes: int) -> int:
+    """OOR_READ_PATTERN replicated to ``num_bytes`` (4 -> 0xDEADDEAD,
+    8 -> 0xDEADDEADDEADDEAD, 2 -> 0xDEAD)."""
+    word = OOR_READ_PATTERN.to_bytes(4, 'little')
+    return int.from_bytes((word * ((num_bytes + 3) // 4))[:num_bytes], 'little')
+
 
 class MemoryModel:
     """
@@ -91,6 +118,21 @@ class MemoryModel:
             'boundary_violations': 0,
             'overflow_masked': 0
         }
+
+    def in_range(self, address, length) -> bool:
+        """True if bytes [address, address+length) all lie inside the model.
+        The out-of-range contract above hangs off this one check."""
+        return 0 <= address and address + length <= self.size
+
+    def oor_warning(self, log, who: str, address: int, length: int, txn=None) -> None:
+        """The one WARNING line the contract promises, formatted the same way
+        by every slave. ``address`` is the bus address as the master sent it."""
+        self.stats['boundary_violations'] += 1
+        if log:
+            tag = f" txn={txn}" if txn is not None else ""
+            log.warning(f"{who}: out-of-range access at 0x{address:08X} "
+                        f"({length} bytes) beyond the {self.size}-byte memory model"
+                        f"{tag} -- answering SLVERR, nothing written")
 
     def write(self, address, data, strobe=None):
         """

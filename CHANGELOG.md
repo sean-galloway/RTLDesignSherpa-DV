@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **One out-of-range contract for every memory-backed slave BFM.** An access
+  beyond the slave's `MemoryModel` answers `SLVERR` (`PSLVERR` on APB) with
+  nothing written and `0xDEADDEAD…` read data, logged once as a WARNING, on
+  `AXI4/AXI5/AXIL4/AXIL5 Slave{Read,Write}` and `APB/APB5 Slave`. Previously
+  AXI4/AXI5 answered OKAY, dropped the write and returned the address as
+  data, AXIL answered SLVERR, and APB grew its memory -- so the same probe
+  got different answers from different slave types (RTLDesignSherpa
+  BRIDGE-008). New: `MemoryModel.in_range`, `MemoryModel.oor_warning`,
+  `oor_read_data`, `OOR_READ_PATTERN`. AXI write bursts are checked whole
+  before anything lands. **Behaviour change:** `APBSlave` / `APB5Slave` /
+  `create_apb5_slave` now default `error_overflow=True`; pass `False` to keep
+  auto-expansion.
+
 ### Added
 
 - **Wishbone B4 components** (`CocoTBFramework.components.wb4`): `WB4Master`,
@@ -19,8 +34,11 @@
   bookkeeping; the monitor counts protocol violations and the peak in-flight
   count, which is how a test proves pipelining actually happened. Data
   signals bind as `DAT_W`/`DAT_O` and `DAT_R`/`DAT_I`; ERR and RTY are
-  optional. Driven by the main repo's `wb4_master`/`wb4_slave` RTL and their
-  three `val/amba` tests. There is no Wishbone B5.
+  optional. `classic=True` on all three selects B4 standard mode (request
+  held until terminated, no STALL, one outstanding; the slave and monitor
+  take a held presentation once and never in the clock its termination is
+  driven). Driven by the main repo's `wb4_master`/`wb4_slave` RTL, in both
+  modes, and their three `val/amba` tests. There is no Wishbone B5.
 
 ## [0.6.7] - 2026-08-27
 

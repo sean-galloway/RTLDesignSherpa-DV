@@ -46,6 +46,7 @@ from CocoTBFramework.components.axi5.axi5_field_configs import AXI5FieldConfigHe
 # Import GAXI components and AXI5 field configs
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
+from CocoTBFramework.components.shared.memory_model import oor_read_data
 
 
 class AXI5MasterRead:
@@ -839,15 +840,25 @@ class AXI5SlaveRead:
                 current_addr = address + (i * bytes_per_beat)
 
                 # Read from memory model if available
+                beat_resp = 0
                 if self.memory_model:
-                    try:
-                        memory_offset = current_addr - self.base_addr
-                        data_bytes = self.memory_model.read(memory_offset, bytes_per_beat)
-                        data = self.memory_model.bytearray_to_integer(data_bytes)
-                    except Exception as e:
-                        if self.log:
-                            self.log.warning(f"Memory read failed at 0x{current_addr:08X}: {e}")
-                        data = current_addr
+                    memory_offset = current_addr - self.base_addr
+                    if not self.memory_model.in_range(memory_offset, bytes_per_beat):
+                        # Out-of-range contract (shared/memory_model.py).
+                        self.memory_model.oor_warning(self.log, 'AXI5SlaveRead',
+                                                      current_addr, bytes_per_beat, packet_id)
+                        data = oor_read_data(bytes_per_beat)
+                        beat_resp = 2
+                    else:
+                        try:
+                            data_bytes = self.memory_model.read(memory_offset, bytes_per_beat)
+                            data = self.memory_model.bytearray_to_integer(data_bytes)
+                        except Exception as e:
+                            if self.log:
+                                self.log.warning(f"AXI5SlaveRead: memory read failed at "
+                                                 f"0x{current_addr:08X}: {e} -- answering SLVERR")
+                            data = oor_read_data(bytes_per_beat)
+                            beat_resp = 2
                 else:
                     data = current_addr
 
@@ -856,7 +867,7 @@ class AXI5SlaveRead:
                 r_packet = self.r_channel.create_packet(
                     id=packet_id,
                     data=data,
-                    resp=0,
+                    resp=beat_resp,
                     last=1 if is_last else 0,
                     # AXI5-specific fields
                     trace=ar_trace,
@@ -1290,8 +1301,20 @@ class AXI5SlaveWrite:
             aw_tagop = getattr(aw_packet, 'tagop', 0)
 
             # Write data to memory if available
+            resp = 0
             if self.memory_model:
-                for i, w_packet in enumerate(w_packets):
+                # Out-of-range contract (shared/memory_model.py): whole burst
+                # checked first; an overrunning burst is SLVERR, nothing written.
+                span = len(w_packets) * bytes_per_beat
+                first_off = base_addr - self.base_addr
+                if not self.memory_model.in_range(first_off, span):
+                    self.memory_model.oor_warning(self.log, 'AXI5SlaveWrite',
+                                                  base_addr, span, transaction_id)
+                    resp = 2
+                    w_packets_to_write = []
+                else:
+                    w_packets_to_write = w_packets
+                for i, w_packet in enumerate(w_packets_to_write):
                     addr = base_addr + (i * bytes_per_beat)
                     memory_offset = addr - self.base_addr
                     data = getattr(w_packet, 'data', 0)
@@ -1302,7 +1325,9 @@ class AXI5SlaveWrite:
                         self.memory_model.write(memory_offset, data_bytes, strb)
                     except Exception as mem_error:
                         if self.log:
-                            self.log.warning(f"Memory write failed: {mem_error}")
+                            self.log.warning(f"AXI5SlaveWrite: memory write failed: "
+                                             f"{mem_error} -- answering SLVERR")
+                        resp = 2
 
             # Add response delay
             if self.response_delay_cycles > 0:
@@ -1320,7 +1345,7 @@ class AXI5SlaveWrite:
             # Send B response with AXI5 fields
             b_packet = self.b_channel.create_packet(
                 id=transaction_id,
-                resp=0,
+                resp=resp,
                 trace=aw_trace,
                 tag=0,
                 tagmatch=tagmatch,

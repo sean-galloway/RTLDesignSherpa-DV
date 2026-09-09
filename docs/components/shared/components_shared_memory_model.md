@@ -653,3 +653,31 @@ memory = MemoryModel(1024, 4, debug=False)
 The MemoryModel is the piece that makes the rest of the memory-centric workflow — scoreboards, region coverage, error injection — practical. Fast enough to stay out of the way, honest enough to tell you when the test didn't go where you thought it did.
 
 ---
+
+## Out-of-range accesses: the contract every slave BFM follows
+
+An access that any memory-backed slave BFM cannot back -- any byte of it
+beyond the model's `size` -- is answered as an **error**, the same way by
+`AXI4SlaveRead/Write`, `AXI5SlaveRead/Write`, `AXIL4SlaveRead/Write`,
+`AXIL5SlaveRead/Write`, `APBSlave` and `APB5Slave`:
+
+| Aspect | Behaviour |
+|---|---|
+| Response | `SLVERR` (RRESP/BRESP = 2); `PSLVERR = 1` on APB |
+| Side effect | none -- a write burst that overruns is not written at all, not partially |
+| Read data | `OOR_READ_PATTERN` (0xDEADDEAD) replicated to the beat width, via `oor_read_data(n)` |
+| Log | one WARNING naming the slave, the bus address, the size and the model size, via `MemoryModel.oor_warning` |
+| Check | `MemoryModel.in_range(offset, length)` -- AXI reads per beat, writes per whole burst |
+
+A master BFM sees it as it sees any error response: `read_transaction` /
+`single_read` raise `RuntimeError`, `write_transaction` / `single_write`
+return `success=False`. Before 2026-09-09 the families disagreed -- AXI4/AXI5
+answered OKAY, dropped the write and returned the *address* as read data;
+AXIL answered SLVERR; APB grew its memory -- so a bridge probe that reached
+the right slave past the model got OKAY from one slave type and SLVERR from
+another (RTLDesignSherpa BRIDGE-008). `APBSlave(error_overflow=False)` keeps
+the old auto-expansion for a slave meant to accept any address.
+
+This is the *model's* limit, not the design's. An address the RTL does not
+decode at all is the design's own error path (a DECERR from a subtractive
+slave, for instance) and is unrelated to this contract.

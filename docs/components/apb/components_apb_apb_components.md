@@ -610,3 +610,10 @@ print(f"Slave processed {slave.count} transactions")
 Three components, one packet type, one randomizer — that's the whole toolbox. The `apb_packet.py` and `apb_sequence.py` pages cover what to feed it.
 
 ---
+
+## Out-of-range accesses
+
+Memory-backed slaves answer an access beyond their model with `SLVERR`,
+nothing written and `0xDEADDEAD…` read data -- the contract shared by every
+slave family, described in
+[the memory model page](../shared/components_shared_memory_model.md#out-of-range-accesses-the-contract-every-slave-bfm-follows).

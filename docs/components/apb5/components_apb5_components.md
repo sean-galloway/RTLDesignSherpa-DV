@@ -580,3 +580,10 @@ assert sent.fields['pauser'] == observed.fields['pauser']
 That's the component layer. It stays deliberately close to the APB4 implementation — if you've used the APB4 BFM, the only new habits you need are the user sidebands and remembering that PWAKEUP belongs to the master.
 
 ---
+
+## Out-of-range accesses
+
+Memory-backed slaves answer an access beyond their model with `SLVERR`,
+nothing written and `0xDEADDEAD…` read data -- the contract shared by every
+slave family, described in
+[the memory model page](../shared/components_shared_memory_model.md#out-of-range-accesses-the-contract-every-slave-bfm-follows).

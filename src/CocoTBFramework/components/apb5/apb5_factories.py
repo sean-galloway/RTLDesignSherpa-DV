@@ -86,7 +86,7 @@ def create_apb5_slave(
     buser_width: int = 4,
     randomizer: Optional[FlexRandomizer] = None,
     log=None,
-    error_overflow: bool = False,
+    error_overflow: bool = True,
     wakeup_generator: Optional[Callable] = None,
     **kwargs
 ) -> APB5Slave:

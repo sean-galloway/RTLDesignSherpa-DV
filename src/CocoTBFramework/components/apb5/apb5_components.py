@@ -402,7 +402,11 @@ class APB5Slave(APBSlave):
           TypeError). Similarly ``self.mem.read(line)`` was missing the
           required ``length`` argument. The unified state machine uses the
           correct byte-address + bytearray + length API.
-        - **Memory overflow auto-expansion.** APB5's previous behavior was
+        - **Memory overflow.** Out-of-range accesses answer PSLVERR with
+          nothing written (the shared contract in ``shared/memory_model.py``,
+          ``error_overflow=True``, the default since 2026-09-09); pass
+          ``error_overflow=False`` for the old auto-expansion. Historically:
+          APB5's previous behavior was
           to silently fail on out-of-range addresses. The unified state
           machine auto-expands the memory (matching APB4Slave's behavior),
           or signals an error if ``error_overflow=True``.
@@ -420,7 +424,7 @@ class APB5Slave(APBSlave):
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
                  bus_width=32, addr_width=12,
                  auser_width=4, wuser_width=4, ruser_width=4, buser_width=4,
-                 randomizer=None, log=None, error_overflow=False,
+                 randomizer=None, log=None, error_overflow=True,
                  wakeup_generator=None, **kwargs):
         # APB5 widths needed by extension hooks and packet construction.
         # Must be set before super().__init__ because _default_randomizer_constraints()

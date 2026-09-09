@@ -381,3 +381,10 @@ async def test_axi4_slave_ooo(dut):
     # Slave automatically responds to AR requests via callbacks
     # Run test stimulus and check results...
 ```
+
+## Out-of-range accesses
+
+Memory-backed slaves answer an access beyond their model with `SLVERR`,
+nothing written and `0xDEADDEAD…` read data -- the contract shared by every
+slave family, described in
+[the memory model page](../shared/components_shared_memory_model.md#out-of-range-accesses-the-contract-every-slave-bfm-follows).

@@ -37,6 +37,7 @@ from CocoTBFramework.components.axi4.axi4_packet import AXI4Packet
 # Import GAXI components and field configs
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
+from CocoTBFramework.components.shared.memory_model import oor_read_data
 
 
 class AXI4MasterRead:
@@ -880,31 +881,38 @@ class AXI4SlaveRead:
                 current_addr = address + (i * bytes_per_beat)
 
                 # Read from memory model if available
+                beat_resp = 0
                 if self.memory_model:
-                    try:
-                        # Apply base address offset before accessing memory model
-                        # (RTL sends absolute addresses, memory model expects 0-based offsets)
-                        memory_offset = current_addr - self.base_addr
-
-                        # Read bytes from memory model
-                        data_bytes = self.memory_model.read(memory_offset, bytes_per_beat)
-                        # Convert to integer using memory model's utility
-                        data = self.memory_model.bytearray_to_integer(data_bytes)
-
-                        if self.log:
-                            self.log.debug(f"AXI4SlaveRead: Read from memory - "
-                                        f"addr=0x{current_addr:08X}, data=0x{data:08X}")
-                    except Exception as e:
-                        if self.log:
-                            self.log.warning(f"Memory read failed at 0x{current_addr:08X}: {e}")
-                        data = current_addr  # Fallback pattern
+                    # Apply base address offset before accessing memory model
+                    # (RTL sends absolute addresses, memory model expects 0-based offsets)
+                    memory_offset = current_addr - self.base_addr
+                    if not self.memory_model.in_range(memory_offset, bytes_per_beat):
+                        # Out-of-range contract (shared/memory_model.py): SLVERR
+                        # on this beat, pattern data, one warning. This used to
+                        # answer OKAY with the ADDRESS as data.
+                        self.memory_model.oor_warning(self.log, 'AXI4SlaveRead',
+                                                      current_addr, bytes_per_beat, packet_id)
+                        data = oor_read_data(bytes_per_beat)
+                        beat_resp = 2
+                    else:
+                        try:
+                            data_bytes = self.memory_model.read(memory_offset, bytes_per_beat)
+                            data = self.memory_model.bytearray_to_integer(data_bytes)
+                            if self.log:
+                                self.log.debug(f"AXI4SlaveRead: Read from memory - "
+                                            f"addr=0x{current_addr:08X}, data=0x{data:08X}")
+                        except Exception as e:
+                            if self.log:
+                                self.log.warning(f"AXI4SlaveRead: memory read failed at "
+                                                 f"0x{current_addr:08X}: {e} -- answering SLVERR")
+                            data = oor_read_data(bytes_per_beat)
+                            beat_resp = 2
                 else:
-                    # Simple address-based pattern for testing
+                    # No memory model: simple address-based pattern for testing
                     data = current_addr
 
                 # Create R response packet using GENERIC field names
                 is_last = (i == burst_len - 1)
-                beat_resp = 0
                 if self.resp_override is not None:
                     forced = self.resp_override(current_addr)
                     if forced is not None:
@@ -1547,6 +1555,7 @@ class AXI4SlaveWrite:
                 bytes_per_beat = 1 << size_encoding
 
                 # Write data to memory if available
+                resp = 0
                 if self.memory_model:
                     # W data and WSTRB are bus-width quantities: a narrow
                     # beat (AWSIZE < bus width) rides in its addressed byte
@@ -1557,7 +1566,22 @@ class AXI4SlaveWrite:
                     # but kept the bus-width strobe -- memory_model.write
                     # rejected the mismatch and the write was dropped.)
                     bus_bytes = self.data_width // 8
-                    for i, w_packet in enumerate(w_packets):
+                    # Out-of-range contract (shared/memory_model.py): the
+                    # WHOLE burst is checked first, so an overrunning burst is
+                    # answered SLVERR with nothing written -- not the in-range
+                    # beats landed and the rest dropped under an OKAY, which
+                    # is what this did before.
+                    first_off = (base_addr - (base_addr % bus_bytes)) - self.base_addr
+                    last_addr = base_addr + (len(w_packets) - 1) * bytes_per_beat
+                    span = (last_addr - (last_addr % bus_bytes)) + bus_bytes - (base_addr - (base_addr % bus_bytes))
+                    if not self.memory_model.in_range(first_off, span):
+                        self.memory_model.oor_warning(self.log, 'AXI4SlaveWrite',
+                                                      base_addr, span, transaction_id)
+                        resp = 2
+                        w_packets_to_write = []
+                    else:
+                        w_packets_to_write = w_packets
+                    for i, w_packet in enumerate(w_packets_to_write):
                         addr = base_addr + (i * bytes_per_beat)
                         bus_aligned_addr = addr - (addr % bus_bytes)
 
@@ -1574,7 +1598,9 @@ class AXI4SlaveWrite:
                             self.memory_model.write(memory_offset, data_bytes, strb)
                         except Exception as mem_error:
                             if self.log:
-                                self.log.warning(f"AXI4SlaveWrite: Memory write failed for txn {transaction_id}: {mem_error}")
+                                self.log.warning(f"AXI4SlaveWrite: memory write failed for txn "
+                                                 f"{transaction_id}: {mem_error} -- answering SLVERR")
+                            resp = 2
 
                 # Add delay for realistic B response timing
                 if self.response_delay_cycles > 0:
@@ -1590,7 +1616,7 @@ class AXI4SlaveWrite:
                 # Send B response using generic field names
                 b_packet = self.b_channel.create_packet(
                     id=transaction_id,
-                    resp=0
+                    resp=resp
                 )
 
                 await self.b_channel.send(b_packet)

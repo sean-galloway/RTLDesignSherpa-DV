@@ -36,7 +36,7 @@ from ..shared.apb_common import (
     PWRITE_DIR,
 )
 from ..shared.flex_randomizer import FlexRandomizer
-from ..shared.memory_model import MemoryModel
+from ..shared.memory_model import MemoryModel, oor_read_data
 from .apb_packet import APBPacket
 
 # Backward-compatible module-level names (preserved for any external imports).
@@ -294,7 +294,7 @@ class APBSlave(APBSignalMixin, BusMonitor):
     """
     def __init__(self, entity, title, prefix, clock, registers, signals=None,
                     bus_width=32, addr_width=12, randomizer=None,
-                    log=None, error_overflow=False, **kwargs):
+                    log=None, error_overflow=True, **kwargs):
         self._signals, self._optional_signals = self._resolve_signal_lists(signals)
         if randomizer is None:
             self.randomizer = FlexRandomizer(self._default_randomizer_constraints())
@@ -474,11 +474,15 @@ class APBSlave(APBSignalMixin, BusMonitor):
 
             if word_index >= self.num_lines:
                 if self.error_overflow:
-                    self.log.error(
-                        f'APB {self.title} - Memory overflow error: {word_index}'
-                    )
+                    # Out-of-range contract (shared/memory_model.py): PSLVERR,
+                    # nothing written, pattern data. The default since
+                    # 2026-09-09; pass error_overflow=False to get the old
+                    # grow-the-memory behaviour for a slave that is meant to
+                    # accept any address.
+                    self.mem.oor_warning(self.log, f'APB {self.title}', address, self.strb_bits)
                     overflow_error = True
                     slv_error = 1
+                    prdata = oor_read_data(self.strb_bits)
                 else:
                     expand = word_index - self.num_lines + 10
                     self.log.warning(

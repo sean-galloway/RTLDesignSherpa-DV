@@ -38,6 +38,7 @@ from CocoTBFramework.components.axil4.axil4_packet import AXIL4Packet
 # Import GAXI components and field configs
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
+from CocoTBFramework.components.shared.memory_model import oor_read_data
 
 # AXIL4 has no per-channel entry in PROTOCOL_SIGNAL_CONFIGS -- its channels ride
 # the generic gaxi_* configs -- so the config-level optional_fields tier that
@@ -855,6 +856,11 @@ class AXIL4SlaveRead:
                     memory_offset = address - self.base_addr
                     # Read bytes from memory model
                     bytes_per_transfer = self.data_width // 8
+                    if not self.memory_model.in_range(memory_offset, bytes_per_transfer):
+                        # Out-of-range contract (shared/memory_model.py).
+                        self.memory_model.oor_warning(self.log, 'AXIL4SlaveRead',
+                                                      address, bytes_per_transfer)
+                        raise ValueError("out of range")
                     data_bytes = self.memory_model.read(memory_offset, bytes_per_transfer)
                     # Convert to integer using memory model's utility
                     data = self.memory_model.bytearray_to_integer(data_bytes)
@@ -864,9 +870,10 @@ class AXIL4SlaveRead:
                         self.log.debug(f"AXIL4SlaveRead: Read from memory - "
                                     f"addr=0x{address:08X} offset=0x{memory_offset:08X}, data=0x{data:08X}")
                 except Exception as e:
-                    if self.log:
-                        self.log.warning(f"Memory read failed at 0x{address:08X} (offset 0x{address-self.base_addr:08X}): {e}")
-                    data = 0xDEADDEAD
+                    if self.log and str(e) != "out of range":
+                        self.log.warning(f"AXIL4SlaveRead: memory read failed at 0x{address:08X} "
+                                         f"(offset 0x{address-self.base_addr:08X}): {e} -- answering SLVERR")
+                    data = oor_read_data(self.data_width // 8)
                     resp = 2  # SLVERR
             else:
                 # Default data pattern
@@ -1109,6 +1116,12 @@ class AXIL4SlaveWrite:
                     memory_offset = address - self.base_addr
                     # Apply write strobes
                     data_bytes = self.data_width // 8
+                    # Out-of-range contract (shared/memory_model.py): the whole
+                    # word is checked before any byte lands.
+                    if not self.memory_model.in_range(memory_offset, data_bytes):
+                        self.memory_model.oor_warning(self.log, 'AXIL4SlaveWrite',
+                                                      address, data_bytes)
+                        raise ValueError("out of range")
 
                     # Write individual bytes based on strobes
                     for byte_idx in range(data_bytes):
@@ -1124,8 +1137,9 @@ class AXIL4SlaveWrite:
                         self.log.debug(f"AXIL4SlaveWrite: Wrote to memory - "
                                     f"addr=0x{address:08X} offset=0x{memory_offset:08X}, data=0x{data:08X}, strb=0x{strb:X}")
                 except Exception as e:
-                    if self.log:
-                        self.log.warning(f"Memory write failed at 0x{address:08X}: {e}")
+                    if self.log and str(e) != "out of range":
+                        self.log.warning(f"AXIL4SlaveWrite: memory write failed at "
+                                         f"0x{address:08X}: {e} -- answering SLVERR")
                     resp = 2  # SLVERR
 
             # Create and send B response using generic field names (SIMPLIFIED)

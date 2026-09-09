@@ -386,3 +386,10 @@ async def test_register_map(master_factory, dut, clock):
 ```
 
 ---
+
+## Out-of-range accesses
+
+Memory-backed slaves answer an access beyond their model with `SLVERR`,
+nothing written and `0xDEADDEAD…` read data -- the contract shared by every
+slave family, described in
+[the memory model page](../shared/components_shared_memory_model.md#out-of-range-accesses-the-contract-every-slave-bfm-follows).

@@ -151,9 +151,13 @@ class WB4Monitor(_WB4BusMixin, BusMonitor):
     """
 
     def __init__(self, entity, title, prefix, clock, signals=None,
-                 addr_width=32, data_width=32, log=None, **kwargs):
+                 addr_width=32, data_width=32, classic=False, log=None, **kwargs):
         self._init_bus(BusMonitor, entity, title, prefix, clock, signals, log,
                        addr_width, data_width, **kwargs)
+        # B4 standard ("classic") mode: the master holds STB until the
+        # termination and there is no STALL, so a request is one PRESENTATION,
+        # accepted once, not once per clock it is held.
+        self.classic = classic
         self.count = 0
         self.inflight = deque()          # accepted, not terminated (WB4Packet)
         self.accepted = 0
@@ -186,15 +190,20 @@ class WB4Monitor(_WB4BusMixin, BusMonitor):
             if ack + err + rty > 1:
                 self._violation('multi_term', f"more than one of ACK/ERR/RTY (ack={ack} err={err} rty={rty})")
 
-            # Stalled request must be held unchanged.
+            # A pending request must be held unchanged: while STALLed in
+            # pipelined mode, until terminated in classic mode.
             req = self._sample_request() if (cyc and stb) else None
             if self._prev is not None and cyc:
                 if not stb:
-                    self._violation('request_dropped', "request withdrawn while STALLed")
+                    self._violation('request_dropped', "request withdrawn before it was accepted")
                 elif req != self._prev:
-                    self._violation('request_changed', "request changed while STALLed")
+                    self._violation('request_changed', "request changed before it was accepted")
             # (a request withdrawn by dropping CYC is the abort case, counted below)
-            self._prev = req if (cyc and stb and stall) else None
+            status_now = _status_of(ack, err, rty)
+            if self.classic:
+                self._prev = req if (cyc and stb and status_now is None) else None
+            else:
+                self._prev = req if (cyc and stb and stall) else None
 
             # Abort: CYC low with transfers outstanding.
             if not cyc and self.inflight:
@@ -217,7 +226,12 @@ class WB4Monitor(_WB4BusMixin, BusMonitor):
                     self._recv(pkt)
                     self.log.debug(f"{self.title} WB4 #{pkt.count}: {pkt.formatted(compact=True)}")
 
-            if cyc and stb and not stall:
+            # Classic: a presentation is accepted once, and never in the clock
+            # its termination is on the wire (the master sees that termination
+            # at the next edge, so STB is still held).
+            accept = ((cyc and stb and not self.inflight and status is None) if self.classic
+                      else (cyc and stb and not stall))
+            if accept:
                 we, adr, dat_w, sel = req
                 self.count += 1
                 pkt = WB4Packet(addr_width=self.addr_width, data_width=self.data_width,
@@ -251,11 +265,14 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
     def __init__(self, entity, title, prefix, clock, registers=None, signals=None,
                  addr_width=32, data_width=32, num_lines=1024, randomizer=None,
                  max_outstanding=16, status_hook: Optional[Callable] = None,
-                 log=None, **kwargs):
+                 classic=False, log=None, **kwargs):
         self._init_bus(BusMonitor, entity, title, prefix, clock, signals, log,
                        addr_width, data_width, **kwargs)
         self.randomizer = randomizer or FlexRandomizer(self._default_randomizer_constraints())
-        self.max_outstanding = max_outstanding
+        # Classic: never STALL, accept a presentation once, one outstanding;
+        # the master holds STB until it sees the termination.
+        self.classic = classic
+        self.max_outstanding = 1 if classic else max_outstanding
         self.status_hook = status_hook
         self.bytes_per_line = self.sel_width
         preset = registers
@@ -339,9 +356,11 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
             await RisingEdge(self.clock)
             self._clock_no += 1
             # ---- drive: one termination this clock if the head is due ----
+            terminating = False
             if self._pending and self._pending[0][0] <= self._clock_no and self.outstanding:
                 _due, pkt = self._pending.popleft()
                 self._drive_term(int(pkt.fields['status']), int(pkt.fields['dat_r']))
+                terminating = True
                 self.outstanding -= 1
                 object.__setattr__(pkt, 'end_time', get_sim_time('ns'))
                 self.sentQ.append(pkt)
@@ -350,7 +369,8 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
             else:
                 self._drive_term(None, 0)
             stall = (self._stall_left > 0) or (self.outstanding >= self.max_outstanding)
-            self.bus.STALL.value = int(stall)
+            # Classic slaves have no STALL: backpressure is simply not accepting.
+            self.bus.STALL.value = 0 if self.classic else int(stall)
             if self._stall_left > 0:
                 self._stall_left -= 1
 
@@ -366,7 +386,10 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
                 self.outstanding = 0
                 self._pending.clear()
                 continue
-            if stb and not stall:
+            if stb and not stall and not (self.classic and terminating):
+                # (classic: `stall` here is the accept gate the master never
+                # sees -- a held presentation is accepted exactly once, and
+                # not in the clock its termination is being driven)
                 self.count += 1
                 pkt = WB4Packet(addr_width=self.addr_width, data_width=self.data_width,
                                 sel_width=self.sel_width,
@@ -403,7 +426,7 @@ class WB4Master(WB4SignalMixin, BusDriver):
 
     def __init__(self, entity, title, prefix, clock, signals=None,
                  addr_width=32, data_width=32, randomizer=None,
-                 max_outstanding=8, log=None, **kwargs):
+                 max_outstanding=8, classic=False, log=None, **kwargs):
         prefix = prefix.rstrip('_')
         req, opt, aliases = self._resolve(entity, prefix, signals)
         self._signals = {s: aliases.get(s, s) for s in req}
@@ -417,7 +440,10 @@ class WB4Master(WB4SignalMixin, BusDriver):
         self.data_width = data_width
         self.sel_width = data_width // 8
         self.randomizer = randomizer or FlexRandomizer(self._default_randomizer_constraints())
-        self.max_outstanding = max_outstanding
+        # Classic: hold the request on STB/CYC until its termination, one at a
+        # time, and ignore STALL (a classic slave has none).
+        self.classic = classic
+        self.max_outstanding = 1 if classic else max_outstanding
         self.transmit_queue = deque()
         self.outstanding = deque()
         self.sentQ = deque()
@@ -555,6 +581,8 @@ class WB4Master(WB4SignalMixin, BusDriver):
                 self._gap -= 1
             if self._head is not None:
                 self._present(self._head)
+            elif self.classic and self.outstanding:
+                self._present(self.outstanding[0])     # held until terminated
             else:
                 self.bus.STB.value = 0
             self.bus.CYC.value = int(self._head is not None or len(self.outstanding) > 0)
@@ -563,7 +591,7 @@ class WB4Master(WB4SignalMixin, BusDriver):
             # ---- sample what the next edge will see ----
             await FallingEdge(self.clock)
             await Timer(_SETTLE_PS, units='ps')
-            accepted = bool(self._head is not None and not _int(self.bus.STALL))
+            accepted = bool(self._head is not None and (self.classic or not _int(self.bus.STALL)))
             ack, err, rty = self._term_bits()
             st = _status_of(ack, err, rty)
             term = (st, _int(self.bus.DAT_R)) if st is not None else None

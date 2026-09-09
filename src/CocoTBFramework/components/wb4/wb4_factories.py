@@ -25,31 +25,37 @@ from .wb4_components import WB4Master, WB4Monitor, WB4Slave
 
 
 def create_wb4_master(dut, title, prefix, clock, addr_width=32, data_width=32,
-                      randomizer=None, max_outstanding=8, log=None):
-    """A pipelined master. ``randomizer`` key ``stb``: idle clocks between requests."""
+                      randomizer=None, max_outstanding=8, classic=False, log=None):
+    """A pipelined master (``classic=True``: B4 standard mode, request held
+    until terminated, one outstanding, STALL ignored). ``randomizer`` key
+    ``stb``: idle clocks between requests."""
     log = log or getattr(dut, '_log', None)
     if randomizer is None:
         randomizer = FlexRandomizer(WB4Master._default_randomizer_constraints())
     return WB4Master(dut, title, prefix, clock, addr_width=addr_width, data_width=data_width,
-                     randomizer=randomizer, max_outstanding=max_outstanding, log=log)
+                     randomizer=randomizer, max_outstanding=max_outstanding, classic=classic, log=log)
 
 
 def create_wb4_slave(dut, title, prefix, clock, addr_width=32, data_width=32,
                      registers=None, num_lines=1024, randomizer=None,
-                     max_outstanding=16, status_hook=None, log=None):
-    """A pipelined slave over a MemoryModel. ``randomizer`` keys ``stall``,
-    ``ack`` (latency >= 1) and ``status`` (0 ACK / 1 ERR / 2 RTY, weighted);
-    ``status_hook(packet)`` overrides the status per request."""
+                     max_outstanding=16, status_hook=None, classic=False, log=None):
+    """A pipelined slave over a MemoryModel (``classic=True``: B4 standard
+    mode, STALL held low, one request accepted per presentation).
+    ``randomizer`` keys ``stall``, ``ack`` (latency >= 1) and ``status``
+    (0 ACK / 1 ERR / 2 RTY, weighted); ``status_hook(packet)`` overrides the
+    status per request."""
     log = log or getattr(dut, '_log', None)
     if randomizer is None:
         randomizer = FlexRandomizer(WB4Slave._default_randomizer_constraints())
     return WB4Slave(dut, title, prefix, clock, registers=registers, addr_width=addr_width,
                     data_width=data_width, num_lines=num_lines, randomizer=randomizer,
-                    max_outstanding=max_outstanding, status_hook=status_hook, log=log)
+                    max_outstanding=max_outstanding, status_hook=status_hook, classic=classic, log=log)
 
 
-def create_wb4_monitor(dut, title, prefix, clock, addr_width=32, data_width=32, log=None):
+def create_wb4_monitor(dut, title, prefix, clock, addr_width=32, data_width=32, classic=False, log=None):
     """A passive monitor: one packet per terminated transfer, plus the B4
-    pipelined protocol checks in ``monitor.violations``."""
+    protocol checks in ``monitor.violations`` (``classic=True`` for a
+    standard-mode bus, where a held STB is one request)."""
     log = log or getattr(dut, '_log', None)
-    return WB4Monitor(dut, title, prefix, clock, addr_width=addr_width, data_width=data_width, log=log)
+    return WB4Monitor(dut, title, prefix, clock, addr_width=addr_width, data_width=data_width,
+                      classic=classic, log=log)

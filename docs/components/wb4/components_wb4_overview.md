@@ -32,8 +32,14 @@ and an inverted ready called `STALL`. The termination side is exactly one of
 with the OLDEST accepted request. There is no Wishbone B5; B4 is the current
 revision and the one that added the pipelined mode.
 
-Not modelled: `CTI`/`BTE` burst hints, `LOCK`, the `TG*` tag signals. Classic
-(one-outstanding) peers interoperate by construction.
+Every BFM takes `classic=True` for B4 standard ("classic") mode: the master
+holds the request on `STB`/`CYC` until the termination and ignores `STALL`;
+the slave never drives `STALL` and accepts a presentation once (and not in
+the clock its termination is driven); the monitor counts a held `STB` as one
+request. Use the same mode on both sides -- the modes do not mix in either
+direction (B4 chapter 5).
+
+Not modelled: `CTI`/`BTE` burst hints, `LOCK`, the `TG*` tag signals.
 
 ## Why these are not GAXI compositions
 

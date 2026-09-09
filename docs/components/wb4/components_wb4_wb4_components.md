@@ -27,7 +27,7 @@
 the `cocotb_bus` chassis. See the [overview](components_wb4_overview.md) for
 the timing convention and port naming.
 
-## WB4Monitor(entity, title, prefix, clock, addr_width=32, data_width=32, log=None)
+## WB4Monitor(entity, title, prefix, clock, addr_width=32, data_width=32, classic=False, log=None)
 
 Passive. Emits one `WB4Packet` per terminated transfer through the standard
 `BusMonitor` callback/`_recvQ` path, request fields captured at accept and
@@ -43,7 +43,7 @@ termination fields at ACK/ERR/RTY, paired in order.
 Violation kinds: `stb_without_cyc`, `request_changed`, `request_dropped`,
 `multi_term`, `term_outside_cyc`, `term_without_request`.
 
-## WB4Slave(entity, title, prefix, clock, registers=None, addr_width=32, data_width=32, num_lines=1024, randomizer=None, max_outstanding=16, status_hook=None, log=None)
+## WB4Slave(entity, title, prefix, clock, registers=None, addr_width=32, data_width=32, num_lines=1024, randomizer=None, max_outstanding=16, status_hook=None, classic=False, log=None)
 
 A responder over a `MemoryModel` (`ADR` is a byte address; `SEL` is the
 write strobe). Each accepted request is answered IN ORDER after a randomized
@@ -64,7 +64,7 @@ drops `CYC` with requests outstanding aborts them; `stats['aborted']` counts
 them. Completed packets are in `sentQ`; `stats` has `accepted`, `ack`,
 `err`, `rty`.
 
-## WB4Master(entity, title, prefix, clock, addr_width=32, data_width=32, randomizer=None, max_outstanding=8, log=None)
+## WB4Master(entity, title, prefix, clock, addr_width=32, data_width=32, randomizer=None, max_outstanding=8, classic=False, log=None)
 
 Queue `WB4Packet`s with `send()`; the pipeline presents one per clock while
 the slave does not STALL, holds `CYC` until the last outstanding request has
@@ -77,7 +77,8 @@ and are delivered to `add_callback` callbacks.
 |---|---|---|
 | `stb` | idle clocks before the next request is presented | mostly 0 |
 
-`max_outstanding` bounds requests in flight. `abort()` drops `CYC` on the
+`classic=True` holds each request until its termination, one at a time,
+ignoring `STALL`. `max_outstanding` bounds requests in flight. `abort()` drops `CYC` on the
 next edge and forgets the outstanding requests; the late terminations a
 non-compliant slave still sends are counted in `stats['unexpected_term']`.
 `create_packet(**fields)` builds a packet with this master's widths.

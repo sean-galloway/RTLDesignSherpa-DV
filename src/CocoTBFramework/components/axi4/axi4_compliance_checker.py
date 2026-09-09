@@ -203,6 +203,12 @@ class AXI4ComplianceChecker:
                     ),
                     pkt_prefix="ar",
                     multi_sig=self.multi_sig,
+                    # Same protocol_type the AXI4 BFM uses for this channel:
+                    # it selects the signal patterns AND the optional-field set,
+                    # so a port without nsaid/mpam/mecid/tagop pins still binds.
+                    # Without it every sideband field was REQUIRED, setup failed
+                    # on any real port, and the checker disabled itself.
+                    protocol_type='axi4_ar_master',
                     log=self.log
                 )
 
@@ -218,6 +224,12 @@ class AXI4ComplianceChecker:
                     ),
                     pkt_prefix="aw",
                     multi_sig=self.multi_sig,
+                    # Same protocol_type the AXI4 BFM uses for this channel:
+                    # it selects the signal patterns AND the optional-field set,
+                    # so a port without nsaid/mpam/mecid/tagop pins still binds.
+                    # Without it every sideband field was REQUIRED, setup failed
+                    # on any real port, and the checker disabled itself.
+                    protocol_type='axi4_aw_master',
                     log=self.log
                 )
 
@@ -232,6 +244,12 @@ class AXI4ComplianceChecker:
                     ),
                     pkt_prefix="w",
                     multi_sig=self.multi_sig,
+                    # Same protocol_type the AXI4 BFM uses for this channel:
+                    # it selects the signal patterns AND the optional-field set,
+                    # so a port without nsaid/mpam/mecid/tagop pins still binds.
+                    # Without it every sideband field was REQUIRED, setup failed
+                    # on any real port, and the checker disabled itself.
+                    protocol_type='axi4_w_master',
                     log=self.log
                 )
 
@@ -246,6 +264,12 @@ class AXI4ComplianceChecker:
                     ),
                     pkt_prefix="r",
                     multi_sig=self.multi_sig,
+                    # Same protocol_type the AXI4 BFM uses for this channel:
+                    # it selects the signal patterns AND the optional-field set,
+                    # so a port without nsaid/mpam/mecid/tagop pins still binds.
+                    # Without it every sideband field was REQUIRED, setup failed
+                    # on any real port, and the checker disabled itself.
+                    protocol_type='axi4_r_slave',
                     log=self.log
                 )
 
@@ -260,6 +284,12 @@ class AXI4ComplianceChecker:
                     ),
                     pkt_prefix="b",
                     multi_sig=self.multi_sig,
+                    # Same protocol_type the AXI4 BFM uses for this channel:
+                    # it selects the signal patterns AND the optional-field set,
+                    # so a port without nsaid/mpam/mecid/tagop pins still binds.
+                    # Without it every sideband field was REQUIRED, setup failed
+                    # on any real port, and the checker disabled itself.
+                    protocol_type='axi4_b_slave',
                     log=self.log
                 )
 
@@ -280,9 +310,15 @@ class AXI4ComplianceChecker:
                     self.log.info(f"AXI4 compliance checker active for channels: {channels}")
 
         except Exception as e:
-            if self.log:
-                self.log.warning(f"Could not setup AXI4 monitors: {e}")
+            # A checker that cannot bind is not a checker. This used to log a
+            # WARNING and set enabled=False, after which get_compliance_report()
+            # returned {'compliance_checking': 'disabled'} and every caller
+            # that read "no violations" out of it passed vacuously -- the
+            # bridge's AXI5 sign-off test did exactly that from 2026-08-09 to
+            # 2026-09-09. Raise.
             self.enabled = False
+            raise RuntimeError(f"AXI4ComplianceChecker could not set up its monitors "
+                               f"on prefix '{self.prefix}': {e}") from e
 
     def _has_channel_signals(self, channel: str) -> bool:
         """Check if the DUT has signals for the specified channel."""

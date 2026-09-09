@@ -22,6 +22,15 @@
   error string to parse. It now returns `success=False`, `error`, and the
   actual `response` (plus id/trace on AXI5). Timeouts still return
   `response=None`.
+- **`AXI4ComplianceChecker` / `AXI5ComplianceChecker` actually bind, or
+  raise.** Their channel monitors were built without a `protocol_type`, so
+  every sideband field was required; on any real port setup failed, the
+  checker logged a warning, disabled itself, and `get_compliance_report()`
+  answered `compliance_checking: disabled` -- which every caller reading
+  "zero violations" passed on. Monitors now use the same per-channel
+  `protocol_type` as the BFMs (optional-field set included), and a setup
+  failure raises `RuntimeError`. A checker that reports `disabled` should be
+  treated as a failed test by its caller.
 
 ### Added
 

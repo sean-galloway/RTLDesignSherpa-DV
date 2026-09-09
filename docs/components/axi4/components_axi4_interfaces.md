@@ -157,7 +157,7 @@ Execute a complete write transaction: send the AW address, the W data beats, and
 - `id` (`int` or `None`) -- Response ID from B channel
 - `error` (`str`, only on failure) -- Error message
 
-Note: this is the part that bites people — `write_transaction` does not raise. A missing B response (`TimeoutError`) or a SLVERR/DECERR (`RuntimeError`) is caught internally and reported through the returned dict (`success=False`, `error=<message>`). Always check `result['success']`.
+Note: this is the part that bites people — `write_transaction` does not raise. A missing B response (`TimeoutError`) is caught internally and reported through the returned dict (`success=False`, `error=<message>`, `response=None`). An error B (SLVERR/DECERR) is a completed transaction: the dict carries `success=False`, `error=<message>` AND the actual `response` code, so a test can assert which error came back. Always check `result['success']`.
 
 ##### `async single_write(address, data, **kwargs) -> Dict[str, Any]`
 

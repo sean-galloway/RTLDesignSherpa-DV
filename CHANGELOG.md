@@ -16,6 +16,12 @@
   before anything lands. **Behaviour change:** `APBSlave` / `APB5Slave` /
   `create_apb5_slave` now default `error_overflow=True`; pass `False` to keep
   auto-expansion.
+- **`AXI4MasterWrite` / `AXI5MasterWrite` keep the response code on an
+  error B.** `write_transaction` returned `response=None` for a SLVERR/DECERR
+  (it raised internally and fell into the timeout handler), leaving only the
+  error string to parse. It now returns `success=False`, `error`, and the
+  actual `response` (plus id/trace on AXI5). Timeouts still return
+  `response=None`.
 
 ### Added
 

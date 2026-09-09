@@ -562,11 +562,18 @@ class AXI5MasterWrite:
                 'tagmatch': getattr(b_response, 'tagmatch', 0),
             }
 
-            # Check for errors
+            # An error B is a COMPLETED transaction with a bad answer: keep the
+            # code (the caller asserts SLVERR vs DECERR) and flag success=False.
+            # Until 2026-09-09 this raised into the except below, which
+            # returned response=None and only the error string.
             if result['response'] != 0:
                 resp_names = {0: 'OKAY', 1: 'EXOKAY', 2: 'SLVERR', 3: 'DECERR'}
                 resp_name = resp_names.get(result['response'], 'UNKNOWN')
-                raise RuntimeError(f"AXI5 write error: {resp_name}")
+                result['success'] = False
+                result['error'] = f"AXI5 write error: {resp_name} (0x{result['response']:X})"
+                if self.log:
+                    self.log.error(f"AXI5 write transaction failed: addr=0x{address:08X}, "
+                                   f"error: {result['error']}")
 
             return result
 

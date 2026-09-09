@@ -493,17 +493,26 @@ class AXI4MasterWrite:
             # Pop our B response from this ID's queue
             b_response = id_queue.popleft()
 
-            # Check for errors using GENERIC field names
-            if hasattr(b_response, 'resp') and b_response.resp != 0:
-                resp_names = {0: 'OKAY', 1: 'EXOKAY', 2: 'SLVERR', 3: 'DECERR'}
-                resp_name = resp_names.get(b_response.resp, 'UNKNOWN')
-                raise RuntimeError(f"AXI4 write error: {resp_name} (0x{b_response.resp:X})")
-
-            return {
+            resp_code = b_response.resp if hasattr(b_response, 'resp') else 0
+            result = {
                 'success': True,
-                'response': b_response.resp if hasattr(b_response, 'resp') else 0,
+                'response': resp_code,
                 'id': b_response.id if hasattr(b_response, 'id') else 0
             }
+            # An error B is a COMPLETED transaction with a bad answer, so the
+            # result keeps the code (SLVERR vs DECERR is what the caller
+            # wants to assert) and success=False. Until 2026-09-09 this
+            # raised into the except below, which returned response=None
+            # and left only the error string to parse.
+            if resp_code != 0:
+                resp_names = {0: 'OKAY', 1: 'EXOKAY', 2: 'SLVERR', 3: 'DECERR'}
+                resp_name = resp_names.get(resp_code, 'UNKNOWN')
+                result['success'] = False
+                result['error'] = f"AXI4 write error: {resp_name} (0x{resp_code:X})"
+                if self.log:
+                    self.log.error(f"AXI4 write transaction failed: addr=0x{address:08X}, "
+                                   f"error: {result['error']}")
+            return result
 
         except Exception as e:
             # Log the error with details about what we tried to do

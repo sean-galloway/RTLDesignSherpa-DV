@@ -18,9 +18,14 @@ from CocoTBFramework.components.axi5.axi5_compliance_checker import AXI5Complian
 @pytest.mark.parametrize("cls,fam", [(AXI4ComplianceChecker, "axi4"), (AXI5ComplianceChecker, "axi5")])
 def test_every_channel_monitor_names_its_protocol_type(cls, fam):
     src = inspect.getsource(cls.setup_monitors)
-    monitors = re.findall(r"GAXIMonitor\((.*?)\n\s*\)", src, re.S)
-    assert len(monitors) == 5, f"expected 5 channel monitors, found {len(monitors)}"
-    for block in monitors:
+    # One block per channel: from its assignment to the next assignment (or
+    # the tail of the function). A parenthesis-matching regex stops at the
+    # nested field_config(...) call and misses the kwargs after it.
+    starts = [m.start() for m in re.finditer(r"self\.monitors\['(AR|AW|W|R|B)'\] = GAXIMonitor\(", src)]
+    assert len(starts) == 5, f"expected 5 channel monitors, found {len(starts)}"
+    ends = starts[1:] + [src.find("for monitor in self.monitors.values()")]
+    for a, b in zip(starts, ends):
+        block = src[a:b]
         m = re.search(r"protocol_type='(%s_(ar|aw|w|r|b)_(master|slave))'" % fam, block)
         assert m, f"a {fam} channel monitor has no protocol_type:\n{block}"
 

@@ -31,6 +31,15 @@
   `protocol_type` as the BFMs (optional-field set included), and a setup
   failure raises `RuntimeError`. A checker that reports `disabled` should be
   treated as a failed test by its caller.
+- **Compliance checkers resolve the port prefix's separator, and say whether
+  they are armed.** `_has_channel_signals` concatenated the prefix naively,
+  so a port written `cpu_m_axi` rather than `cpu_rd_axi_` resolved no
+  channels: no monitors were built, `monitors_active` stayed False, and the
+  report still said `compliance_checking: enabled` with zero violations.
+  Armed-and-blind reads exactly like clean. The prefix is now resolved once
+  against both spellings, a checker that binds nothing logs a WARNING, and
+  `get_compliance_report()` carries `armed` and `channels` so a caller can
+  refuse a verdict with nothing behind it.
 
 ### Added
 

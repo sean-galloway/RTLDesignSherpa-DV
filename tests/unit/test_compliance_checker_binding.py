@@ -35,3 +35,44 @@ def test_setup_failure_raises_instead_of_disabling(cls):
     src = inspect.getsource(cls.setup_monitors)
     assert "raise RuntimeError" in src
     assert "Could not setup" not in src or "raise" in src.split("Could not setup")[0]
+
+
+@pytest.mark.parametrize("cls", [AXI4ComplianceChecker, AXI5ComplianceChecker])
+def test_channel_prefix_tolerates_a_missing_separator(cls):
+    """A port prefix may or may not carry its separator -- the bridge writes
+    "cpu_rd_axi_" for one fixture and "cpu_m_axi" for another. Naive
+    concatenation found no channels on the second, so the checker built no
+    monitors and still reported zero violations: armed and blind reads exactly
+    like clean (found 2026-09-10, bridge_2x2_rw, 0 violations in 0 checks).
+
+    Built with object.__new__ so the resolution is tested on its own -- a real
+    construction sets up the channel monitors, which needs a full signal set.
+    """
+    class _DUT:
+        pass
+    dut = _DUT()
+    for sig in ('arvalid', 'arready', 'awvalid', 'awready'):
+        setattr(dut, f'cpu_m_axi_{sig}', object())
+
+    chk = object.__new__(cls)
+    chk.dut = dut
+    chk.prefix = 'cpu_m_axi'          # no trailing separator
+    chk._resolved_prefix = None
+    assert chk._channel_prefix() == 'cpu_m_axi_'
+    assert chk._has_channel_signals('ar')
+    assert chk._has_channel_signals('aw')
+    assert not chk._has_channel_signals('r')   # not present on this mock
+
+    # A prefix that already carries its separator is unchanged.
+    chk2 = object.__new__(cls)
+    chk2.dut = dut
+    chk2.prefix = 'cpu_m_axi_'
+    chk2._resolved_prefix = None
+    assert chk2._channel_prefix() == 'cpu_m_axi_'
+
+
+@pytest.mark.parametrize("cls", [AXI4ComplianceChecker, AXI5ComplianceChecker])
+def test_report_says_whether_it_is_armed(cls):
+    """'zero violations' is only meaningful with something behind it."""
+    src = inspect.getsource(cls.get_compliance_report)
+    assert "'armed'" in src and "'channels'" in src

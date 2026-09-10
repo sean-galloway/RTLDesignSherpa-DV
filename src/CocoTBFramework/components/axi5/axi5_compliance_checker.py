@@ -157,6 +157,7 @@ class AXI5ComplianceChecker:
         self.mecid_width = kwargs.get('mecid_width', 16)
         self.tag_width = kwargs.get('tag_width', 4)
         self.multi_sig = kwargs.get('multi_sig', True)
+        self._resolved_prefix = None
 
         # Violation tracking
         self.violations: List[AXI5Violation] = []
@@ -343,6 +344,17 @@ class AXI5ComplianceChecker:
             for monitor in self.monitors.values():
                 monitor.enable_completed_packet_tracking()
 
+            if not self.monitors and self.log:
+                # Not fatal -- the checker's own unit tests construct it against
+                # a signal-less mock. But a checker that binds nothing reports
+                # zero violations forever, so say so loudly and put it in the
+                # report: get_compliance_report() carries 'channels' and
+                # 'armed' precisely so a caller can refuse a blind verdict.
+                self.log.warning(
+                    f"AXI5ComplianceChecker: no AXI channels resolved on prefix "
+                    f"'{self.prefix}' -- this checker will report zero "
+                    f"violations because it is watching nothing")
+
             # Start monitoring tasks
             if self.monitors:
                 self.monitors_active = True
@@ -365,24 +377,46 @@ class AXI5ComplianceChecker:
             raise RuntimeError(f"AXI5ComplianceChecker could not set up its monitors "
                                f"on prefix '{self.prefix}': {e}") from e
 
+    def _channel_prefix(self) -> str:
+        """The prefix that actually resolves on this DUT.
+
+        A port prefix may or may not carry its separator: the bridge writes
+        "cpu_rd_axi_" for one fixture and "cpu_m_axi" for another, and the
+        BFMs cope because they go through the signal-mapping helper, which
+        tries several patterns. This checker concatenated naively, so on a
+        separator-less prefix it found NO channels, set up no monitors, left
+        monitors_active False -- and still reported compliance_checking
+        "enabled" with zero violations. Armed and blind reads exactly like
+        clean. Found 2026-09-10 when every AXI4 master port got a checker and
+        bridge_2x2_rw reported 0 violations in 0 checks."""
+        if self._resolved_prefix is None:
+            for cand in (self.prefix, f"{self.prefix}_" if self.prefix and not self.prefix.endswith('_') else self.prefix):
+                if any(hasattr(self.dut, f'{cand}{sig}') for sig in ('arvalid', 'awvalid')):
+                    self._resolved_prefix = cand
+                    break
+            else:
+                self._resolved_prefix = self.prefix
+        return self._resolved_prefix
+
     def _has_channel_signals(self, channel: str) -> bool:
         """Check if the DUT has signals for the specified channel."""
         try:
+            pfx = self._channel_prefix()
             if channel.lower() == 'ar':
-                return (hasattr(self.dut, f'{self.prefix}arvalid') and
-                        hasattr(self.dut, f'{self.prefix}arready'))
+                return (hasattr(self.dut, f'{pfx}arvalid') and
+                        hasattr(self.dut, f'{pfx}arready'))
             elif channel.lower() == 'aw':
-                return (hasattr(self.dut, f'{self.prefix}awvalid') and
-                        hasattr(self.dut, f'{self.prefix}awready'))
+                return (hasattr(self.dut, f'{pfx}awvalid') and
+                        hasattr(self.dut, f'{pfx}awready'))
             elif channel.lower() == 'w':
-                return (hasattr(self.dut, f'{self.prefix}wvalid') and
-                        hasattr(self.dut, f'{self.prefix}wready'))
+                return (hasattr(self.dut, f'{pfx}wvalid') and
+                        hasattr(self.dut, f'{pfx}wready'))
             elif channel.lower() == 'r':
-                return (hasattr(self.dut, f'{self.prefix}rvalid') and
-                        hasattr(self.dut, f'{self.prefix}rready'))
+                return (hasattr(self.dut, f'{pfx}rvalid') and
+                        hasattr(self.dut, f'{pfx}rready'))
             elif channel.lower() == 'b':
-                return (hasattr(self.dut, f'{self.prefix}bvalid') and
-                        hasattr(self.dut, f'{self.prefix}bready'))
+                return (hasattr(self.dut, f'{pfx}bvalid') and
+                        hasattr(self.dut, f'{pfx}bready'))
         except Exception:
             pass
         return False
@@ -433,8 +467,9 @@ class AXI5ComplianceChecker:
         that is a protocol violation. READY before VALID is always legal.
         """
         try:
-            valid_signal = getattr(self.dut, f'{self.prefix}{channel}valid', None)
-            ready_signal = getattr(self.dut, f'{self.prefix}{channel}ready', None)
+            pfx = self._channel_prefix()
+            valid_signal = getattr(self.dut, f'{pfx}{channel}valid', None)
+            ready_signal = getattr(self.dut, f'{pfx}{channel}ready', None)
 
             if valid_signal is None or ready_signal is None:
                 return
@@ -803,6 +838,9 @@ class AXI5ComplianceChecker:
 
         return {
             'compliance_checking': 'enabled',
+            # A caller must be able to tell "clean" from "watching nothing".
+            'armed': bool(self.monitors_active),
+            'channels': sorted(self.monitors.keys()),
             'total_violations': total_violations,
             'violation_summary': violation_summary,
             'statistics': self.stats.copy(),

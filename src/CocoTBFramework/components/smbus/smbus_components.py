@@ -467,6 +467,7 @@ class SMBusSlave:
                  slave_addr: int = 0x50,
                  memory_size: int = 256,
                  clock_stretch_cycles: int = 0,
+                 clock_period_ns: int = 10000,
                  support_pec: bool = False,
                  log: Optional[logging.Logger] = None):
         """
@@ -479,7 +480,14 @@ class SMBusSlave:
             sda_i/o/t: SDA signal names
             slave_addr: 7-bit slave address
             memory_size: Size of internal memory (bytes)
-            clock_stretch_cycles: Cycles to stretch clock (0=disabled)
+            clock_stretch_cycles: Cycles to stretch clock (0=disabled). When
+                nonzero, the slave actively holds SCL low for
+                clock_stretch_cycles * clock_period_ns before every ACK it
+                sends, modeling real SMBus/I2C clock stretching (the slave
+                blocks the master's next SCL rising edge until it lets go).
+            clock_period_ns: Nominal SCL period in ns, used only to scale
+                clock_stretch_cycles into a wall-clock stretch duration
+                (the slave has no bus clock handle of its own).
             support_pec: Enable PEC support
             log: Optional logger
         """
@@ -497,6 +505,7 @@ class SMBusSlave:
         self.slave_addr = slave_addr
         self.memory_size = memory_size
         self.clock_stretch_cycles = clock_stretch_cycles
+        self.clock_period_ns = clock_period_ns
         self.support_pec = support_pec
 
         self.log = log or logging.getLogger(f"cocotb.smbus_slave.{title}")
@@ -561,8 +570,25 @@ class SMBusSlave:
         else:
             self._drive_sda_low()
 
+    async def _stretch_clock_if_configured(self):
+        """Hold SCL low for the configured clock-stretch duration.
+
+        Real I2C/SMBus clock stretching: after a byte is sampled, the
+        slave (not the master) can keep SCL held low, which blocks the
+        master's next SCL rising edge until the slave releases it. This
+        was a dead constructor parameter (clock_stretch_cycles was stored
+        but never used) until RTL Design Sherpa GH#58 item 1 needed a
+        real bus-level clock-stretch stimulus; wired up here.
+        """
+        if self.clock_stretch_cycles <= 0:
+            return
+        self._drive_scl_low()
+        await Timer(self.clock_stretch_cycles * self.clock_period_ns, units='ns')
+        self._release_scl()
+
     async def _send_ack(self):
         """Send ACK (drive SDA low)"""
+        await self._stretch_clock_if_configured()
         self._drive_sda_low()
         await RisingEdge(self.scl_i)
         await FallingEdge(self.scl_i)

@@ -43,6 +43,22 @@
 
 ### Added
 
+- **Wishbone B4 sequences** (`components.wb4.wb4_sequence`): `WB4Sequence` and
+  `WB4Transaction`, the traffic axis for wb4. A builder in the `AXI4Sequence`
+  style rather than the older parallel-list shape, and smaller than either
+  because B4 has no bursts, no protection bits, and the termination status is
+  the slave's answer rather than stimulus. Primitives `add_write` /
+  `add_read`; patterns `add_block`, `add_readback_pairs`,
+  `add_strobed_writes`, `add_random_workload`; shaping `filter`, `shuffle`,
+  `reset`; output `to_packets(master=None)` (which raises on a width mismatch
+  against the BFM) and `stats`. The Wishbone-specific part is `windows`:
+  `(lo, hi, probability)` triples that steer a fraction of a random workload
+  at the address ranges a device under test decodes as ERR or RTY, tagging
+  each transfer with the window it came from. Every hand-written wb4
+  testbench in the main repo had grown its own copy of that address picking.
+  Seeded sequences are reproducible and own their generator, so building one
+  never perturbs the global RNG. 22 unit tests.
+
 - **Wishbone B4 components** (`CocoTBFramework.components.wb4`): `WB4Master`,
   `WB4Slave`, `WB4Monitor`, `WB4Packet`, factories, and the shared constants
   in `components/shared/wb4_common.py`. B4 PIPELINED mode: STB under a CYC

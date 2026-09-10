@@ -104,6 +104,7 @@ nav:
       - Overview: components/wb4/components_wb4_overview.md
       - Components: components/wb4/components_wb4_wb4_components.md
       - Packet: components/wb4/components_wb4_wb4_packet.md
+      - Sequence: components/wb4/components_wb4_wb4_sequence.md
     - AXI-Stream:
       - Overview: components/axis4/components_axis4_overview.md
       - Master: components/axis4/axis_master.md

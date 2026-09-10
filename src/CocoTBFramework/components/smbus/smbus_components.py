@@ -109,15 +109,27 @@ async def _wait_scl_edge_or_condition(scl, sda, rising: bool = True) -> SMBusCon
         SMBusCondition.IDLE when the requested SCL edge occurred,
         SMBusCondition.START / SMBusCondition.STOP when a bus condition
         occurred first.
-    """
-    scl_edge = RisingEdge(scl) if rising else FallingEdge(scl)
-    sda_rise = RisingEdge(sda)
-    sda_fall = FallingEdge(sda)
 
+    The three Trigger objects are created fresh on every iteration. They
+    used to be created once before the loop and reused on the "keep
+    waiting" path (SDA moved while SCL was low); cocotb's First() does not
+    guarantee that the losing triggers of one call are re-armable in a
+    later call on the same objects, and the reuse hung this coroutine
+    whenever two SDA transitions happened while SCL was still low.
+    """
     while True:
+        scl_edge = RisingEdge(scl) if rising else FallingEdge(scl)
+        sda_rise = RisingEdge(sda)
+        sda_fall = FallingEdge(sda)
+
         fired = await First(scl_edge, sda_rise, sda_fall)
 
         if fired is scl_edge:
+            # Never accept a same-cycle SDA change here as a START/STOP:
+            # the condition requires SCL to already be settled high. A
+            # monitor that "recovers" a STOP from a simultaneous SCL/SDA
+            # release reports a condition that did not happen on the wire
+            # and hides the DUT bug instead of exposing it.
             return SMBusCondition.IDLE
 
         # SDA moved - classify by SCL level at the moment of the edge
@@ -126,6 +138,7 @@ async def _wait_scl_edge_or_condition(scl, sda, rising: bool = True) -> SMBusCon
         if condition is not SMBusCondition.IDLE:
             return condition
         # SDA changed while SCL low: normal data transition, keep waiting
+        # (fresh triggers created at the top of the next iteration)
 
 
 class SMBusMonitor:

@@ -287,6 +287,19 @@ Queue a packet and block until it completes. Use it when the next line of your t
 await master.busy_send(packet)  # Blocks until transaction completes
 ```
 
+##### `write(address, data, strb=None, pprot=0)` / `read(address, pprot=0)`
+Build the packet, `busy_send` it, and return the completed transaction, so a
+caller need not construct an `APBPacket` for a single transfer. The read data
+is `txn.fields['prdata']` and the completer's error flag `txn.fields['pslverr']`.
+`APB5Master` overrides both to add the USER fields (`pauser`, `pwuser`).
+
+```python
+txn = await master.write(0x100, 0xDEADBEEF)
+txn = await master.read(0x100)
+assert not txn.fields['pslverr']
+data = txn.fields['prdata']
+```
+
 #### Transaction Pipeline
 
 Every queued packet goes through the same four steps:

@@ -48,6 +48,11 @@ from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 from CocoTBFramework.components.shared.memory_model import oor_read_data
 
+# AWATOP[5]: the atomic returns the location's original data on the R
+# channel (AtomicLoad 10xxxx, AtomicSwap 110000, AtomicCompare 110001), using
+# the AW's ID. Store-class (01xxxx) answers on B only.
+ATOP_READ_RETURN = 0x20
+
 
 class AXI5MasterRead:
     """
@@ -159,6 +164,40 @@ class AXI5MasterRead:
         """Route incoming R beat into its per-ID deque (see __init__ rationale)."""
         pkt_id = getattr(pkt, 'id', 0)
         self._response_by_id[pkt_id].append(pkt)
+
+    async def await_read_return(self, txn_id: int,
+                                timeout_cycles: Optional[int] = None) -> Dict[str, Any]:
+        """Collect the single R beat a read-return atomic answers with.
+
+        The beat carries the AW's ID and arrives with no AR having been
+        issued on this interface; the per-ID deque already routes it, so this
+        only waits for it. Called by AXI5MasterWrite.atomic_operation when
+        given this read interface as `read_channel`.
+        """
+        limit = self.timeout_cycles if timeout_cycles is None else timeout_cycles
+        id_queue = self._response_by_id[txn_id]
+        cycles_waited = 0
+        while not id_queue:
+            await RisingEdge(self.clock)
+            cycles_waited += 1
+            if cycles_waited > limit:
+                raise TimeoutError(
+                    f"AXI5 atomic read-return timeout after {cycles_waited} cycles: "
+                    f"no R beat for id={txn_id}"
+                )
+        packet = id_queue.popleft()
+        response = {
+            'data': getattr(packet, 'data', 0),
+            'resp': getattr(packet, 'resp', 0),
+            'last': getattr(packet, 'last', 0),
+            'id': getattr(packet, 'id', 0),
+            'trace': getattr(packet, 'trace', 0),
+            'poison': getattr(packet, 'poison', 0),
+        }
+        if not response['last'] and self.log:
+            self.log.warning(f"AXI5 atomic read-return for id={txn_id} arrived "
+                             f"with RLAST=0; the spec requires a single beat")
+        return response
 
     async def read_transaction(
         self,
@@ -598,6 +637,7 @@ class AXI5MasterWrite:
         address: int,
         data: int,
         atop: int,
+        read_channel: Optional["AXI5MasterRead"] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -605,15 +645,27 @@ class AXI5MasterWrite:
 
         Args:
             address: Target address
-            data: Operand data
+            data: Operand data (for AtomicCompare: compare value in the low
+                half of the beat, swap value in the high half)
             atop: Atomic operation type (6-bit encoding)
+            read_channel: the AXI5MasterRead sharing this port. When given
+                and `atop` is a read-return class (AWATOP[5] == 1), the
+                original data the Subordinate returns on R is collected and
+                reported as `read_data` / `read_resp`. Without it the R beat
+                is left in the read interface's per-ID deque.
             **kwargs: Additional transaction parameters
 
         Returns:
             Response dictionary with result
         """
         kwargs['atop'] = atop
-        return await self.write_transaction(address, data, burst_len=1, **kwargs)
+        result = await self.write_transaction(address, data, burst_len=1, **kwargs)
+        if (atop & ATOP_READ_RETURN) and read_channel is not None:
+            rr = await read_channel.await_read_return(kwargs.get('id', 0))
+            result['read_return'] = rr
+            result['read_data'] = rr['data']
+            result['read_resp'] = rr['resp']
+        return result
 
 
 class AXI5SlaveRead:
@@ -816,6 +868,36 @@ class AXI5SlaveRead:
         for _ in range(delay_cycles):
             await RisingEdge(self.clock)
         await self._generate_read_response(ar_packet)
+
+    def send_read_return(self, txn_id: int, data: int, resp: int = 0, trace: int = 0):
+        """Queue the single R beat a read-return atomic answers with.
+
+        Called by the paired AXI5SlaveWrite (see its `read_return_channel`)
+        once it has performed the operation: the beat carries the AW's ID and
+        the location's ORIGINAL data. Non-blocking, so the write side's
+        completion coroutine is not held up by R-channel backpressure.
+        """
+        r_packet = self.r_channel.create_packet(
+            id=txn_id,
+            data=data,
+            resp=resp,
+            last=1,
+            trace=trace,
+            poison=0,
+            chunkv=0,
+            chunknum=0,
+            chunkstrb=0,
+            tag=0,
+            tagmatch=0,
+        )
+        self.r_channel.transmit_queue.append(r_packet)
+        if not self.r_channel.transmit_coroutine:
+            self.r_channel.transmit_coroutine = cocotb.start_soon(
+                self.r_channel._transmit_pipeline()
+            )
+        if self.log:
+            self.log.debug(f"AXI5SlaveRead: atomic read-return queued - id={txn_id}, "
+                           f"data=0x{data:08X}, resp={resp}")
 
     async def _generate_read_response(self, ar_packet):
         """Generate R response for an AR request."""
@@ -1029,6 +1111,13 @@ class AXI5SlaveWrite:
         # Set up callbacks
         self.aw_channel.add_callback(self._aw_callback)
         self.w_channel.add_callback(self._w_callback)
+
+        # Read-return atomics (AWATOP[5] == 1) answer on the R channel, which
+        # belongs to the paired AXI5SlaveRead on the same port. Wire it here
+        # so this side can hand over the original data. A read-return atomic
+        # arriving with nothing wired is logged as an error and its R is never
+        # sent, which the master side reports as a read-return timeout.
+        self.read_return_channel = kwargs.get('read_return_channel')
 
         # Transaction tracking
         self.pending_transactions = {}
@@ -1254,6 +1343,93 @@ class AXI5SlaveWrite:
 
         return 1
 
+    def _atomic_apply(self, atop: int, memory_offset: int, data: int, nbytes: int) -> Optional[int]:
+        """Perform one AXI5 atomic on the memory model and return the
+        location's ORIGINAL value (the read-return payload), or None for a
+        store-class operation.
+
+        AWATOP encoding: [5:4] class (01 store, 10 load, 11 swap/compare),
+        [3] endianness of the arithmetic (0 little, 1 big), [2:0] operation
+        (ADD, CLR, EOR, SET, SMAX, SMIN, UMAX, UMIN). Bitwise operations are
+        endianness-neutral.
+
+        Beat model: this BFM family treats a beat's data integer as starting
+        at AWADDR (byte 0 of the integer is the byte at AWADDR). For
+        AtomicCompare the beat is twice the operation size: the compare value
+        is the low half (at AWADDR) and the swap value the high half. The
+        returned original value sits in the low half. The master-side BFM
+        builds its operand the same way, so the two agree; the fabric under
+        test never interprets the data.
+        """
+        mm = self.memory_model
+        atom_class = (atop >> 4) & 0x3
+        big_endian = bool(atop & 0x8)
+        op = atop & 0x7
+
+        def read_int(off, n):
+            return mm.bytearray_to_integer(mm.read(off, n))
+
+        def write_int(off, value, n):
+            value &= (1 << (8 * n)) - 1
+            mm.write(off, mm.integer_to_bytearray(value, n), (1 << n) - 1)
+
+        def to_arith(value, n):
+            # Arithmetic endianness: little is the integer as stored; big
+            # reverses the byte order before and after the operation.
+            if big_endian:
+                return int.from_bytes(value.to_bytes(n, 'little'), 'big')
+            return value
+
+        def from_arith(value, n):
+            value &= (1 << (8 * n)) - 1
+            if big_endian:
+                return int.from_bytes(value.to_bytes(n, 'big'), 'little')
+            return value
+
+        def signed(value, n):
+            return value - (1 << (8 * n)) if value & (1 << (8 * n - 1)) else value
+
+        if atom_class == 3:
+            if op == 0:
+                # AtomicSwap: operand replaces the location.
+                old = read_int(memory_offset, nbytes)
+                write_int(memory_offset, data, nbytes)
+                return old
+            # AtomicCompare: beat = compare (low half) + swap (high half).
+            half = nbytes // 2
+            if half == 0:
+                raise ValueError("AtomicCompare needs a beat of at least 2 bytes")
+            hmask = (1 << (8 * half)) - 1
+            compare = data & hmask
+            swap = (data >> (8 * half)) & hmask
+            old = read_int(memory_offset, half)
+            if old == compare:
+                write_int(memory_offset, swap, half)
+            return old
+
+        # Store (class 1) and load (class 2): read-modify-write.
+        old = read_int(memory_offset, nbytes)
+        a = to_arith(old, nbytes)
+        b = to_arith(data & ((1 << (8 * nbytes)) - 1), nbytes)
+        if op == 0:
+            r = a + b
+        elif op == 1:
+            r = a & ~b
+        elif op == 2:
+            r = a ^ b
+        elif op == 3:
+            r = a | b
+        elif op == 4:
+            r = a if signed(a, nbytes) >= signed(b, nbytes) else b
+        elif op == 5:
+            r = a if signed(a, nbytes) <= signed(b, nbytes) else b
+        elif op == 6:
+            r = max(a, b)
+        else:
+            r = min(a, b)
+        write_int(memory_offset, from_arith(r, nbytes), nbytes)
+        return old if atom_class == 2 else None
+
     async def _complete_write_transaction_delayed(self, transaction_id, delay_cycles):
         """Complete write transaction after delay (OOO mode)."""
         for _ in range(delay_cycles):
@@ -1309,6 +1485,9 @@ class AXI5SlaveWrite:
 
             # Write data to memory if available
             resp = 0
+            atop = transaction.get('atop', 0) or 0
+            read_return = bool(atop & ATOP_READ_RETURN)
+            rr_data = None      # original data, for the R beat of a read-return atomic
             if self.memory_model:
                 # Out-of-range contract (shared/memory_model.py): whole burst
                 # checked first; an overrunning burst is SLVERR, nothing written.
@@ -1319,6 +1498,8 @@ class AXI5SlaveWrite:
                                                   base_addr, span, transaction_id)
                     resp = 2
                     w_packets_to_write = []
+                    if read_return:
+                        rr_data = oor_read_data(bytes_per_beat)
                 else:
                     w_packets_to_write = w_packets
                 for i, w_packet in enumerate(w_packets_to_write):
@@ -1328,13 +1509,35 @@ class AXI5SlaveWrite:
                     strb = getattr(w_packet, 'strb', 0xF)
 
                     try:
-                        data_bytes = self.memory_model.integer_to_bytearray(data, bytes_per_beat)
-                        self.memory_model.write(memory_offset, data_bytes, strb)
+                        if atop:
+                            # An atomic is a read-modify-write performed HERE,
+                            # not a plain write of the operand.
+                            rr_data = self._atomic_apply(atop, memory_offset, data, bytes_per_beat)
+                        else:
+                            data_bytes = self.memory_model.integer_to_bytearray(data, bytes_per_beat)
+                            self.memory_model.write(memory_offset, data_bytes, strb)
                     except Exception as mem_error:
                         if self.log:
                             self.log.warning(f"AXI5SlaveWrite: memory write failed: "
                                              f"{mem_error} -- answering SLVERR")
                         resp = 2
+                        if read_return and rr_data is None:
+                            rr_data = oor_read_data(bytes_per_beat)
+            elif read_return:
+                rr_data = 0
+
+            # A read-return atomic answers on R as well as B. Queue the R beat
+            # now, before the B delay, so the master can see either order.
+            if read_return:
+                if self.read_return_channel is None:
+                    if self.log:
+                        self.log.error(
+                            f"AXI5SlaveWrite: read-return atomic (ATOP=0x{atop:02X}, "
+                            f"id={transaction_id}) but no read_return_channel is "
+                            f"wired; its R beat will never be sent")
+                else:
+                    self.read_return_channel.send_read_return(
+                        transaction_id, rr_data, resp=resp, trace=aw_trace)
 
             # Add response delay
             if self.response_delay_cycles > 0:

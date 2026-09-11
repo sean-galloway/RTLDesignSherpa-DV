@@ -96,6 +96,13 @@ class AXI5ViolationType(Enum):
     ATOP_BURST_LENGTH_VIOLATION = "atop_burst_length_violation"
     ATOP_ENCODING_VIOLATION = "atop_encoding_violation"
     ATOP_RESPONSE_VIOLATION = "atop_response_violation"
+    # An atomic's ID must not be in use by any other outstanding transaction
+    # from this Manager (AXI5 atomic ID rule); it is what keeps a read-return
+    # atomic's R beat distinguishable from a read's.
+    ATOMIC_ID_IN_USE = "atomic_id_in_use"
+    # An R beat for an ID with no outstanding AR and no outstanding
+    # read-return atomic: the Subordinate answered a request nobody made.
+    R_WITHOUT_REQUEST = "r_without_request"
 
     # AXI5-specific: MTE violations
     TAGOP_ENCODING_VIOLATION = "tagop_encoding_violation"
@@ -195,6 +202,8 @@ class AXI5ComplianceChecker:
             'total_violations': 0,
             'checks_performed': 0,
             'atomic_operations': 0,
+            'atomic_read_returns': 0,
+            'unsolicited_r_beats': 0,
             'mte_operations': 0,
             'security_operations': 0,
             'chunked_transfers': 0,
@@ -615,10 +624,47 @@ class AXI5ComplianceChecker:
 
             # Track atomic transaction (per-ID FIFO)
             transaction_id = getattr(packet, 'id', 0)
+
+            # AXI5 atomic ID rule: the ID must not be in use by any other
+            # outstanding transaction from this Manager. This is checked
+            # BEFORE this AW is recorded below, so the AW does not see itself.
+            busy = []
+            if self.outstanding_reads.get(transaction_id):
+                busy.append('read')
+            if self.outstanding_writes.get(transaction_id):
+                busy.append('write')
+            if busy:
+                self.record_violation(
+                    AXI5ViolationType.ATOMIC_ID_IN_USE,
+                    'AW',
+                    f"Atomic (ATOP=0x{atop:02X}) issued with ID {transaction_id} while a "
+                    f"{'/'.join(busy)} transaction with that ID is still outstanding"
+                )
+
             self.atomic_transactions.setdefault(transaction_id, []).append({
                 'atop': atop,
                 'addr': getattr(packet, 'addr', 0),
             })
+
+            # A read-return class (AWATOP[5]) answers on R with this AW's ID
+            # and no AR. Register it as an outstanding single-beat read so the
+            # R checks (RLAST, ordering, the unsolicited-R rule) apply to it.
+            # Only where this interface HAS an R channel: on a write-only port
+            # the beat can never arrive (the bridge's boundary filter answers
+            # such an atomic with a DECERR B instead), so an entry there would
+            # never retire and the next atomic under the same ID would be
+            # reported as reusing a live one. Measured on the A5-3a fixture.
+            if (atop & 0x20) and 'R' in self.monitors:
+                self.stats['atomic_read_returns'] += 1
+                self.outstanding_reads.setdefault(transaction_id, []).append({
+                    'packet': packet,
+                    'expected_beats': 1,
+                    'received_beats': 0,
+                    'chunken': 0,
+                    'tagop': tagop_val if (tagop_val := getattr(packet, 'tagop', 0)) else 0,
+                    'trace': getattr(packet, 'trace', 0),
+                    'atomic': True,
+                })
 
         # AXI5-specific: Check tagop
         tagop = getattr(packet, 'tagop', 0)
@@ -733,6 +779,15 @@ class AXI5ComplianceChecker:
                     f"CHUNKV=1 but CHUNKEN was not set in AR for ID {transaction_id}"
                 )
 
+        if not read_queue:
+            self.stats['unsolicited_r_beats'] += 1
+            self.record_violation(
+                AXI5ViolationType.R_WITHOUT_REQUEST,
+                'R',
+                f"R beat for ID {transaction_id} with no outstanding read or "
+                f"read-return atomic on this interface"
+            )
+
         # Check RLAST matching
         if read_queue:
             outstanding = read_queue[0]
@@ -846,6 +901,8 @@ class AXI5ComplianceChecker:
             'statistics': self.stats.copy(),
             'axi5_feature_usage': {
                 'atomic_operations': self.stats['atomic_operations'],
+                'atomic_read_returns': self.stats['atomic_read_returns'],
+                'unsolicited_r_beats': self.stats['unsolicited_r_beats'],
                 'mte_operations': self.stats['mte_operations'],
                 'security_operations': self.stats['security_operations'],
                 'chunked_transfers': self.stats['chunked_transfers'],

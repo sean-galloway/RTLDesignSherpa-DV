@@ -33,9 +33,11 @@ transactions, which you can filter, shuffle, replay and convert to packets.
 The older `APBSequence` shape carries a list per field and walks them with
 cycling iterators. `WB4Sequence` follows `AXI4Sequence` instead: methods that
 append transfers, so a workload reads as what it does. It is also smaller
-than either, because Wishbone has less to describe. B4 has no bursts, so a
-transfer is one word. It has no protection bits, so there is no `prot`. And
-the termination status is the slave's answer, never part of the stimulus.
+than either, because Wishbone has less to describe. A B4 transfer is always
+one word -- the registered-feedback bursts of chapter 4 are a HINT carried on
+each transfer, not a multi-beat transaction, so there is no burst length to
+describe. It has no protection bits, so there is no `prot`. And the
+termination status is the slave's answer, never part of the stimulus.
 
 ## Construction
 
@@ -90,6 +92,34 @@ most 1.0; the remainder is drawn from `[addr_lo, addr_hi)`.
 what a test wants when several transfers are in flight and a per-address
 model would otherwise race itself.
 
+## Burst hints
+
+`assign_burst_hints()` lays a registered-feedback pattern over the transfers
+already built: runs of `INCR` closed by one `EOB`, with classic transfers
+between them, one `BTE` held for the length of each run.
+
+```python
+seq.add_random_workload(200, addr_hi=0xD000)
+seq.assign_burst_hints(burst_frac=0.4, min_len=2, max_len=5)
+```
+
+| Argument | Effect |
+| --- | --- |
+| `burst_frac` | Chance a classic transfer starts a burst (default 0.4) |
+| `min_len`, `max_len` | Burst length in transfers, inclusive (default 2..5) |
+| `bte_choices` | Which burst types to draw from (default all four) |
+
+A burst that would run off the end of the sequence is closed on the last
+transfer, so a sequence never ends mid-burst. `clear_burst_hints()` puts
+every transfer back to CLASSIC/LINEAR, which is what a DUT built without the
+hints must show on its bus whatever it was handed -- that pair is how a test
+checks a `USE_BURST_HINTS` parameter both ways.
+
+The hints are advisory. Nothing in the framework or the RTL library acts on
+one, so the pattern only has to be varied and self-describing. What it
+proves is that each hint arrives WITH its own transfer rather than a
+neighbour's, which is why every run holds one `BTE` and the lengths vary.
+
 ## Shaping and output
 
 | Method | Effect |
@@ -98,7 +128,8 @@ model would otherwise race itself.
 | `shuffle()` | In place, using the sequence's own generator, so a seeded shuffle repeats |
 | `reset()` | Drops every transfer and re-seeds, so the same calls rebuild an identical sequence |
 | `to_packets(master=None)` | `WB4Packet` objects ready for `master.send()` |
-| `stats` | `total`, `writes`, `reads`, `unique_addrs`, `partial_writes` |
+| `clear_burst_hints()` | Every transfer back to CLASSIC/LINEAR |
+| `stats` | `total`, `writes`, `reads`, `unique_addrs`, `partial_writes`, `burst_transfers`, `burst_ends` |
 
 `to_packets(master=...)` compares the sequence's widths against the BFM's and
 raises on a mismatch, so a sequence built for the wrong bus is caught rather
@@ -112,6 +143,7 @@ seq.add_readback_pairs(0x1000, 8)
 seq.add_strobed_writes(0x2000, 4)
 seq.add_random_workload(100, addr_hi=0xD000,
                         windows=[(0xE000, 0xEFFF, 0.1)])
+seq.assign_burst_hints()
 
 for pkt in seq.to_packets(master):
     await master.send(pkt)

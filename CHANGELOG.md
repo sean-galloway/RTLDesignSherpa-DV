@@ -23,6 +23,34 @@
 
 ### Added
 
+- **The Wishbone B4 BFMs carry the `CTI`/`BTE` burst hints.** `WB4Packet`
+  gains `cti` and `bte`; `WB4Master` drives them, and `WB4Slave` and
+  `WB4Monitor` sample them off the wires onto the packet they build. Both
+  wires are optional on the port: a bus without them reads CLASSIC/LINEAR,
+  which is exactly what a bus that HAS them and ties them off carries, so a
+  test never branches on which kind of bus it is on and `has_burst_hints`
+  says which it got. The monitor treats a hint as part of the request, so a
+  master that changes `CTI` under a stalled `STB` is reported as
+  `request_changed` like any other changed field, and `monitor.bursts`
+  counts accepted transfers by `CTI`. No BFM acts on a hint -- they are
+  advisory in B4 chapter 4 and what a burst means belongs to the peripheral.
+
+  Until now the hints existed in the RTL library (behind `USE_BURST_HINTS`)
+  but were invisible to the framework, so the only test that could see them
+  was a loopback where both ends were the DUT. A standalone master or slave
+  test had nothing to assert against (issue #80; RTLDesignSherpa TASK-088).
+
+- **`WB4Sequence.assign_burst_hints()` / `clear_burst_hints()`.** Lays a
+  plausible registered-feedback pattern over a built sequence: runs of
+  `INCR` closed by one `EOB`, one `BTE` held for the length of each run,
+  classic transfers between. A burst that would run off the end is closed on
+  the last transfer, so a sequence never ends mid-burst. `clear` puts every
+  transfer back to CLASSIC/LINEAR, which is what a DUT built without the
+  hints must show whatever it was handed -- the pair is how a test checks a
+  `USE_BURST_HINTS` parameter in both directions. `stats` gains
+  `burst_transfers` and `burst_ends`.
+
+
 - **`SMBusMaster.write_raw` / `read_raw`.** START, the address, a byte
   stream, STOP -- with no command byte, no repeated START and no length,
   which is what a target under test usually needs. `write_raw` reports the

@@ -39,7 +39,14 @@ the clock its termination is driven); the monitor counts a held `STB` as one
 request. Use the same mode on both sides -- the modes do not mix in either
 direction (B4 chapter 5).
 
-Not modelled: `CTI`/`BTE` burst hints, `LOCK`, the `TG*` tag signals.
+The `CTI`/`BTE` registered-feedback burst hints (chapter 4) are optional
+wires. When the bound port has them the master drives each packet's hint and
+the slave and monitor record what they sampled; when it does not, every
+packet reads CLASSIC/LINEAR, the same values a tied-off bus carries. No BFM
+acts on a hint -- they are advisory, and what a burst means belongs to the
+peripheral.
+
+Not modelled: `LOCK` and the `TG*` tag signals.
 
 ## Why these are not GAXI compositions
 

@@ -39,9 +39,14 @@ termination fields at ACK/ERR/RTY, paired in order.
 | `max_inflight` | peak accepted-not-terminated; proves pipelining happened |
 | `aborts` | CYC dropped with requests outstanding (logged as a warning) |
 | `violations` | `{kind: count}`; `total_violations()` sums it |
+| `bursts` | `{cti: count}` over accepted transfers, classic ones excluded |
 
 Violation kinds: `stb_without_cyc`, `request_changed`, `request_dropped`,
 `multi_term`, `term_outside_cyc`, `term_without_request`.
+
+The burst hints are part of the request the monitor holds the master to: a
+master that changes `CTI` under a stalled `STB` is reported as
+`request_changed`, exactly as if it had changed the address.
 
 ## WB4Slave(entity, title, prefix, clock, registers=None, addr_width=32, data_width=32, num_lines=1024, randomizer=None, max_outstanding=16, status_hook=None, classic=False, log=None)
 
@@ -82,3 +87,18 @@ ignoring `STALL`. `max_outstanding` bounds requests in flight. `abort()` drops `
 next edge and forgets the outstanding requests; the late terminations a
 non-compliant slave still sends are counted in `stats['unexpected_term']`.
 `create_packet(**fields)` builds a packet with this master's widths.
+
+## Burst hints
+
+`CTI` and `BTE` (B4 chapter 4) are optional on the port. When the bound DUT
+has them the master drives each packet's `cti`/`bte`, and the slave and
+monitor record what they sampled on the packet they build; when it does not,
+every packet reads CLASSIC/LINEAR, which is what a tied-off bus carries
+anyway. So a test never branches on which kind of bus it is on, and
+`has_burst_hints` says which it got.
+
+No BFM acts on a hint. They are advisory in B4, and deciding what a burst
+means belongs to the peripheral -- so a hint changes nothing about how a
+transfer terminates, and a test that wants burst behaviour has to model it
+in a `status_hook`. `WB4Sequence.assign_burst_hints()` lays a plausible
+pattern over a built sequence.

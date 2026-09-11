@@ -65,8 +65,9 @@ class WB4SignalMixin:
     as best-effort. The data signals have two legal names each (the spec's
     DAT_O/DAT_I read differently from each side), so they are resolved
     against the DUT at bind time and passed to cocotb_bus under their
-    canonical names ``DAT_W`` / ``DAT_R``. ERR and RTY are optional: a slave
-    that only ever ACKs need not have them.
+    canonical names ``DAT_W`` / ``DAT_R``. ERR, RTY, CTI and BTE are
+    optional: a slave that only ever ACKs need not have ERR/RTY, and a bus
+    with no registered-feedback bursts has no CTI/BTE.
     """
 
     @staticmethod
@@ -110,6 +111,23 @@ class WB4SignalMixin:
         rty = _int(self.bus.RTY) if self.is_signal_present('RTY') else 0
         return ack, err, rty
 
+    def _hint_bits(self):
+        """The registered-feedback hints (CTI, BTE) of B4 chapter 4.
+
+        Both wires are optional. A bus without them is a legal non-burst
+        Wishbone bus, and reads back as CLASSIC/LINEAR -- the same values a
+        bus that HAS the wires and ties them off carries, so a test never has
+        to know which kind of bus it is on.
+        """
+        cti = _int(self.bus.CTI) if self.is_signal_present('CTI') else 0
+        bte = _int(self.bus.BTE) if self.is_signal_present('BTE') else 0
+        return cti, bte
+
+    @property
+    def has_burst_hints(self):
+        """True when the bound port actually carries CTI/BTE wires."""
+        return self.is_signal_present('CTI') or self.is_signal_present('BTE')
+
 
 def _status_of(ack, err, rty):
     if err:
@@ -143,11 +161,13 @@ class WB4Monitor(_WB4BusMixin, BusMonitor):
     """Passive Wishbone B4 monitor.
 
     Emits one :class:`WB4Packet` per TERMINATED transfer, with the request
-    fields captured at accept and the termination fields at ACK/ERR/RTY,
-    paired in order. Carries the pipelined-protocol checks; a violation is
-    counted in :attr:`violations` and logged, never raised, so a test decides
-    how loud to be. ``max_inflight`` records the peak outstanding count,
-    which is how a test proves the pipelined mode was exercised.
+    fields captured at accept (including the CTI/BTE burst hints when the
+    port carries them; :attr:`bursts` counts the non-classic ones by CTI)
+    and the termination fields at ACK/ERR/RTY, paired in order. Carries the
+    pipelined-protocol checks; a violation is counted in :attr:`violations`
+    and logged, never raised, so a test decides how loud to be.
+    ``max_inflight`` records the peak outstanding count, which is how a test
+    proves the pipelined mode was exercised.
     """
 
     def __init__(self, entity, title, prefix, clock, signals=None,
@@ -165,6 +185,7 @@ class WB4Monitor(_WB4BusMixin, BusMonitor):
         self.aborts = 0
         self.max_inflight = 0
         self.violations = {}             # kind -> count
+        self.bursts = {}                 # CTI value -> accepted transfers carrying it
         self._prev = None                # last sampled request while stalled
 
     def _violation(self, kind, msg):
@@ -175,7 +196,11 @@ class WB4Monitor(_WB4BusMixin, BusMonitor):
         return sum(self.violations.values())
 
     def _sample_request(self):
-        return (_int(self.bus.WE), _int(self.bus.ADR), _int(self.bus.DAT_W), _int(self.bus.SEL))
+        # The hints are part of the request, so they are in the tuple the
+        # held-request check compares: a master that changes CTI under a
+        # stalled STB has changed the request, same as changing the address.
+        return ((_int(self.bus.WE), _int(self.bus.ADR), _int(self.bus.DAT_W),
+                 _int(self.bus.SEL)) + self._hint_bits())
 
     async def _monitor_recv(self):
         while True:
@@ -232,11 +257,13 @@ class WB4Monitor(_WB4BusMixin, BusMonitor):
             accept = ((cyc and stb and not self.inflight and status is None) if self.classic
                       else (cyc and stb and not stall))
             if accept:
-                we, adr, dat_w, sel = req
+                we, adr, dat_w, sel, cti, bte = req
                 self.count += 1
                 pkt = WB4Packet(addr_width=self.addr_width, data_width=self.data_width,
                                 sel_width=self.sel_width, we=we, adr=adr, dat_w=dat_w, sel=sel,
-                                count=self.count, start_time=now)
+                                cti=cti, bte=bte, count=self.count, start_time=now)
+                if cti:
+                    self.bursts[cti] = self.bursts.get(cti, 0) + 1
                 self.inflight.append(pkt)
                 self.accepted += 1
                 self.max_inflight = max(self.max_inflight, len(self.inflight))
@@ -248,7 +275,10 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
     Slave-via-BusMonitor, the framework convention: the sampling chassis is
     reused and the loop also drives ``STALL``, ``ACK``/``ERR``/``RTY`` and
     ``DAT_R``. Every accepted request is answered IN ORDER after a
-    randomized latency.
+    randomized latency. The CTI/BTE burst hints are recorded on each
+    serviced packet when the port carries them; the slave does not act on
+    them, because a hint is advisory in B4 and what a burst means belongs
+    to the peripheral.
 
     Randomizer keys:
         ``stall``  clocks of STALL inserted after each accept (0 = none)
@@ -391,10 +421,12 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
                 # sees -- a held presentation is accepted exactly once, and
                 # not in the clock its termination is being driven)
                 self.count += 1
+                cti, bte = self._hint_bits()
                 pkt = WB4Packet(addr_width=self.addr_width, data_width=self.data_width,
                                 sel_width=self.sel_width,
                                 we=_int(self.bus.WE), adr=_int(self.bus.ADR),
                                 dat_w=_int(self.bus.DAT_W), sel=_int(self.bus.SEL),
+                                cti=cti, bte=bte,
                                 count=self.count, start_time=get_sim_time('ns'))
                 rnd = self.randomizer.next()
                 self._service(pkt, rnd)
@@ -457,7 +489,7 @@ class WB4Master(WB4SignalMixin, BusDriver):
         self.last_abort = None           # {'outstanding': n, 'head_dropped': bool} after abort()
         self._head = None                # packet currently presented on STB
         self._gap = 0
-        for sig in ('CYC', 'STB', 'WE', 'ADR', 'DAT_W', 'SEL'):
+        for sig in self._driven_signals():
             getattr(self.bus, sig).setimmediatevalue(0)
         self._pipeline = cocotb.start_soon(self._run())
 
@@ -478,7 +510,7 @@ class WB4Master(WB4SignalMixin, BusDriver):
         self.outstanding.clear()
         self._head = None
         self._abort = False
-        for sig in ('CYC', 'STB', 'WE', 'ADR', 'DAT_W', 'SEL'):
+        for sig in self._driven_signals():
             getattr(self.bus, sig).value = 0
 
     def hold(self):
@@ -498,6 +530,13 @@ class WB4Master(WB4SignalMixin, BusDriver):
         the next cycle starts."""
         self._abort = True
         self._hold = True
+
+    def _driven_signals(self):
+        """Every wire this master owns, hints included when the port has
+        them. An unwritten CTI would sit at X and a monitor would report a
+        changing request under a stalled STB."""
+        sigs = ['CYC', 'STB', 'WE', 'ADR', 'DAT_W', 'SEL']
+        return sigs + [s for s in ('CTI', 'BTE') if self.is_signal_present(s)]
 
     def create_packet(self, **fields):
         return WB4Packet(addr_width=self.addr_width, data_width=self.data_width,
@@ -523,6 +562,10 @@ class WB4Master(WB4SignalMixin, BusDriver):
         self.bus.ADR.value = int(pkt.fields['adr'])
         self.bus.DAT_W.value = int(pkt.fields['dat_w'])
         self.bus.SEL.value = int(pkt.fields['sel'])
+        if self.is_signal_present('CTI'):
+            self.bus.CTI.value = int(pkt.fields.get('cti', 0))
+        if self.is_signal_present('BTE'):
+            self.bus.BTE.value = int(pkt.fields.get('bte', 0))
 
     def _complete(self, pkt, status, dat_r):
         pkt.fields['status'] = status

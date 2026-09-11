@@ -14,13 +14,27 @@
 
 from ..shared.field_config import FieldConfig, FieldDefinition
 from ..shared.packet import Packet
-from ..shared.wb4_common import WB4_STATUS_NAMES, WE_DIR
+from ..shared.wb4_common import (
+    WB4_BTE_NAMES,
+    WB4_BTE_WIDTH,
+    WB4_CTI_CLASSIC,
+    WB4_CTI_NAMES,
+    WB4_CTI_WIDTH,
+    WB4_STATUS_NAMES,
+    WE_DIR,
+)
 
 
 class WB4Packet(Packet):
     """One Wishbone transfer: the request fields the master drives (``we``,
-    ``adr``, ``dat_w``, ``sel``) and the termination the slave returns
-    (``status`` = ACK 0 / ERR 1 / RTY 2, ``dat_r``).
+    ``adr``, ``dat_w``, ``sel``, and the burst hints ``cti``/``bte``) and the
+    termination the slave returns (``status`` = ACK 0 / ERR 1 / RTY 2,
+    ``dat_r``).
+
+    The hints are the registered-feedback pair of B4 chapter 4 and are
+    advisory -- nothing in the framework acts on them. They default to
+    CLASSIC/LINEAR, which is what a bus with no hint wires reads, so a packet
+    built for a plain bus compares equal to one sampled off it.
 
     ``start_time`` is when the request was presented, ``end_time`` when it
     terminated, ``count`` its ordinal at the component that built it. Those
@@ -58,6 +72,16 @@ class WB4Packet(Packet):
             name="sel", bits=sel_width, default=(1 << sel_width) - 1, format="bin",
             display_width=sel_width, description="Byte select"))
         config.add_field(FieldDefinition(
+            name="cti", bits=WB4_CTI_WIDTH, default=WB4_CTI_CLASSIC, format="bin",
+            display_width=WB4_CTI_WIDTH,
+            description="Burst hint: cycle type identifier (advisory)",
+            encoding={i: n for i, n in enumerate(WB4_CTI_NAMES)}))
+        config.add_field(FieldDefinition(
+            name="bte", bits=WB4_BTE_WIDTH, default=0, format="bin",
+            display_width=WB4_BTE_WIDTH,
+            description="Burst hint: burst type extension (advisory)",
+            encoding={i: n for i, n in enumerate(WB4_BTE_NAMES)}))
+        config.add_field(FieldDefinition(
             name="dat_r", bits=data_width, default=0, format="hex",
             display_width=(data_width + 3) // 4, description="Read data (DAT_I at the master)"))
         config.add_field(FieldDefinition(
@@ -74,6 +98,20 @@ class WB4Packet(Packet):
     def status_name(self):
         return WB4_STATUS_NAMES[int(self.fields.get('status', 0)) & 3]
 
+    @property
+    def cti_name(self):
+        return WB4_CTI_NAMES[int(self.fields.get('cti', 0)) & 7]
+
+    @property
+    def bte_name(self):
+        return WB4_BTE_NAMES[int(self.fields.get('bte', 0)) & 3]
+
+    @property
+    def in_burst(self):
+        """True when this transfer carries a burst hint other than CLASSIC.
+        A transfer with no hint wires on its bus is never in a burst."""
+        return int(self.fields.get('cti', 0)) != WB4_CTI_CLASSIC
+
     def formatted(self, compact=False, show_fifo=False):
         if not compact:
             return super().formatted(compact=False, show_fifo=show_fifo)
@@ -84,4 +122,9 @@ class WB4Packet(Packet):
             s += f" dat_w=0x{int(f.get('dat_w', 0)):0{(self.data_width + 3) // 4}X}"
         else:
             s += f" dat_r=0x{int(f.get('dat_r', 0)):0{(self.data_width + 3) // 4}X}"
+        # The hints are only worth a column when one is actually set; a
+        # classic/linear transfer is the overwhelming majority and saying so
+        # on every line would bury the fields that differ.
+        if self.in_burst or int(f.get('bte', 0)):
+            s += f" {self.cti_name}/{self.bte_name}"
         return s + f" {self.status_name}"

@@ -190,10 +190,129 @@ def test_stats_and_repr():
     seq.add_write(0, 1).add_write(0, 2, sel=0x1).add_read(4)
     s = seq.stats
     assert s == {'total': 3, 'writes': 2, 'reads': 1,
-                 'unique_addrs': 2, 'partial_writes': 1}
+                 'unique_addrs': 2, 'partial_writes': 1,
+                 'burst_transfers': 0, 'burst_ends': 0}
     assert "named" in repr(seq) and "3 transfers" in repr(seq)
 
 
 def test_transaction_dataclass_is_usable_directly():
     t = WB4Transaction(we=1, adr=0x8, dat_w=0xFF, sel=0xF, tag="x")
     assert t.is_write and t.tag == "x"
+
+
+# ---- burst hints ------------------------------------------------------------
+
+def _runs(seq):
+    """Split the sequence into bursts.
+
+    A burst ends at its EOB, NOT at the next classic transfer: B4 lets one
+    burst start on the clock after another ends, so splitting on classic
+    transfers would silently glue two neighbouring bursts into one.
+    """
+    runs, cur = [], []
+    for t in seq:
+        if t.in_burst:
+            cur.append(t)
+            if t.cti == 0b111:
+                runs.append(cur)
+                cur = []
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def test_hints_default_to_classic_linear():
+    seq = WB4Sequence("t", data_width=32)
+    seq.add_write(0, 1).add_read(4)
+    assert all(t.cti == 0 and t.bte == 0 and not t.in_burst for t in seq)
+
+
+def test_every_burst_is_closed_by_exactly_one_end_of_burst():
+    """The property a pass-through test leans on: a run of INCR always ends
+    in EOB, so a hint that slipped onto a neighbouring transfer shows up as a
+    burst with no end or two."""
+    seq = WB4Sequence("t", data_width=32, seed=7)
+    seq.add_block(0x1000, 200, we=True)
+    seq.assign_burst_hints(burst_frac=0.5)
+    runs = _runs(seq)
+    assert runs, "burst_frac=0.5 over 200 transfers produced no bursts"
+    for run in runs:
+        assert run[-1].cti == 0b111, "a burst must end in EOB"
+        assert all(t.cti == 0b010 for t in run[:-1]), "interior transfers are INCR"
+
+
+def test_a_burst_keeps_one_burst_type_throughout():
+    seq = WB4Sequence("t", data_width=32, seed=11)
+    seq.add_block(0, 300)
+    seq.assign_burst_hints(burst_frac=0.6)
+    for run in _runs(seq):
+        assert len({t.bte for t in run}) == 1, "BTE must not change mid-burst"
+
+
+def test_classic_transfers_carry_the_linear_burst_type():
+    seq = WB4Sequence("t", data_width=32, seed=3)
+    seq.add_block(0, 100)
+    seq.assign_burst_hints()
+    assert all(t.bte == 0 for t in seq if not t.in_burst)
+
+
+def test_hints_are_reproducible_for_a_seed():
+    def build():
+        s = WB4Sequence("t", data_width=32, seed=99)
+        s.add_block(0, 60)
+        return [(t.cti, t.bte) for t in s.assign_burst_hints()]
+    assert build() == build()
+
+
+def test_burst_frac_zero_leaves_every_transfer_classic():
+    seq = WB4Sequence("t", data_width=32, seed=1)
+    seq.add_block(0, 50)
+    seq.assign_burst_hints(burst_frac=0.0)
+    assert seq.stats['burst_transfers'] == 0
+
+
+def test_a_burst_running_off_the_end_is_still_closed():
+    """A burst the sequence never closes would be a CYC that ends mid-burst,
+    which is not something a test should be asked to model."""
+    seq = WB4Sequence("t", data_width=32, seed=5)
+    seq.add_block(0, 40)
+    seq.assign_burst_hints(burst_frac=1.0, min_len=100, max_len=100)
+    assert seq.transactions[-1].cti == 0b111
+
+
+def test_clear_burst_hints_restores_a_plain_bus():
+    seq = WB4Sequence("t", data_width=32, seed=2)
+    seq.add_block(0, 40)
+    seq.assign_burst_hints(burst_frac=0.8)
+    assert seq.stats['burst_transfers'] > 0
+    seq.clear_burst_hints()
+    assert seq.stats['burst_transfers'] == 0 and seq.stats['burst_ends'] == 0
+
+
+def test_assign_burst_hints_rejects_a_nonsense_range():
+    seq = WB4Sequence("t", data_width=32)
+    seq.add_block(0, 4)
+    with pytest.raises(ValueError):
+        seq.assign_burst_hints(burst_frac=1.5)
+    with pytest.raises(ValueError):
+        seq.assign_burst_hints(min_len=5, max_len=2)
+
+
+def test_to_packets_carries_the_hints():
+    seq = WB4Sequence("t", data_width=32, seed=4)
+    seq.add_block(0, 30)
+    seq.assign_burst_hints(burst_frac=0.7)
+    pkts = seq.to_packets()
+    assert [(int(p.cti), int(p.bte)) for p in pkts] == [(t.cti, t.bte) for t in seq]
+
+
+def test_stats_count_bursts_and_their_ends():
+    seq = WB4Sequence("t", data_width=32, seed=8)
+    seq.add_block(0, 120)
+    seq.assign_burst_hints(burst_frac=0.5)
+    s = seq.stats
+    assert s['burst_ends'] == len(_runs(seq))
+    assert s['burst_transfers'] >= s['burst_ends']

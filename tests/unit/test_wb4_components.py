@@ -1,11 +1,16 @@
 """Unit tests for the Wishbone B4 BFMs that need no simulator: the packet,
 the shared constants, and the bind-time signal resolution (data-name
-aliases, optional ERR/RTY)."""
+aliases, optional ERR/RTY/CTI/BTE)."""
 from __future__ import annotations
 
 import pytest
 
 from CocoTBFramework.components.shared.wb4_common import (
+    WB4_BTE_LINEAR,
+    WB4_BTE_WRAP8,
+    WB4_CTI_CLASSIC,
+    WB4_CTI_EOB,
+    WB4_CTI_INCR,
     WB4_DATA_ALIASES,
     WB4_MASTER_DRIVEN,
     WB4_OPTIONAL_SIGNALS,
@@ -32,7 +37,9 @@ def _ports(prefix, dat_w='DAT_W', dat_r='DAT_R', extra=('ERR', 'RTY'), case=str.
 
 def test_constants_shape():
     assert isinstance(WB4_MASTER_DRIVEN, tuple) and isinstance(WB4_SLAVE_DRIVEN, tuple)
-    assert set(WB4_OPTIONAL_SIGNALS) == {"ERR", "RTY"}
+    # ERR/RTY are optional because a slave may only ever ACK; CTI/BTE because
+    # a bus with no registered-feedback bursts has no hint wires at all.
+    assert set(WB4_OPTIONAL_SIGNALS) == {"ERR", "RTY", "CTI", "BTE"}
     assert set(WB4_DATA_ALIASES) == {"DAT_W", "DAT_R"}
     assert (WB4_STATUS_ACK, WB4_STATUS_ERR, WB4_STATUS_RTY) == (0, 1, 2)
 
@@ -93,3 +100,59 @@ def test_explicit_signal_list_is_verbatim():
     e = _Entity([])
     req, opt, aliases = WB4SignalMixin._resolve(e, 'x', ['A', 'B'])
     assert req == ['A', 'B'] and opt == [] and aliases == {}
+
+
+# ---- registered-feedback burst hints (B4 chapter 4) -------------------------
+
+def test_hint_wires_are_optional_and_resolved_when_present():
+    """A bus with CTI/BTE binds them; one without still binds, because a
+    non-burst Wishbone bus is legal and must not be an error."""
+    with_hints = _Entity(_ports('m_wb', extra=('ERR', 'RTY', 'CTI', 'BTE')))
+    _req, opt, _al = WB4SignalMixin._resolve(with_hints, 'm_wb', None)
+    assert {'CTI', 'BTE'} <= set(opt)
+
+    without = _Entity(_ports('m_wb', extra=('ERR', 'RTY')))
+    _req, opt, _al = WB4SignalMixin._resolve(without, 'm_wb', None)
+    assert 'CTI' not in opt and 'BTE' not in opt
+
+
+def test_hint_bits_read_classic_linear_when_the_wires_are_absent():
+    """The value a missing hint reads must equal the value a tied-off hint
+    reads, so a test never branches on which kind of bus it is on."""
+    class _Bus:
+        pass
+
+    class _BFM(WB4SignalMixin):
+        def __init__(self, bus):
+            self.bus = bus
+
+    assert _BFM(_Bus())._hint_bits() == (WB4_CTI_CLASSIC, WB4_BTE_LINEAR)
+    assert not _BFM(_Bus()).has_burst_hints
+
+
+def test_packet_carries_hints_and_defaults_to_classic_linear():
+    pkt = WB4Packet(addr_width=32, data_width=32, we=1, adr=0x40, dat_w=1)
+    assert int(pkt.cti) == WB4_CTI_CLASSIC and int(pkt.bte) == WB4_BTE_LINEAR
+    assert pkt.cti_name == 'CLASSIC' and pkt.bte_name == 'LINEAR'
+    assert not pkt.in_burst
+
+    burst = WB4Packet(addr_width=32, data_width=32, we=0, adr=0x40,
+                      cti=WB4_CTI_EOB, bte=WB4_BTE_WRAP8)
+    assert burst.in_burst and burst.cti_name == 'EOB' and burst.bte_name == 'WRAP8'
+    assert 'EOB/WRAP8' in burst.formatted(compact=True)
+
+
+def test_a_hintless_packet_compares_equal_to_one_off_a_hintless_bus():
+    """Adding the fields must not break the comparison every existing
+    testbench does between what it sent and what the monitor saw."""
+    sent = WB4Packet(addr_width=32, data_width=32, we=1, adr=0x80, dat_w=0xAB, sel=0xF)
+    seen = WB4Packet(addr_width=32, data_width=32, we=1, adr=0x80, dat_w=0xAB, sel=0xF,
+                     cti=WB4_CTI_CLASSIC, bte=WB4_BTE_LINEAR)
+    assert sent == seen
+
+
+def test_a_different_hint_makes_two_otherwise_equal_packets_differ():
+    sent = WB4Packet(addr_width=32, data_width=32, we=1, adr=0x80, dat_w=0xAB, sel=0xF)
+    seen = WB4Packet(addr_width=32, data_width=32, we=1, adr=0x80, dat_w=0xAB, sel=0xF,
+                     cti=WB4_CTI_INCR)
+    assert sent != seen

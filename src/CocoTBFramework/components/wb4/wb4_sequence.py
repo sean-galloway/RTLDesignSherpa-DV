@@ -40,6 +40,7 @@ Example::
     seq.add_random_workload(100, addr_hi=0xD000, write_frac=0.6,
                             windows=[(0xE000, 0xEFFF, 0.1),    # ERR range
                                      (0xF000, 0xFFFF, 0.1)])   # RTY range
+    seq.assign_burst_hints()                # optional CTI/BTE pattern
     for pkt in seq.to_packets():
         await master.send(pkt)
 """
@@ -49,6 +50,15 @@ import random
 from dataclasses import dataclass
 from typing import Callable, Iterator, List, Optional, Sequence, Tuple
 
+from ..shared.wb4_common import (
+    WB4_BTE_LINEAR,
+    WB4_BTE_WRAP4,
+    WB4_BTE_WRAP8,
+    WB4_BTE_WRAP16,
+    WB4_CTI_CLASSIC,
+    WB4_CTI_EOB,
+    WB4_CTI_INCR,
+)
 from .wb4_packet import WB4Packet
 
 
@@ -60,16 +70,26 @@ class WB4Transaction:
     all-ones by convention. ``tag`` is free-form and is for the test's own
     bookkeeping (which window an address came from, say) -- nothing in the
     framework interprets it.
+
+    ``cti``/``bte`` are the registered-feedback burst hints of B4 chapter 4.
+    They default to CLASSIC/LINEAR, which is what a bus with no hint wires
+    carries, and are filled in by :meth:`WB4Sequence.assign_burst_hints`.
     """
     we: int
     adr: int
     dat_w: int = 0
     sel: int = 0
     tag: str = ""
+    cti: int = WB4_CTI_CLASSIC
+    bte: int = WB4_BTE_LINEAR
 
     @property
     def is_write(self) -> bool:
         return bool(self.we)
+
+    @property
+    def in_burst(self) -> bool:
+        return self.cti != WB4_CTI_CLASSIC
 
 
 class WB4Sequence:
@@ -231,6 +251,58 @@ class WB4Sequence:
             made += 1
         return self
 
+    # ---- burst hints -----------------------------------------------------
+    def assign_burst_hints(self, *, burst_frac: float = 0.4,
+                           min_len: int = 2, max_len: int = 5,
+                           bte_choices: Optional[Sequence[int]] = None
+                           ) -> "WB4Sequence":
+        """Lay a plausible registered-feedback pattern over the transfers
+        already in the sequence: runs of ``INCR`` closed by one ``EOB``, with
+        classic transfers between them.
+
+        The hints are advisory in B4 -- no block in this repo acts on one --
+        so the pattern only has to be varied and self-describing, not legal
+        traffic for a particular peripheral. What a test proves with it is
+        that each hint arrives WITH its own transfer and not a neighbour's,
+        which is why every run of a burst uses one ``bte`` throughout and the
+        run lengths vary.
+
+        ``burst_frac`` is the chance a classic transfer starts a burst.
+        Returns self, so it chains after the builder calls that made the
+        traffic. Called twice, it re-lays the pattern from scratch.
+        """
+        if not 0.0 <= burst_frac <= 1.0:
+            raise ValueError(f"burst_frac must be in [0, 1], got {burst_frac}")
+        if min_len < 1 or max_len < min_len:
+            raise ValueError(f"burst length range ({min_len}, {max_len}) is empty")
+        choices = list(bte_choices) if bte_choices else [
+            WB4_BTE_LINEAR, WB4_BTE_WRAP4, WB4_BTE_WRAP8, WB4_BTE_WRAP16]
+        left = 0
+        bte = WB4_BTE_LINEAR
+        for t in self.transactions:
+            if left > 0:
+                left -= 1
+                t.cti = WB4_CTI_EOB if left == 0 else WB4_CTI_INCR
+                t.bte = bte
+            elif self.rng.random() < burst_frac:
+                left = self.rng.randint(min_len, max_len)
+                bte = self.rng.choice(choices)
+                t.cti, t.bte = WB4_CTI_INCR, bte
+            else:
+                t.cti, t.bte = WB4_CTI_CLASSIC, WB4_BTE_LINEAR
+        # A burst left open at the end of the sequence would be a burst the
+        # bus never closes; end it on the last transfer instead.
+        if left > 0 and self.transactions:
+            self.transactions[-1].cti = WB4_CTI_EOB
+        return self
+
+    def clear_burst_hints(self) -> "WB4Sequence":
+        """Put every transfer back to CLASSIC/LINEAR, which is what a DUT
+        built without the hints must show on its bus whatever it was handed."""
+        for t in self.transactions:
+            t.cti, t.bte = WB4_CTI_CLASSIC, WB4_BTE_LINEAR
+        return self
+
     # ---- shaping ---------------------------------------------------------
     def filter(self, predicate: Callable[[WB4Transaction], bool]) -> "WB4Sequence":
         """A new sequence holding the transfers that match. The original is
@@ -271,7 +343,8 @@ class WB4Sequence:
         else:
             aw, dw, sw = self.addr_width, self.data_width, self.sel_width
         return [WB4Packet(addr_width=aw, data_width=dw, sel_width=sw,
-                          we=t.we, adr=t.adr, dat_w=t.dat_w, sel=t.sel)
+                          we=t.we, adr=t.adr, dat_w=t.dat_w, sel=t.sel,
+                          cti=t.cti, bte=t.bte)
                 for t in self.transactions]
 
     @property
@@ -284,6 +357,8 @@ class WB4Sequence:
             'unique_addrs': len({t.adr for t in self.transactions}),
             'partial_writes': sum(1 for t in self.transactions
                                   if t.is_write and t.sel != self.all_sel),
+            'burst_transfers': sum(1 for t in self.transactions if t.in_burst),
+            'burst_ends': sum(1 for t in self.transactions if t.cti == WB4_CTI_EOB),
         }
 
     def __len__(self) -> int:

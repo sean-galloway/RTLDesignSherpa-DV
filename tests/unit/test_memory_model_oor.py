@@ -53,15 +53,19 @@ def test_apb_slaves_default_to_the_error_not_expansion():
         assert inspect.signature(fn).parameters['error_overflow'].default is True, fn
 
 
-@pytest.mark.parametrize("family", ["axi4", "axi5", "axil4", "apb"])
+@pytest.mark.parametrize("family", ["axi4", "axi5", "axil4", "apb", "wb4"])
 def test_every_slave_family_uses_the_shared_helper(family):
-    """Structural: the contract is one code path, not four rewrites."""
+    """Structural: the contract is one code path, not five rewrites.
+
+    wb4 was added 2026-09-11: WB4Slave was written after the contract and
+    did not follow it until a bridge put one at a fabric address."""
     import importlib
     mod = {
         "axi4": "CocoTBFramework.components.axi4.axi4_interfaces",
         "axi5": "CocoTBFramework.components.axi5.axi5_interfaces",
         "axil4": "CocoTBFramework.components.axil4.axil4_interfaces",
         "apb": "CocoTBFramework.components.apb.apb_components",
+        "wb4": "CocoTBFramework.components.wb4.wb4_components",
     }[family]
     src = open(importlib.import_module(mod).__file__).read()
     assert "oor_read_data(" in src and "oor_warning(" in src

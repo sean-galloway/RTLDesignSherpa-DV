@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`SMBusMaster` now sees a clock stretch.** Every SCL high phase released
+  the line and then waited a fixed delay, never checking that the wire went
+  high, so a target holding SCL down was clocked straight through: the delay
+  expired, the master pulled SCL low again, and a high phase the target never
+  saw had been and gone. In `_receive_bit` that meant SDA was sampled before
+  the target had presented the bit, so a stretched read returned whatever
+  happened to be on the wire with no error reported. All five release sites
+  (START, repeated START, STOP, `_send_bit`, `_receive_bit`) now go through
+  `_scl_high_phase`, which waits for `scl_i` to actually read high before the
+  phase is counted. The wait is bounded by `stretch_timeout_ns` so a target
+  that never releases fails the test instead of hanging it; `stretch_events`
+  and `stretch_timeouts` count what happened. `SMBusSlave` was never affected
+  -- it is edge-driven off the real wire. Clock stretching is the feature a
+  target engine exists to exercise, so this BFM could not test target mode at
+  all (issue #79; found bringing up SMBus target mode in RTLDesignSherpa,
+  RLB-011).
+
+### Added
+
+- **`SMBusMaster.write_raw` / `read_raw`.** START, the address, a byte
+  stream, STOP -- with no command byte, no repeated START and no length,
+  which is what a target under test usually needs. `write_raw` reports the
+  ACK for every byte rather than only the address, because a target NAKing
+  its third byte because its FIFO filled is exactly the behaviour worth
+  checking.
+
 ### Changed
 
 - **One out-of-range contract for every memory-backed slave BFM.** An access

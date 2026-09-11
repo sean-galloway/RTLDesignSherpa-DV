@@ -34,7 +34,7 @@ To drive low, set _t=0 and _o=0.
 
 import logging
 from collections import deque
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import cocotb
 from cocotb.triggers import FallingEdge, First, RisingEdge, Timer
@@ -828,7 +828,13 @@ class SMBusMaster:
 
     Note: For testing the apb_smbus RTL which is a master, you typically
     need the SMBusSlave to respond to it. This SMBusMaster is useful for
-    testing scenarios where external master access is needed.
+    testing scenarios where external master access is needed - driving a DUT
+    that is acting as a TARGET, for instance.
+
+    CLOCK STRETCHING IS HONOURED. Every high phase waits for `scl_i` to
+    actually read high rather than assuming that releasing SCL made it so;
+    see `_scl_high_phase`. `stretch_events` counts the phases a target held,
+    and `stretch_timeouts` the ones it never let go of.
     """
 
     def __init__(self, entity, title: str,
@@ -840,6 +846,8 @@ class SMBusMaster:
                  sda_t: str = 'smb_sda_t',
                  clock_period_ns: int = 10000,  # 100kHz default
                  support_pec: bool = False,
+                 stretch_timeout_ns: int = 2_000_000,
+                 stretch_poll_ns: int = 100,
                  log: Optional[logging.Logger] = None):
         """
         Initialize SMBus Master.
@@ -851,6 +859,12 @@ class SMBusMaster:
             sda_i/o/t: SDA signal names
             clock_period_ns: SCL clock period in nanoseconds
             support_pec: Enable PEC support
+            stretch_timeout_ns: how long to wait for a stretched SCL to come
+                back before giving up on the high phase. A target that never
+                releases is a test failure, not a reason to hang: the wait
+                ends, `stretch_timeouts` counts it, and the transfer carries
+                on so the test can report what it saw.
+            stretch_poll_ns: how often to re-read SCL while waiting
             log: Optional logger
         """
         self.entity = entity
@@ -867,11 +881,18 @@ class SMBusMaster:
         self.clock_period_ns = clock_period_ns
         self.half_period_ns = clock_period_ns // 2
         self.support_pec = support_pec
+        self.stretch_timeout_ns = stretch_timeout_ns
+        self.stretch_poll_ns = stretch_poll_ns
 
         self.log = log or logging.getLogger(f"cocotb.smbus_master.{title}")
 
         # Statistics
         self.transaction_count: int = 0
+        # Clock stretching observed and honoured, and the subset where the
+        # target never let go. A test that expects a stretch can assert on
+        # the first; a test that expects none can assert both are zero.
+        self.stretch_events: int = 0
+        self.stretch_timeouts: int = 0
 
     def _release_scl(self):
         """Release SCL"""
@@ -906,12 +927,46 @@ class SMBusMaster:
             ns = self.half_period_ns
         await Timer(ns, units='ns')
 
+    async def _scl_high_phase(self):
+        """Release SCL and begin the high phase only once the WIRE is high.
+
+        SMBus is open-drain, so releasing SCL is a request, not a result: a
+        target may keep holding it down, which is clock stretching and is how
+        it says "wait, I am not ready". Releasing and then waiting a fixed
+        delay walks straight through that -- the delay expires, the master
+        pulls SCL low again, and a high phase the target never saw has been
+        and gone. Worse, in `_receive_bit` it means SDA is sampled before the
+        target has presented the bit.
+
+        So: release, wait for `scl_i` to actually read high, and only then
+        count the high phase. A target that never releases is a test failure
+        rather than a hang, so the wait is bounded and the give-up is counted.
+        """
+        self._release_scl()
+
+        if int(self.scl_i.value) == 0:
+            self.stretch_events += 1
+            waited = 0
+            while int(self.scl_i.value) == 0:
+                if waited >= self.stretch_timeout_ns:
+                    self.stretch_timeouts += 1
+                    self.log.warning(
+                        f"[{self.title}] SCL still low after "
+                        f"{self.stretch_timeout_ns} ns - the target is not "
+                        f"releasing the clock; continuing so the test can "
+                        f"report it")
+                    break
+                await Timer(self.stretch_poll_ns, units='ns')
+                waited += self.stretch_poll_ns
+
+        await self._delay()
+
     async def _generate_start(self):
         """Generate START condition"""
-        # Ensure bus is idle (both high)
+        # Ensure bus is idle (both high). A target stretching here has not
+        # finished its previous transfer, so the START waits for it.
         self._release_sda()
-        self._release_scl()
-        await self._delay()
+        await self._scl_high_phase()
 
         # SDA falling while SCL high = START
         self._drive_sda_low()
@@ -928,9 +983,9 @@ class SMBusMaster:
         self._drive_sda_low()
         await self._delay()
 
-        # Release SCL
-        self._release_scl()
-        await self._delay()
+        # Release SCL and wait for it: framing a STOP inside somebody else's
+        # low phase frames nothing at all.
+        await self._scl_high_phase()
 
         # SDA rising while SCL high = STOP
         self._release_sda()
@@ -942,9 +997,8 @@ class SMBusMaster:
         self._release_sda()
         await self._delay()
 
-        # Release SCL
-        self._release_scl()
-        await self._delay()
+        # Release SCL and wait for it
+        await self._scl_high_phase()
 
         # SDA falling while SCL high = repeated START
         self._drive_sda_low()
@@ -960,9 +1014,8 @@ class SMBusMaster:
         self._drive_sda(bit)
         await self._delay()
 
-        # Clock high
-        self._release_scl()
-        await self._delay()
+        # Clock high - and the target has to see it, or it never samples
+        await self._scl_high_phase()
 
         # Clock low
         self._drive_scl_low()
@@ -974,9 +1027,9 @@ class SMBusMaster:
         self._release_sda()
         await self._delay()
 
-        # Clock high
-        self._release_scl()
-        await self._delay()
+        # Clock high. Sampling before the wire is high reads whatever SDA
+        # happened to be during a phase that never happened.
+        await self._scl_high_phase()
 
         # Sample SDA
         bit = self.sda_i.value.integer
@@ -1009,6 +1062,55 @@ class SMBusMaster:
         await self._send_bit(0 if send_ack else 1)
 
         return byte_val
+
+    async def write_raw(self, slave_addr: int, data: List[int]) -> List[bool]:
+        """START, the address with R/W=0, the bytes, STOP.
+
+        The named transactions below impose an SMBus protocol shape - a
+        command byte, a repeated START, a length. A target under test often
+        needs neither: the question is what the engine does with an address
+        and a byte stream. This is that, and it reports the ACK for EVERY
+        byte rather than only the address, because a target NAKing its third
+        byte because its FIFO filled is exactly the behaviour worth checking.
+
+        Returns:
+            One bool per byte put on the wire, address first. The data bytes
+            are not sent at all if the address was NAKed, so a short list is
+            itself the result.
+        """
+        acks: List[bool] = []
+        await self._generate_start()
+        acks.append(await self._send_byte((slave_addr << 1) | 0))
+        if acks[0]:
+            for byte_val in data:
+                acks.append(await self._send_byte(byte_val))
+        await self._generate_stop()
+        self.transaction_count += 1
+        self.log.info(f"[{self.title}] write_raw addr=0x{slave_addr:02X} "
+                      f"acks={acks}")
+        return acks
+
+    async def read_raw(self, slave_addr: int, count: int) -> Tuple[bool, List[int]]:
+        """START, the address with R/W=1, `count` bytes, STOP.
+
+        The last byte is NAKed, which is how a master tells a target it has
+        taken all it wants; every earlier byte is ACKed.
+
+        Returns:
+            (address_was_acked, bytes). No bytes are read if the address was
+            NAKed.
+        """
+        await self._generate_start()
+        acked = await self._send_byte((slave_addr << 1) | 1)
+        data: List[int] = []
+        if acked:
+            for i in range(count):
+                data.append(await self._receive_byte(send_ack=(i < count - 1)))
+        await self._generate_stop()
+        self.transaction_count += 1
+        self.log.info(f"[{self.title}] read_raw addr=0x{slave_addr:02X} "
+                      f"acked={acked} data={[hex(b) for b in data]}")
+        return acked, data
 
     async def quick_command(self, slave_addr: int, read: bool = False) -> SMBusPacket:
         """

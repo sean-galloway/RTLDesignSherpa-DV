@@ -1364,24 +1364,31 @@ class AXI4SlaveWrite:
 
     def _find_matching_transaction_ooo(self):
         """
-        Find which transaction should receive the next W packet in OOO mode.
+        Which transaction receives the next W beat in OOO mode: the OLDEST
+        accepted AW that still needs data, exactly as in FIFO mode.
 
-        Strategy:
-        - Find incomplete transactions (have AW, need more W beats)
-        - Return lowest transaction ID that needs data
-        - This allows W data to arrive in any order
+        AXI4 write data carries no ID. A Subordinate pairs W beats with AWs
+        purely by arrival order, and "out of order" in this BFM means the B
+        responses complete in a different order, never that the data arrives
+        in one. The previous version returned the LOWEST pending transaction
+        ID that needed data, which is a different transaction whenever a
+        later AW has a smaller ID than an earlier one -- routine under a
+        multi-master bridge, where IDs are {master index, id}. Found on the
+        bridge_2x2_ooo fixture (BRIDGE-015): one master's word landed under
+        the other master's address.
 
         Returns:
             transaction_id or None if no match
         """
-        for txn_id in sorted(self.pending_transactions.keys()):
-            txn_list = self.pending_transactions[txn_id]
-            # Check all transactions in the list for this ID
+        best_id, best_seq = None, None
+        for txn_id, txn_list in self.pending_transactions.items():
             for txn in txn_list:
                 if len(txn['w_packets']) < txn['expected_beats']:
-                    # This transaction needs more W beats
-                    return txn_id
-        return None
+                    seq = txn.get('sequence', float('inf'))
+                    if best_seq is None or seq < best_seq:
+                        best_id, best_seq = txn_id, seq
+                    break  # same-ID AWs fill in order; only the first open one matters
+        return best_id
 
     def _calculate_ooo_delay(self, transaction_id):
         """

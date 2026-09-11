@@ -660,6 +660,48 @@ class APBMaster(APBSignalMixin, BusDriver):
         while (self.transfer_busy):
             await RisingEdge(self.clock)
 
+    # ---- Single-transfer helpers ----
+    #
+    # The same shape as APB5Master.write/read (which override these to add
+    # the USER fields), so protocol-generic callers -- the bridge's generated
+    # testbenches dispatch through `master_apb[i].read/write` -- work on an
+    # APB4 requester too. Before these existed that dispatch raised
+    # AttributeError on APB4, which nothing exercised because no bridge had
+    # an APB4 master port. Both return the completed transaction: the read
+    # data is `fields['prdata']`, the completer's error flag `fields['pslverr']`.
+
+    async def write(self, address, data, strb=None, pprot=0):
+        '''Perform one APB4 write via the queued pipeline; returns the transaction.'''
+        if strb is None:
+            strb = (1 << self.strb_bits) - 1
+        transaction = APBPacket(
+            data_width=self.bus_width,
+            addr_width=self.addr_width,
+            strb_width=self.strb_bits,
+            pwrite=1,
+            paddr=address,
+            pwdata=data,
+            pstrb=strb,
+            pprot=pprot,
+            start_time=get_sim_time('ns'),
+        )
+        await self.busy_send(transaction)
+        return transaction
+
+    async def read(self, address, pprot=0):
+        '''Perform one APB4 read via the queued pipeline; returns the transaction.'''
+        transaction = APBPacket(
+            data_width=self.bus_width,
+            addr_width=self.addr_width,
+            strb_width=self.strb_bits,
+            pwrite=0,
+            paddr=address,
+            pprot=pprot,
+            start_time=get_sim_time('ns'),
+        )
+        await self.busy_send(transaction)
+        return transaction
+
     async def _driver_send(self, transaction, sync=True, hold=False, **kwargs):
         '''
             Append a new transaction to be transmitted

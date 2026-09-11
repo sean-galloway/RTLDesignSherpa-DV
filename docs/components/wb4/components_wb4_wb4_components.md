@@ -48,7 +48,7 @@ The burst hints are part of the request the monitor holds the master to: a
 master that changes `CTI` under a stalled `STB` is reported as
 `request_changed`, exactly as if it had changed the address.
 
-## WB4Slave(entity, title, prefix, clock, registers=None, addr_width=32, data_width=32, num_lines=1024, randomizer=None, max_outstanding=16, status_hook=None, classic=False, log=None)
+## WB4Slave(entity, title, prefix, clock, registers=None, addr_width=32, data_width=32, num_lines=1024, randomizer=None, max_outstanding=16, status_hook=None, classic=False, base_addr=0, log=None)
 
 A responder over a `MemoryModel` (`ADR` is a byte address; `SEL` is the
 write strobe). Each accepted request is answered IN ORDER after a randomized
@@ -69,6 +69,14 @@ drops `CYC` with requests outstanding aborts them; `stats['aborted']` counts
 them. Completed packets are in `sentQ`; `stats` has `accepted`, `ack`,
 `err`, `rty`.
 
+`base_addr` is subtracted from `ADR` before the memory is addressed, so a
+completer that sits at `0x5000_0000` in a fabric's map keeps its first word
+at line 0 -- the same knob as `AXI4Slave*.base_addr`. Out of range follows
+the shared contract (`shared/memory_model.py`): a request past the modelled
+memory terminates **ERR** -- Wishbone's spelling of SLVERR -- with nothing
+written and `0xDEADDEAD` as read data, and one WARNING names the slave.
+(Before this a bounds miss raised inside the sampling loop and the BFM died.)
+
 ## WB4Master(entity, title, prefix, clock, addr_width=32, data_width=32, randomizer=None, max_outstanding=8, classic=False, log=None)
 
 Queue `WB4Packet`s with `send()`; the pipeline presents one per clock while
@@ -87,6 +95,13 @@ ignoring `STALL`. `max_outstanding` bounds requests in flight. `abort()` drops `
 next edge and forgets the outstanding requests; the late terminations a
 non-compliant slave still sends are counted in `stats['unexpected_term']`.
 `create_packet(**fields)` builds a packet with this master's widths.
+
+`write(adr, data, sel=None, cti=None, bte=None)` and `read(adr, sel=None,
+cti=None, bte=None)` build the packet, `busy_send` it and return it -- the
+read data is `pkt.fields['dat_r']`, the termination `pkt.fields['status']`
+(ACK 0 / ERR 1 / RTY 2). The same shape as `APBMaster.write/read`, so a
+protocol-generic caller can drive a Wishbone requester port without building
+a `WB4Packet` by hand.
 
 ## Burst hints
 

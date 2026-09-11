@@ -37,7 +37,7 @@ from cocotb_bus.drivers import BusDriver
 from cocotb_bus.monitors import BusMonitor
 
 from ..shared.flex_randomizer import FlexRandomizer
-from ..shared.memory_model import MemoryModel
+from ..shared.memory_model import MemoryModel, oor_read_data
 from ..shared.wb4_common import (
     WB4_DATA_ALIASES,
     WB4_MASTER_DRIVEN,
@@ -295,9 +295,13 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
     def __init__(self, entity, title, prefix, clock, registers=None, signals=None,
                  addr_width=32, data_width=32, num_lines=1024, randomizer=None,
                  max_outstanding=16, status_hook: Optional[Callable] = None,
-                 classic=False, log=None, **kwargs):
+                 classic=False, base_addr=0, log=None, **kwargs):
         self._init_bus(BusMonitor, entity, title, prefix, clock, signals, log,
                        addr_width, data_width, **kwargs)
+        # Subtracted from ADR before the memory model is addressed, so a
+        # completer sitting at 0x5000_0000 in a fabric's map stores its first
+        # word at line 0. Same knob, same meaning as AXI4Slave*.base_addr.
+        self.base_addr = base_addr
         self.randomizer = randomizer or FlexRandomizer(self._default_randomizer_constraints())
         # Classic: never STALL, accept a presentation once, one outstanding;
         # the master holds STB until it sees the termination.
@@ -352,18 +356,30 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
         self.outstanding = 0
 
     def _line_addr(self, adr):
-        return adr & ~(self.bytes_per_line - 1) & ((1 << self.addr_width) - 1)
+        offset = (adr - self.base_addr) & ((1 << self.addr_width) - 1)
+        return offset & ~(self.bytes_per_line - 1)
 
     def _service(self, pkt, rnd):
-        """Apply the request to the memory model; fill dat_r; pick the status."""
+        """Apply the request to the memory model; fill dat_r; pick the status.
+
+        Out-of-range contract (shared/memory_model.py): a request past the
+        modelled memory terminates ERR -- the Wishbone spelling of SLVERR --
+        with nothing written and the OOR pattern as read data, the same way
+        every other slave family answers. Before this a bounds miss raised
+        inside the sampling loop and the whole BFM died with it.
+        """
         status = None
         if self.status_hook is not None:
             status = self.status_hook(pkt)
         if status is None:
             status = int(rnd.get('status', 0)) & 3
+        line = self._line_addr(int(pkt.fields['adr']))
+        if status == WB4_STATUS_ACK and line + self.bytes_per_line > self.mem.size:
+            self.mem.oor_warning(self.log, 'WB4Slave', line, self.bytes_per_line, pkt)
+            status = WB4_STATUS_ERR
+            pkt.fields['dat_r'] = oor_read_data(self.bytes_per_line)
         pkt.fields['status'] = status
         if status == WB4_STATUS_ACK:
-            line = self._line_addr(int(pkt.fields['adr']))
             if int(pkt.fields['we']):
                 data = self.mem.integer_to_bytearray(int(pkt.fields['dat_w']), self.bytes_per_line)
                 self.mem.write(line, data, int(pkt.fields['sel']))
@@ -551,6 +567,35 @@ class WB4Master(WB4SignalMixin, BusDriver):
         await self.send(transaction)
         while transaction.end_time == 0:
             await RisingEdge(self.clock)
+
+    # Single-transfer helpers, the same shape as APBMaster.write/read: build
+    # the packet, wait for its termination, return it. The read data is
+    # ``pkt.fields['dat_r']``, the termination ``pkt.fields['status']``
+    # (WB4_STATUS_ACK / ERR / RTY). A protocol-generic caller -- the bridge's
+    # generated testbenches -- can drive a Wishbone requester port without
+    # building a WB4Packet by hand.
+
+    async def write(self, adr, data, sel=None, cti=None, bte=None):
+        fields = dict(we=1, adr=adr, dat_w=data,
+                      sel=sel if sel is not None else (1 << self.sel_width) - 1)
+        if cti is not None:
+            fields['cti'] = cti
+        if bte is not None:
+            fields['bte'] = bte
+        pkt = self.create_packet(**fields)
+        await self.busy_send(pkt)
+        return pkt
+
+    async def read(self, adr, sel=None, cti=None, bte=None):
+        fields = dict(we=0, adr=adr,
+                      sel=sel if sel is not None else (1 << self.sel_width) - 1)
+        if cti is not None:
+            fields['cti'] = cti
+        if bte is not None:
+            fields['bte'] = bte
+        pkt = self.create_packet(**fields)
+        await self.busy_send(pkt)
+        return pkt
 
     async def wait_idle(self):
         while self.transmit_queue or self.outstanding or self._head is not None:

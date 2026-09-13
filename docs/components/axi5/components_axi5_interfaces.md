@@ -153,10 +153,10 @@ A complete write in one call: AW, as many W beats as the data implies, and the B
 | `trace` | int | Enable transaction tracing | `0` |
 | `tagop` | int | Tag operation type | `0` |
 | `tag` | int | Memory tag (AW channel) | `0` |
-| `wtag` | int | Memory tag (W channel) | `0` |
+| `wtag` | int or list | Memory tags (W channel); a list gives one value per beat | `0` |
 | `wuser` | int | User signal (W channel) | `0` |
 | `poison` | int | Poison indicator (W channel) | `0` |
-| `tagupdate` | int | Tag update indicators (W channel) | `0` |
+| `tagupdate` | int or list | Tag update mask (W channel); a list gives one value per beat | `0` |
 
 **Returns**: the B response as a dictionary — `success`, `response`, `id`, `trace`, `tag`, `tagmatch`.
 
@@ -312,6 +312,27 @@ Everything else is identical to `AXI5SlaveRead`.
 | `aw_channel` | GAXISlave | AW channel slave component |
 | `w_channel` | GAXISlave | W channel slave component |
 | `b_channel` | GAXIMaster | B channel master component |
+
+### Memory Tagging (MTE)
+
+The slave BFMs keep a tag memory beside their `MemoryModel`:
+`axi5_tag_store(memory_model)` returns a `{granule address: 4-bit tag}`
+dictionary created on first use and hung off the model instance, so a
+slave's read and write BFMs (which share the model) see one tag space and a
+test can inspect it directly. One tag covers 16 bytes (`TAG_GRANULE`);
+`TAGOP_TRANSFER`, `TAGOP_UPDATE`, `TAGOP_MATCH` are the AxTAGOP encodings.
+
+| AWTAGOP | Write BFM | BTAGMATCH |
+|---|---|---|
+| Transfer | stores every beat's tags | 0 |
+| Update | stores the tags `tagupdate` marks | 0 |
+| Match | compares every granule against the store, writes data as usual | 1 if all matched, else 0 |
+| Invalid (0) | tags ignored | 0 |
+
+The read BFM returns the stored tags in `rtag` on an `ARTAGOP = Transfer`
+read (0 where nothing was stored) and sets `rtagmatch` whenever a tag
+operation was requested. Until 2026-09-13 `tagmatch` was a stub that
+returned 1 for any non-zero tag operation and no tags were stored.
 
 ### Usage Examples
 

@@ -53,6 +53,26 @@ from CocoTBFramework.components.shared.memory_model import oor_read_data
 # the AW's ID. Store-class (01xxxx) answers on B only.
 ATOP_READ_RETURN = 0x20
 
+# AxTAGOP encodings (AMBA AXI5 Memory Tagging Extension).
+TAGOP_INVALID = 0    # no tags carried
+TAGOP_TRANSFER = 1   # write: store the tags; read: return the stored tags
+TAGOP_UPDATE = 2     # write: store only the tags WTAGUPDATE marks
+TAGOP_MATCH = 3      # write: compare against the stored tags, report BTAGMATCH
+TAG_GRANULE = 16     # one 4-bit tag per 16 bytes
+
+
+def axi5_tag_store(memory_model) -> dict:
+    """The tag memory beside a MemoryModel: {granule address: 4-bit tag},
+    created on first use. It hangs off the model instance so a slave's
+    read and write BFMs (which share the model) see one tag space, and
+    a test can inspect it directly."""
+    store = getattr(memory_model, 'axi5_tags', None)
+    if store is None:
+        store = {}
+        setattr(memory_model, 'axi5_tags', store)
+    return store
+
+
 
 class AXI5MasterRead:
     """
@@ -555,6 +575,11 @@ class AXI5MasterWrite:
                 # every beat and a burst can never stream. See
                 # GAXIMaster.send_burst; per-beat valid_delay still applies,
                 # so gapped profiles still gap.
+                # wtag / tagupdate may be one value for the burst or a list
+                # with one entry per beat.
+                def _per_beat(key, i):
+                    v = transaction_kwargs.get(key, 0)
+                    return v[i] if isinstance(v, (list, tuple)) else v
                 w_packets = [
                     self.w_channel.create_packet(
                         data=data_value,
@@ -563,8 +588,8 @@ class AXI5MasterWrite:
                         user=transaction_kwargs.get('wuser', 0),
                         # AXI5-specific fields
                         poison=transaction_kwargs.get('poison', 0),
-                        tag=transaction_kwargs.get('wtag', 0),
-                        tagupdate=transaction_kwargs.get('tagupdate', 0),
+                        tag=_per_beat('wtag', i),
+                        tagupdate=_per_beat('tagupdate', i),
                     )
                     for i, data_value in enumerate(data_list)
                 ]
@@ -951,6 +976,15 @@ class AXI5SlaveRead:
                 else:
                     data = current_addr
 
+                # Memory Tagging: a Transfer read returns the stored tag of
+                # every 16-byte granule of the beat (0 where none was stored).
+                rtag = 0
+                if ar_tagop == TAGOP_TRANSFER and self.memory_model:
+                    store = axi5_tag_store(self.memory_model)
+                    for t in range(max(1, self.data_width // 128)):
+                        gaddr = (current_addr + t * TAG_GRANULE) & ~(TAG_GRANULE - 1)
+                        rtag |= (store.get(gaddr, 0) & 0xF) << (4 * t)
+
                 # Create R response packet with AXI5 fields
                 is_last = (i == burst_len - 1)
                 r_packet = self.r_channel.create_packet(
@@ -964,8 +998,8 @@ class AXI5SlaveRead:
                     chunkv=1 if ar_chunken else 0,
                     chunknum=i if ar_chunken else 0,
                     chunkstrb=0,
-                    tag=0,
-                    tagmatch=0 if ar_tagop == 0 else 1,  # Simple tag match simulation
+                    tag=rtag,
+                    tagmatch=0 if ar_tagop == 0 else 1,  # the tag op was honoured
                 )
                 r_packets.append(r_packet)
 
@@ -1488,6 +1522,8 @@ class AXI5SlaveWrite:
             atop = transaction.get('atop', 0) or 0
             read_return = bool(atop & ATOP_READ_RETURN)
             rr_data = None      # original data, for the R beat of a read-return atomic
+            tag_ok = True          # Match result: every compared granule agreed
+            n_tags = max(1, self.data_width // 128)
             if self.memory_model:
                 # Out-of-range contract (shared/memory_model.py): whole burst
                 # checked first; an overrunning burst is SLVERR, nothing written.
@@ -1516,6 +1552,25 @@ class AXI5SlaveWrite:
                         else:
                             data_bytes = self.memory_model.integer_to_bytearray(data, bytes_per_beat)
                             self.memory_model.write(memory_offset, data_bytes, strb)
+                        # Memory Tagging (AXI5 MTE): one 4-bit tag per 16-byte
+                        # granule of the beat. Transfer stores every tag, Update
+                        # only the ones WTAGUPDATE marks, Match compares and
+                        # reports on B. Tags live beside the data (axi5_tag_store).
+                        if aw_tagop != TAGOP_INVALID:
+                            store = axi5_tag_store(self.memory_model)
+                            wtag = getattr(w_packet, 'tag', 0) or 0
+                            wupd = getattr(w_packet, 'tagupdate', 0) or 0
+                            for t in range(n_tags):
+                                gaddr = (addr + t * TAG_GRANULE) & ~(TAG_GRANULE - 1)
+                                tag_t = (wtag >> (4 * t)) & 0xF
+                                if aw_tagop == TAGOP_TRANSFER:
+                                    store[gaddr] = tag_t
+                                elif aw_tagop == TAGOP_UPDATE:
+                                    if (wupd >> t) & 1:
+                                        store[gaddr] = tag_t
+                                elif aw_tagop == TAGOP_MATCH:
+                                    if store.get(gaddr, 0) != tag_t:
+                                        tag_ok = False
                     except Exception as mem_error:
                         if self.log:
                             self.log.warning(f"AXI5SlaveWrite: memory write failed: "
@@ -1547,10 +1602,10 @@ class AXI5SlaveWrite:
             if transaction_id not in self.pending_transactions:
                 return
 
-            # Determine tag match result based on tagop
-            tagmatch = 0
-            if aw_tagop != 0:
-                tagmatch = 1  # Simple simulation
+            # BTAGMATCH: 1 when a Match operation compared every granule
+            # and all agreed; 0 for a failed Match and for every other
+            # tag operation (the result is only defined for Match).
+            tagmatch = 1 if (aw_tagop == TAGOP_MATCH and resp == 0 and tag_ok) else 0
 
             # Send B response with AXI5 fields
             b_packet = self.b_channel.create_packet(

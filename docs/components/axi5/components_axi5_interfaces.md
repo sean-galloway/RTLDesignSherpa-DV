@@ -61,6 +61,7 @@ A complete read in one call: the AR goes out, the burst comes back, and you get 
 **Returns**: a list of response dictionaries, one per beat, containing:
 - `data`, `resp`, `last`, `id` — the standard AXI fields
 - `trace`, `poison`, `chunkv`, `chunknum`, `chunkstrb`, `tag`, `tagmatch` — the AXI5 additions
+- `wire_index` — the transfer's position on the wire. A chunked burst (`chunkv` set) is returned reassembled in address order by `chunknum`, so `data` reads like an ordered burst; `wire_index` tells you the order the completer actually sent
 
 #### `single_read(address, **kwargs) -> int`
 
@@ -240,6 +241,8 @@ class AXI5SlaveRead:
 | `response_delay` | int | Response delay in clock cycles | `1` |
 | `enable_ooo` | bool | Enable out-of-order responses | `False` |
 | `ooo_config` | dict | Out-of-order configuration | See below |
+| `chunk_order` | str | How a chunked burst's transfers are emitted: `'in_order'` (default), `'reverse'`, `'random'`. Each transfer carries one whole beat; `RCHUNKNUM` is the beat's first 128-bit chunk, `RCHUNKSTRB` marks every chunk of the beat, `RLAST` rides the final transfer whichever beat that is | `'in_order'` |
+| `chunk_seed` | int | Seed for `chunk_order='random'` | `1` |
 
 **OOO Configuration Dict**:
 ```python

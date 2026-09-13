@@ -312,8 +312,16 @@ class AXI5MasterRead:
                 'chunkstrb': getattr(packet, 'chunkstrb', 0),
                 'tag': getattr(packet, 'tag', 0),
                 'tagmatch': getattr(packet, 'tagmatch', 0),
+                'wire_index': i,     # the transfer's position on the wire
             }
             responses.append(response)
+
+        # Read-data chunking: transfers may have arrived in any order. Put
+        # them back in address order by RCHUNKNUM so `data` reads like an
+        # ordered burst; `wire_index` keeps the order the wire carried.
+        if any(r['chunkv'] for r in responses):
+            n_chunks = max(1, self.data_width // 128)
+            responses.sort(key=lambda r: (r['chunknum'] // n_chunks) if r['chunkv'] else r['wire_index'])
 
             # Check for errors
             if response['resp'] != 0:
@@ -717,6 +725,12 @@ class AXI5SlaveRead:
                 - response_delay: Response delay cycles
                 - enable_ooo: Enable out-of-order responses
                 - ooo_config: OOO configuration dict
+                - chunk_order: how a chunked burst's transfers are emitted --
+                  'in_order' (default), 'reverse', or 'random' (seeded by
+                  chunk_seed). Each transfer carries one whole beat, its
+                  RCHUNKNUM the beat's first 128-bit chunk and RCHUNKSTRB every
+                  chunk of the beat; RLAST rides the final TRANSFER.
+                - chunk_seed: seed for chunk_order='random' (default 1)
         """
         self.clock = clock
         self.log = log
@@ -728,6 +742,10 @@ class AXI5SlaveRead:
         self.addr_width = kwargs.get('addr_width', 32)
         self.user_width = kwargs.get('user_width', 1)
         self.nsaid_width = kwargs.get('nsaid_width', 4)
+        self.chunk_order = kwargs.get('chunk_order', 'in_order')
+        if self.chunk_order not in ('in_order', 'reverse', 'random'):
+            raise ValueError(f"chunk_order must be 'in_order', 'reverse' or 'random', got {self.chunk_order!r}")
+        self._chunk_rng = random.Random(kwargs.get('chunk_seed', 1))
         self.mpam_width = kwargs.get('mpam_width', 11)
         self.mecid_width = kwargs.get('mecid_width', 16)
         self.tagop_width = kwargs.get('tagop_width', 2)
@@ -985,23 +1003,46 @@ class AXI5SlaveRead:
                         gaddr = (current_addr + t * TAG_GRANULE) & ~(TAG_GRANULE - 1)
                         rtag |= (store.get(gaddr, 0) & 0xF) << (4 * t)
 
-                # Create R response packet with AXI5 fields
-                is_last = (i == burst_len - 1)
+                # Create R response packet with AXI5 fields. A chunked
+                # burst is re-framed below, so LAST/chunk fields are set there.
                 r_packet = self.r_channel.create_packet(
                     id=packet_id,
                     data=data,
                     resp=beat_resp,
-                    last=1 if is_last else 0,
+                    last=1 if i == burst_len - 1 else 0,
                     # AXI5-specific fields
                     trace=ar_trace,
                     poison=0,
-                    chunkv=1 if ar_chunken else 0,
-                    chunknum=i if ar_chunken else 0,
+                    chunkv=0,
+                    chunknum=0,
                     chunkstrb=0,
                     tag=rtag,
                     tagmatch=0 if ar_tagop == 0 else 1,  # the tag op was honoured
                 )
                 r_packets.append(r_packet)
+
+            if ar_chunken:
+                # Read-data chunking: the completer may return the burst in
+                # any order it likes, one or more 128-bit chunks per transfer.
+                # This model sends one whole beat per transfer, in the order
+                # chunk_order picks: RCHUNKNUM is the beat's first chunk
+                # number, RCHUNKSTRB marks every chunk of the beat, and RLAST
+                # goes on the final transfer -- whichever beat that is.
+                n_chunks = max(1, self.data_width // 128)
+                order = list(range(len(r_packets)))
+                if self.chunk_order == 'reverse':
+                    order.reverse()
+                elif self.chunk_order == 'random':
+                    self._chunk_rng.shuffle(order)
+                framed = []
+                for k, beat_idx in enumerate(order):
+                    pkt = r_packets[beat_idx]
+                    pkt.chunkv = 1
+                    pkt.chunknum = beat_idx * n_chunks
+                    pkt.chunkstrb = (1 << n_chunks) - 1
+                    pkt.last = 1 if k == len(order) - 1 else 0
+                    framed.append(pkt)
+                r_packets = framed
 
             # Add all beats to queue
             for r_packet in r_packets:

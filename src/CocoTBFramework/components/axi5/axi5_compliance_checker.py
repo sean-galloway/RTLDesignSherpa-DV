@@ -707,6 +707,7 @@ class AXI5ComplianceChecker:
         poison = getattr(packet, 'poison', 0)
         if poison:
             self.stats['poisoned_beats'] += 1
+        self._check_tag_width(packet, 'W')
 
         is_last = bool(getattr(packet, 'last', 0))
 
@@ -778,6 +779,22 @@ class AXI5ComplianceChecker:
                     'R',
                     f"CHUNKV=1 but CHUNKEN was not set in AR for ID {transaction_id}"
                 )
+            n_chunks = max(1, self.data_width // 128)
+            chunknum = getattr(packet, 'chunknum', 0)
+            beats = read_queue[0].get('expected_beats')
+            if beats is not None and chunknum >= beats * n_chunks:
+                self.record_violation(
+                    AXI5ViolationType.CHUNKNUM_VIOLATION,
+                    'R',
+                    f"RCHUNKNUM={chunknum} outside the burst ({beats * n_chunks} chunks) for ID {transaction_id}"
+                )
+            if getattr(packet, 'chunkstrb', 0) == 0:
+                self.record_violation(
+                    AXI5ViolationType.CHUNKSTRB_VIOLATION,
+                    'R',
+                    f"CHUNKV=1 with RCHUNKSTRB=0 for ID {transaction_id}: a chunk-valid transfer carries no chunk"
+                )
+        self._check_tag_width(packet, 'R')
 
         if not read_queue:
             self.stats['unsolicited_r_beats'] += 1
@@ -849,6 +866,18 @@ class AXI5ComplianceChecker:
             write_queue.pop(0)
             if not write_queue:
                 del self.outstanding_writes[transaction_id]
+
+    def _check_tag_width(self, packet, channel: str) -> None:
+        """A tag bus is 4 bits per 16 bytes of data; a value with bits above
+        that is not a tag this data width can carry."""
+        tag = getattr(packet, 'tag', 0) or 0
+        total = 4 * max(1, self.data_width // 128)
+        if tag >> total:
+            self.record_violation(
+                AXI5ViolationType.TAG_WIDTH_VIOLATION,
+                channel,
+                f"{channel}TAG=0x{tag:X} wider than {total} bits for a {self.data_width}-bit data bus"
+            )
 
     def record_violation(self, violation_type: AXI5ViolationType, channel: str,
                          message: str, **kwargs):

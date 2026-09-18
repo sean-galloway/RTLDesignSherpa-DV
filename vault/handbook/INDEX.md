@@ -15,7 +15,7 @@ in the wrong one is how it stops being found:
 
 | Question | Where |
 |---|---|
-| "How do I verify RTL with these BFMs?" — regressions, seeds, coverage, TB structure, randomization profiles, register testing | main repo `vault/handbook/dv/` |
+| "How do I verify RTL with these BFMs?" — regressions, the test runner stack, seeds, coverage, TB structure, randomization profiles, register testing | main repo `vault/handbook/dv/` |
 | "How do I change this package?" — packaging, spec fidelity, differential testing, release hygiene | **here** |
 
 The main repo's `dv/` area is the *consumer* view and already includes notes

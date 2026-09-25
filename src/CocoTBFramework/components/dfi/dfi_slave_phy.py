@@ -266,6 +266,7 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
         memory: MemoryModel,
         side: str = "phy",
         title: Optional[str] = None,
+        jedec_timings: "Optional[dict]" = None,
         strict_write_timing: bool = False,
         write_latency: int = 0,
         strict_read_timing: bool = False,
@@ -524,6 +525,32 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
 
         # Statistics
         self.cmd_counts = {cmd: 0 for cmd in DRAMCommand}
+
+        # ---- JEDEC spacing audit ON THE WIRE (opt-in) -----------------------
+        # A controller enforces spacing upstream; what reaches the DRAM is what
+        # actually matters, and the two can differ. pumice shipped a case where
+        # the arbiter's own history checker reported ZERO tRFC violations while
+        # the wire was violating tRFC by 12 cycles -- an in-order FIFO below the
+        # checker compressed REF->ACT from 15 cycles to 3, the DRAM discarded
+        # the ACT, and 180 consecutive reads captured an undriven bus. It took
+        # an ILA capture to find. Anything watching the wire would have caught
+        # it in simulation.
+        #
+        # OFF unless `jedec_timings` is supplied, so existing tests are
+        # unchanged. Violations are RECORDED, not raised: the DRAM model is the
+        # functional authority and a test decides whether a spacing miss is
+        # fatal for what it is measuring.
+        self.jedec_timings = dict(jedec_timings or {})
+        self.jedec_violations: list = []
+        # Commands actually audited. "zero violations" is only meaningful
+        # beside this: a checker that never ran reports clean too, and this
+        # repo has shipped two blind checkers in two days on exactly that.
+        self.jedec_checks = 0
+        self._last_act: dict = {}   # bank -> cycle of its last ACT
+        self._last_pre: dict = {}   # bank -> cycle of its last PRE
+        self._last_ref_cycle = None
+        self._last_rd_cycle = None
+        self._last_wr_cycle = None
         self.writes_committed = 0
         self.reads_served = 0
 
@@ -711,6 +738,71 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
             f"cyc={cycle} bank={bank} addr=0x{addr:X} "
             f"open_row={open_row}{fields}")
 
+    def _jedec_audit(self, cmd: DRAMCommand, bank: int, cycle: int) -> None:
+        """Check this wire command against the previous ones. No-op unless
+        `jedec_timings` was supplied.
+
+        Timings are in DRAM-model cycles, the same unit `self.dram.cycle`
+        counts in. A missing key is not checked -- pass only what you mean to
+        audit. Each violation is appended to `jedec_violations` as a dict, so a
+        test can assert on an empty list, or on the absence of one rule.
+        """
+        t = self.jedec_timings
+        if not t:
+            return
+        self.jedec_checks += 1
+
+        def _viol(rule, prev, need):
+            self.jedec_violations.append({
+                "rule": rule, "cmd": cmd.name, "bank": bank,
+                "cycle": cycle, "prev_cycle": prev,
+                "gap": cycle - prev, "required": need,
+            })
+
+        is_rd = cmd in (DRAMCommand.RD, DRAMCommand.RDA)
+        is_wr = cmd in (DRAMCommand.WR, DRAMCommand.WRA)
+
+        if cmd == DRAMCommand.ACT:
+            # tRP: this bank's last PRE must have retired.
+            prev = self._last_pre.get(bank)
+            if prev is not None and "tRP" in t and cycle - prev < t["tRP"]:
+                _viol("tRP", prev, t["tRP"])
+            # tRFC: a refresh blocks EVERY bank, which is the one this class of
+            # bug hides in -- the per-bank state looks fine.
+            if (self._last_ref_cycle is not None and "tRFC" in t
+                    and cycle - self._last_ref_cycle < t["tRFC"]):
+                _viol("tRFC", self._last_ref_cycle, t["tRFC"])
+            self._last_act[bank] = cycle
+
+        elif is_rd or is_wr:
+            # tRCD: the column's own bank must have finished activating.
+            prev = self._last_act.get(bank)
+            if prev is not None and "tRCD" in t and cycle - prev < t["tRCD"]:
+                _viol("tRCD", prev, t["tRCD"])
+            # Turnaround is GLOBAL (shared DQ), not per bank.
+            if is_wr and self._last_rd_cycle is not None and "tRTW" in t \
+                    and cycle - self._last_rd_cycle < t["tRTW"]:
+                _viol("tRTW", self._last_rd_cycle, t["tRTW"])
+            if is_rd and self._last_wr_cycle is not None and "tWTR" in t \
+                    and cycle - self._last_wr_cycle < t["tWTR"]:
+                _viol("tWTR", self._last_wr_cycle, t["tWTR"])
+            if is_rd:
+                self._last_rd_cycle = cycle
+            else:
+                self._last_wr_cycle = cycle
+
+        elif cmd == DRAMCommand.PRE:
+            # tRAS: a row must stay open this long before it may be closed.
+            prev = self._last_act.get(bank)
+            if prev is not None and "tRAS" in t and cycle - prev < t["tRAS"]:
+                _viol("tRAS", prev, t["tRAS"])
+            self._last_pre[bank] = cycle
+
+        elif cmd == DRAMCommand.REF:
+            self._last_ref_cycle = cycle
+            self._last_pre.clear()
+            self._last_act.clear()
+
     def _handle_command(self, cmd: DRAMCommand,
                         phase_override: Optional[int] = None) -> None:
         # phase_override: when the faithful multi-command decoder handles several
@@ -748,6 +840,7 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
         cl  = self.dram.timings.CL
 
         self.cmd_counts[cmd] = self.cmd_counts.get(cmd, 0) + 1
+        self._jedec_audit(cmd, bank, cycle)
 
         if _CMD_TRACE:
             self._log_command(cmd, bank, addr, cycle)

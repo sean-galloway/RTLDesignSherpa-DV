@@ -342,7 +342,10 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
         Phase 1: Apply delay with enhanced debugging and statistics.
         Maintains exact original timing and logic.
         """
-        phase_start = get_sim_time('ns')
+        # Debug-only (see gaxi_slave): every read of phase_start is inside
+        # `if self.pipeline_debug`, so this was a simulator round-trip per
+        # phase per cycle for a value that is normally discarded.
+        phase_start = get_sim_time('ns') if self.pipeline_debug else 0
         self.phase_statistics['phase1_count'] += 1
 
         # Get delay from randomizer - exact original logic
@@ -370,7 +373,10 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
         Returns:
             bool: True if handshake successful, False if timeout or error
         """
-        phase_start = get_sim_time('ns')
+        # Debug-only (see gaxi_slave): every read of phase_start is inside
+        # `if self.pipeline_debug`, so this was a simulator round-trip per
+        # phase per cycle for a value that is normally discarded.
+        phase_start = get_sim_time('ns') if self.pipeline_debug else 0
         self.phase_statistics['phase2_count'] += 1
 
         # Drive signals for this transaction
@@ -428,7 +434,10 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
         Phase 3: Complete transfer with enhanced logging and statistics.
         PERFORMANCE: Keep valid asserted if more beats are queued (zero-bubble operation).
         """
-        phase_start = get_sim_time('ns')
+        # Debug-only (see gaxi_slave): every read of phase_start is inside
+        # `if self.pipeline_debug`, so this was a simulator round-trip per
+        # phase per cycle for a value that is normally discarded.
+        phase_start = get_sim_time('ns') if self.pipeline_debug else 0
         self.phase_statistics['phase3_count'] += 1
 
         # Handshake completed – capture completion time

@@ -320,7 +320,11 @@ class GAXISlave(GAXIMonitorBase):
         Enhanced Phase 1: Handle pending transactions with better debugging.
         Maintains exact original timing and logic.
         """
-        phase_start = get_sim_time('ns')
+        # Debug-only: every read of phase_start below is inside
+        # `if self.pipeline_debug`, so taking the simulator time unconditionally
+        # was a round-trip per phase per cycle per slave for a value that is
+        # almost always discarded.
+        phase_start = get_sim_time('ns') if self.pipeline_debug else 0
         self.phase_statistics['phase1_count'] += 1
 
         # Wait a brief moment for signal stability - exact original logic
@@ -353,7 +357,11 @@ class GAXISlave(GAXIMonitorBase):
         Enhanced Phase 2: Handle ready timing with better debugging.
         Maintains exact original timing and logic.
         """
-        phase_start = get_sim_time('ns')
+        # Debug-only: every read of phase_start below is inside
+        # `if self.pipeline_debug`, so taking the simulator time unconditionally
+        # was a round-trip per phase per cycle per slave for a value that is
+        # almost always discarded.
+        phase_start = get_sim_time('ns') if self.pipeline_debug else 0
         self.phase_statistics['phase2_count'] += 1
 
         # 'always' policy: ready does not depend on valid at all -- assert and
@@ -431,16 +439,33 @@ class GAXISlave(GAXIMonitorBase):
         Returns:
             Tuple of (last_packet, last_xfer) for deferred processing
         """
-        phase_start = get_sim_time('ns')
+        # PER-CYCLE PATH. This runs once per clock per slave, so the two things
+        # it used to do unconditionally both mattered:
+        #
+        #  * `phase_start = get_sim_time('ns')` was a simulator round-trip on
+        #    every call, and `phase_start` is read ONLY inside `if
+        #    self.pipeline_debug` branches. It is now taken only when needed.
+        #  * `self.valid_sig.value` was evaluated THREE times and
+        #    `self.ready_sig.value` three times in the handshake test below
+        #    (.is_resolvable, then .integer). Every `.value` access is a fresh
+        #    read plus a BinaryValue construction, which is why a profile of a
+        #    pumice scheduler run showed 161k handle.value calls and 164k
+        #    BinaryValue constructions. Each signal is read ONCE into a local.
+        #
+        # The handshake condition is unchanged, term for term.
+        phase_start = get_sim_time('ns') if self.pipeline_debug else 0
         self.phase_statistics['phase3_count'] += 1
 
-        # Check for valid handshake (valid=1 and ready=1) - exact original logic
-        if (hasattr(self, 'valid_sig') and self.valid_sig is not None and
-            hasattr(self, 'ready_sig') and self.ready_sig is not None and
-            self.valid_sig.value.is_resolvable and
-            self.ready_sig.value.is_resolvable and
-            self.valid_sig.value.integer == 1 and
-            self.ready_sig.value.integer == 1):
+        valid_sig = getattr(self, 'valid_sig', None)
+        ready_sig = getattr(self, 'ready_sig', None)
+        if valid_sig is not None and ready_sig is not None:
+            valid_val = valid_sig.value
+            ready_val = ready_sig.value
+        else:
+            valid_val = ready_val = None
+        if (valid_val is not None and ready_val is not None and
+            valid_val.is_resolvable and ready_val.is_resolvable and
+            valid_val.integer == 1 and ready_val.integer == 1):
 
             if self.pipeline_debug:
                 self.log.debug(f"Slave({self.title}) Phase3: handshake detected, processing transaction")

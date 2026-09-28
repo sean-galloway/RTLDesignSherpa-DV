@@ -26,6 +26,8 @@ import cocotb
 from cocotb.triggers import ClockCycles, RisingEdge
 from cocotb.utils import get_sim_time
 
+from .flex_config_gen import DEFAULT_PROFILES
+
 # Import the existing flex randomizer system
 from .flex_randomizer import FlexRandomizer
 
@@ -98,8 +100,50 @@ class ArbiterMaster:
         time_ns = get_sim_time('ns')
         return f' @ {time_ns}ns'
 
+    @staticmethod
+    def catalogue_client_profiles():
+        """Client request profiles built from the SHARED delay catalogue.
+
+        FlexConfigGen.DEFAULT_PROFILES is the one place the repo keeps its named
+        delay shapes ('backtoback', 'constrained', 'stress', ...). This master
+        used to carry a private set with no zero-delay member -- even 'fast'
+        held 1-3 idle cycles between requests -- so all-clients-requesting
+        could never be sustained through a profile and arbiter tests silently
+        under-stressed (tooling TASK-003, was TOOL-007). Each catalogue entry
+        becomes a client profile whose inter_request_delay is that shape, with
+        a one-cycle request and the client always enabled. Names that collide
+        with this master's historical private profiles ('fast', 'slow') keep
+        their historical meaning; the catalogue versions are reachable as
+        'catalogue_fast' / 'catalogue_slow'.
+
+        'saturate' is the explicit all-clients-up profile: zero delay between
+        requests, so a client re-requests the cycle after it is granted. It is
+        what a fairness or starvation test must run under; a random profile
+        leaves gaps, and a picker that is never cornered is never tested.
+        """
+        legacy = {'default', 'fast', 'slow', 'disabled', 'manual'}
+        profiles = {}
+        for name, shape in DEFAULT_PROFILES.items():
+            key = f'catalogue_{name}' if name in legacy else name
+            profiles[key] = {
+                'inter_request_delay': shape,
+                'request_duration': ([(1, 1)], [1.0]),
+                'enabled_probability': ([(1, 1)], [1.0]),
+            }
+        profiles['saturate'] = {
+            'inter_request_delay': ([(0, 0)], [1.0]),
+            'request_duration': ([(1, 1)], [1.0]),
+            'enabled_probability': ([(1, 1)], [1.0]),
+        }
+        return profiles
+
     def _setup_default_profiles(self):
         """Setup default randomization profiles"""
+        # Shared catalogue + 'saturate' first; the historical private set below
+        # re-assigns 'default'/'fast'/'slow'/'disabled'/'manual', so those names
+        # keep their historical meaning.
+        for name, constraints in self.catalogue_client_profiles().items():
+            self.client_randomizers[name] = FlexRandomizer(constraints)
         # === CLIENT REQUEST PROFILES ===
 
         # Default profile

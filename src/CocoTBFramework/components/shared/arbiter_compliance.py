@@ -182,6 +182,12 @@ class ArbiterCompliance:
         # COMPATIBILITY ATTRIBUTES - Expected by monitor
         self.pipeline_delay_cycles = 2
         self.grant_history = []
+        # Round-robin scoring (tooling TASK-003, was TOOL-007). analyze_round_robin_compliance()
+        # used to return a hardcoded rr_efficiency of 1.0 whatever the grant sequence did, so a
+        # clean report from it was evidence of nothing. Every grant the checker actually judges
+        # against the mask model's expected winner is counted here, as is every mismatch.
+        self.rr_checks = 0
+        self.rr_violations = 0
         self.transition_matrix = {}
         self.consecutive_grants = {}
         self.patterns_seen = set()
@@ -616,7 +622,10 @@ class ArbiterCompliance:
                 self.log.debug(f"  Masked requests: 0x{masked_requests:x}")
                 self.log.debug(f"  Expected: {expected_winner}, Actual: {current_winner}")
 
+            if expected_winner is not None:
+                self.rr_checks += 1
             if expected_winner is not None and expected_winner != current_winner:
+                self.rr_violations += 1
                 warnings.append({
                     'type': 'round_robin_violation',
                     'message': f"Round-robin violation: Expected client {expected_winner}, got {current_winner}",
@@ -1064,7 +1073,10 @@ class ArbiterCompliance:
                 if deferred is not None:
                     expected_winner = deferred['expected_winner']
                     actual_winner = deferred['client_id']
+                    if expected_winner is not None:
+                        self.rr_checks += 1
                     if expected_winner is not None and expected_winner != actual_winner:
+                        self.rr_violations += 1
                         warnings.append({
                             'type': 'round_robin_violation',
                             'message': (f"Round-robin violation (ACK mode): expected client "
@@ -1414,22 +1426,59 @@ class ArbiterCompliance:
         }
 
     def detect_burst_behavior(self, max_consecutive=3):
-        """Detect excessive consecutive grants"""
+        """Find runs of consecutive grants to ONE client longer than max_consecutive.
+
+        Scans the recorded grant history (the most recent 50-100 grants; see
+        _update_basic_stats). A run is reported with its client, its length and
+        the history index where it starts. This used to return a hardcoded
+        'bursts_detected': 0 whatever the history held.
+        """
+        bursts = []
+        hist = self.grant_history
+        i = 0
+        while i < len(hist):
+            j = i
+            while j + 1 < len(hist) and hist[j + 1] == hist[i]:
+                j += 1
+            run = j - i + 1
+            if run > max_consecutive:
+                bursts.append({'client_id': hist[i], 'length': run, 'start_index': i})
+            i = j + 1
         return {
-            'status': 'analyzed',
-            'bursts_detected': 0,
-            'bursts': []
+            'status': 'analyzed' if hist else 'no_grants',
+            'bursts_detected': len(bursts),
+            'bursts': bursts,
+            'max_consecutive': max_consecutive,
+            'history_length': len(hist),
         }
 
     def analyze_round_robin_compliance(self):
-        """Analyze round-robin pattern compliance"""
+        """Score round-robin compliance from the checks this object actually performed.
+
+        rr_efficiency = 1 - violations / checks, over every grant that was judged
+        against the mask model's expected winner (no-ACK path at grant time, ACK
+        path at ACK time). With zero checks the status is 'no_checks' and the
+        efficiency is None: a report that has checked nothing must not read as a
+        pass. Before this change the method returned 1.0 unconditionally, which
+        is how a round-robin arbiter that starved half its clients passed its
+        own testbench (tooling TASK-003, was TOOL-007).
+        """
         if self.arbiter_type != 'rr':
             return {'status': 'not_round_robin'}
-
+        if self.rr_checks == 0:
+            return {
+                'status': 'no_checks',
+                'rr_efficiency': None,
+                'checks': 0,
+                'violations': 0,
+                'mask_state_debug': str(self.rr_mask_state) if self.rr_mask_state else 'N/A',
+            }
         return {
             'status': 'analyzed',
-            'rr_efficiency': 1.0,
-            'mask_state_debug': str(self.rr_mask_state) if self.rr_mask_state else 'N/A'
+            'rr_efficiency': 1.0 - (self.rr_violations / self.rr_checks),
+            'checks': self.rr_checks,
+            'violations': self.rr_violations,
+            'mask_state_debug': str(self.rr_mask_state) if self.rr_mask_state else 'N/A',
         }
 
     def get_queue_status(self):

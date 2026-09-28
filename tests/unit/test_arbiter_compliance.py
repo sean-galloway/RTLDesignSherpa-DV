@@ -270,3 +270,81 @@ def test_wrr_static_period_weight_compliance_analyzed():
     assert result['actual_grants'] == [30, 10]
     assert result['overall_compliance'] == pytest.approx(1.0)
     assert result['compliant'] is True
+
+
+# =============================================================================
+# tooling TASK-003 (was TOOL-007): the two stubs are real now
+# =============================================================================
+
+def _grant(comp, gnt_id, t, active_requests):
+    """Queue one grant with the request vector the checker judges it against,
+    and run the analysis so the check happens (as the monitor does)."""
+    comp.queue_transaction(make_txn(gnt_id, t, transaction_type='new_grant'),
+                           active_requests=active_requests)
+    comp.run_compliance_analysis()
+
+
+def test_rr_compliance_reports_no_checks_before_any_grant():
+    comp = make_compliance('rr')
+    rep = comp.analyze_round_robin_compliance()
+    assert rep['status'] == 'no_checks'
+    assert rep['rr_efficiency'] is None
+    assert rep['checks'] == 0
+
+
+def test_rr_compliance_efficiency_is_one_for_a_compliant_rotation():
+    comp = make_compliance('rr', clients=4)
+    # all four requesting every cycle: a compliant RR rotates 0,1,2,3,0,...
+    for i in range(12):
+        _grant(comp, i % 4, 10 * (i + 1), 0xF)
+    rep = comp.analyze_round_robin_compliance()
+    assert rep['status'] == 'analyzed'
+    assert rep['checks'] == 12
+    assert rep['violations'] == 0
+    assert rep['rr_efficiency'] == 1.0
+
+
+def test_rr_compliance_efficiency_drops_when_the_rotation_is_violated():
+    comp = make_compliance('rr', clients=4)
+    # a picker that keeps granting client 0 with everyone requesting starves 1-3
+    for i in range(8):
+        _grant(comp, 0, 10 * (i + 1), 0xF)
+    rep = comp.analyze_round_robin_compliance()
+    assert rep['status'] == 'analyzed'
+    assert rep['checks'] == 8
+    assert rep['violations'] >= 7          # the first grant may legitimately be 0
+    assert rep['rr_efficiency'] < 0.2
+    assert warnings_of_type(comp, 'round_robin_violation')
+
+
+def test_burst_detection_finds_a_run_and_ignores_short_ones():
+    comp = make_compliance('rr', clients=4)
+    seq = [0, 1, 2, 3, 2, 2, 2, 2, 2, 1, 0, 0, 0]   # one run of 5 (client 2), one of 3 (client 0)
+    for i, g in enumerate(seq):
+        _grant(comp, g, 10 * (i + 1), 0xF)
+    rep = comp.detect_burst_behavior(max_consecutive=3)
+    assert rep['status'] == 'analyzed'
+    assert rep['bursts_detected'] == 1
+    assert rep['bursts'][0]['client_id'] == 2
+    assert rep['bursts'][0]['length'] == 5
+    assert comp.detect_burst_behavior(max_consecutive=2)['bursts_detected'] == 2
+
+
+def test_burst_detection_on_empty_history_says_so():
+    comp = make_compliance('rr')
+    assert comp.detect_burst_behavior()['status'] == 'no_grants'
+
+
+def test_arbiter_master_catalogue_profiles_include_a_saturating_one():
+    from CocoTBFramework.components.shared.arbiter_master import ArbiterMaster
+    from CocoTBFramework.components.shared.flex_config_gen import DEFAULT_PROFILES
+    profiles = ArbiterMaster.catalogue_client_profiles()
+    # every shared shape is reachable, historical private names are not shadowed
+    assert 'backtoback' in profiles and 'constrained' in profiles and 'stress' in profiles
+    assert 'catalogue_fast' in profiles and 'fast' not in profiles
+    assert profiles['backtoback']['inter_request_delay'] == DEFAULT_PROFILES['backtoback']
+    # 'saturate' is zero delay, one-cycle request, always enabled
+    sat = profiles['saturate']
+    assert sat['inter_request_delay'] == ([(0, 0)], [1.0])
+    assert sat['request_duration'] == ([(1, 1)], [1.0])
+    assert sat['enabled_probability'] == ([(1, 1)], [1.0])

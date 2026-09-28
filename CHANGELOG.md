@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- **`AXI4SlaveRead` lane-positions narrow reads.** A read with ARSIZE below
+  the bus width came back with its bytes in the low lanes whatever the
+  address, while the write path already placed narrow W data in the
+  addressed lanes. A master that lane-selects correctly (rapids
+  `ctrlrd_engine` reading 32-bit words on a 64-bit bus) therefore saw zeros
+  at every address with lane bits set, and its testbench had to keep a
+  hand-rolled R driver just to place the word -- the one thing the
+  framework slave was supposed to replace. `_generate_read_response` now
+  shifts the memory bytes to `addr % bus_bytes` when `bytes_per_beat` is
+  below the bus width; full-width reads and the no-memory pattern path are
+  unchanged. Consumers that issue narrow reads and expected the low-lane
+  form (the dwidth-converter read tests were re-checked) see the bytes
+  where the bus actually carries them.
+
 - **`SMBusMaster` now sees a clock stretch.** Every SCL high phase released
   the line and then waited a fixed delay, never checking that the wire went
   high, so a target holding SCL down was clocked straight through: the delay

@@ -920,6 +920,19 @@ class AXI4SlaveRead:
                     # No memory model: simple address-based pattern for testing
                     data = current_addr
 
+                # Narrow read (ARSIZE below the bus width): on the wire the
+                # bytes ride in the lanes the address selects, exactly as the
+                # write path positions narrow W data. Until 2026-09-27 the
+                # slave returned them in the low lanes regardless of address,
+                # so a master that correctly lane-selects (rapids ctrlrd_engine
+                # on a 64-bit bus, for one) read zeros at every address whose
+                # lane bits were set. INCR bursts walk the lanes beat by beat
+                # because current_addr already advances by bytes_per_beat.
+                bus_bytes = self.data_width // 8
+                if self.memory_model and bytes_per_beat < bus_bytes:
+                    lane = current_addr % bus_bytes
+                    data = (data & ((1 << (bytes_per_beat * 8)) - 1)) << (lane * 8)
+
                 # Create R response packet using GENERIC field names
                 is_last = (i == burst_len - 1)
                 if self.resp_override is not None:

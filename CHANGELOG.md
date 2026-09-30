@@ -2,7 +2,143 @@
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-09-30
+
+### Added
+
+- **Arbiter round-robin scoring and burst detection are real.**
+  `ArbiterCompliance.analyze_round_robin_compliance()` returned a hardcoded
+  `rr_efficiency` of 1.0 whatever the grant sequence did, and
+  `detect_burst_behavior()` a hardcoded `bursts_detected` of 0 -- so a
+  round-robin arbiter that starved half its clients passed its own testbench.
+  Both compute from the observed grants now. Adds shared-catalogue and
+  saturating request profiles.
+
+- **AXI5 chunked reads can arrive out of order** (#81). `AXI5SlaveRead` gains
+  `chunk_order` (`in_order` default, `reverse`, `random` seeded by
+  `chunk_seed`). `RCHUNKSTRB` is every chunk of the beat rather than a constant
+  0, `RCHUNKNUM` the beat's first 128-bit chunk, and `RLAST` lands on the final
+  transfer whichever beat that is. Chunk-width and tag-width checks added.
+
+- **AXI5 slave BFMs keep a real tag store.** Memory Tagging was a stub:
+  `BTAGMATCH` returned 1 for any non-zero `AWTAGOP`, `RTAG` was always 0, and no
+  tag was ever stored. Adds `axi5_tag_store(memory_model)` -- a 16-byte granule
+  to 4-bit tag mapping -- plus per-beat `WTAG` / `WTAGUPDATE`.
+
+- **AXI5 read-return atomics end to end.** `AXI5SlaveWrite` performs
+  AtomicStore/Load (ADD CLR EOR SET SMAX SMIN UMAX UMIN, both endiannesses),
+  AtomicSwap and AtomicCompare against its memory model instead of writing the
+  operand as a plain write, and hands the location's original data to the paired
+  `AXI5SlaveRead` through the new `send_read_return()` and read-return channel.
+  The compliance checker knows about them.
+
+- **`APBMaster.write` / `APBMaster.read` single-transfer helpers.** The APB4
+  master had none; only `APB5Master` did, so dispatching an APB4 master port
+  through `master_apb[i].read/write` raised `AttributeError`.
+
+- **WB4 classic (B4 standard) mode** on the master, slave and monitor.
+  `classic=True` holds the request on STB/CYC until termination, one
+  outstanding, STALL ignored.
+
+- **`WB4Slave.base_addr` and an out-of-range ERR contract**, subtracted the way
+  `AXI4Slave*.base_addr` is. A bounds miss now terminates ERR instead of raising
+  inside the sampling loop and killing the BFM. Adds `WB4Master.write` / `read`.
+
+- **Optional JEDEC spacing audit on the DFI wire** (`DFISlavePHY`). A controller
+  enforces command spacing upstream, but what reaches the DRAM is what matters
+  and the two can differ: the motivating case had an arbiter-side history
+  checker reporting zero tRFC violations through an entire failure while the
+  wire was violating tRFC by 12 cycles.
+
+- **Both Lite families reach full module parity with axi4/axi5.** `axil4` and
+  `axil5` now carry compliance_checker, packet, packet_utils, transaction,
+  timing_config, randomization_config and randomization_manager; the set was
+  previously missing from one or both.
+
+- **Timing profiles for both Lite families**, plus a real package surface. The
+  Lite modules follow AXI5 rather than AXI4, deliberately.
+
+- **Every AMBA family carries all seven canonical timing profiles** -- fixed,
+  constrained, fast, backtoback, burst_pause, slow_producer, high_throughput.
+  All four AXI families were missing five of them.
+
+- **The Lite families get their own signal-mapping protocol entries.** The
+  per-protocol mechanism was intact and simply unused for AXI4-Lite and
+  AXI5-Lite: those channels were built from `GAXIMaster`/`GAXISlave` and took
+  those components' default `protocol_type`, so every Lite channel resolved as
+  `gaxi_master` / `gaxi_slave`.
+
+- **`GAXISlave.ready_policy`** (`valid_first` | `always` | `stall`). The slave
+  modelled only one consumer -- wait for valid, then apply `ready_delay` -- and
+  because that wait is a clocked loop, ready landed a cycle after valid even at
+  `ready_delay=0`.
+
+- **SMBus slave clock stretching actually stretches.** `clock_stretch_cycles`
+  was accepted and stored but never used; the slave now holds SCL low for
+  `clock_stretch_cycles * clock_period_ns` before each ACK it sends, so a DUT
+  master's SCL-hold and timeout paths can be exercised at the bus level.
+  Default 0 keeps the previous behaviour.
+
+### Changed
+
+- **AW issuance is decoupled from the W critical section** (axi4 and axi5). The
+  master-write interfaces held one lock across "send AW, send all W beats",
+  which is stricter than AXI requires and capped the master at roughly one write
+  outstanding. AXI explicitly permits AW0, AW1, then W0, W1.
+
+- **The GAXI per-cycle path does less work.** `get_sim_time('ns')` was taken
+  unconditionally in six phase functions (three each in `gaxi_master` and
+  `gaxi_slave`) whose every reader is debug-only. Profiling a pumice scheduler
+  run showed these as the largest non-scheduler cost.
+
 ### Fixed
+
+- **AXI4 out-of-order slave write pairs W beats with the oldest AW, not the
+  lowest pending ID.** AXI4 write data carries no ID, so a Subordinate pairs W
+  beats with AWs by arrival order -- "out of order" in this BFM means B
+  responses complete in a different order, never that data arrives in one.
+  `AXI4SlaveWrite`'s OOO path handed the next W beat to the lowest pending
+  transaction ID still needing data, which is a different transaction whenever a
+  later AW carries a lower ID.
+
+- **`DFISlavePHY._byte_addr` scales by the DEVICE word, not the DFI phase.** A
+  DRAM column addresses one device word, so the scale is `device_bytes`;
+  `bytes_per_beat` is one DFI phase's data slice, a different quantity. They are
+  equal in the default single-granularity setup, which is why this survived.
+
+- **APB optional signals bind case-insensitively**, like the required ones.
+  `cocotb_bus` is asymmetric and silently so: required signals go through
+  `_add_signal(..., case_insensitive)` while optional ones are gated on a bare
+  case-sensitive `hasattr`, with the miss logged at DEBUG.
+
+- **The twenty Lite identifiers are registered in `protocol_types`**, and the
+  two registries are pinned against each other. `protocol_types` validates
+  `protocol_type` at construction while `signal_mapping_helper` resolves it to
+  patterns; a name added to one and not the other is a silent gap.
+
+- **AXIL optional fields were unsettable, and EXOKAY was treated as an error.**
+  Three defects in the shared transaction methods, none visible to a static
+  test. All are in `axil4_interfaces`, so AXIL4 carried them too.
+
+- **GAXI `ready_policy` branches take the shared `FallingEdge`.** The `always`
+  and `stall` branches returned early from `_recv_phase2`, skipping the edge
+  that places phase 3's sampling mid-cycle where valid/ready are stable. Phase 3
+  then sampled at the wrong point and silently missed handshakes.
+
+- **The `always` ready policy awaits valid before capture.** The first cut
+  returned immediately after asserting ready, skipping the wait entirely, so
+  phase 3 sampled before the producer had driven anything and the packet was
+  lost -- 12 cycles of valid && ready on the pins with `recvQ` still 0.
+
+- **The SMBus monitor creates fresh edge triggers on every wait iteration.**
+  Reusing the `RisingEdge`/`FallingEdge` triggers across `First()` calls hung
+  `_wait_scl_edge_or_condition` whenever SDA moved twice while SCL was low.
+
+- **A wavedrom static qualifier no longer consumes a sequence cycle.**
+  `TemporalRelation.SEQUENCE` forced strictly increasing cycles between every
+  pair of consecutive events, including `SignalStatic` ones -- but a static is a
+  level qualifier with no edge to place, so advancing the counter silently
+  inflated a sequence's minimum length.
 
 - **`AXI4SlaveRead` lane-positions narrow reads.** A read with ARSIZE below
   the bus width came back with its bytes in the low lanes whatever the

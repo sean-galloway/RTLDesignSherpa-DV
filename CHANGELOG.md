@@ -4,23 +4,30 @@
 
 ### Changed
 
-- **Dependency caps, so a plain install cannot break a consumer's tree.**
-  `cocotb-test` 0.2.5 imports `cocotb.config`, which cocotb 2.x removed, and
-  cocotb 2.1.0 is live on PyPI -- so any dependency-resolving install of this
-  package was free to pull cocotb 2.x and make every `cocotb_test`-based test in
-  a consuming repo fail at collection with
+- **The `[sim]` extra requires `cocotb-test>=0.3.0`, so a plain install cannot
+  break a consumer's tree.** `cocotb-test` 0.2.5 imports `cocotb.config`, which
+  cocotb 2.x removed, and cocotb 2.1.0 is live on PyPI -- so any
+  dependency-resolving install of this package was free to pull cocotb 2.x and
+  make every `cocotb_test`-based test in a consuming repo fail at collection with
   `ModuleNotFoundError: No module named 'cocotb.config'`. The error names the
   test file and never mentions cocotb-test, so it reads as a broken repo rather
   than a dependency conflict; it took out a consumer's whole tree on 2026-09-30.
-  - `cocotb>=1.9.0,<2` is added to the **`[sim]` extra**, where `cocotb-test` is
-    declared and the conflict actually lives.
-  - The **core** `cocotb>=1.9.0` floor is deliberately left open. This framework
-    has not been shown incompatible with cocotb 2.x, and capping the core would
-    forbid consumers pairing it with cocotb 2 plus cocotb's native runner.
-  - `cocotb-bus` is capped `<0.3` and `cocotb-coverage` `<2`: the components are
-    written against 0.2.x bus behaviour (the `_add_signal` case-sensitivity
-    asymmetry on optional signals is load-bearing in `apb_components`) and
-    against coverage 1.x, and both have untested newer majors on PyPI.
+  - The fix is **requiring the fixed cocotb-test, not capping cocotb**. 0.3.0
+    (2026-09-23) carries no `cocotb.config` reference at all -- it uses
+    `cocotb_test.compat` (`cocotb_2x_or_newer`, `cocotb_config`) -- declares only
+    `cocotb>=1.5`, and the shim works on cocotb 1.x as well. So the conflict is
+    gone at the source instead of constrained around, and consumers remain free
+    to pair this framework with cocotb 2 and cocotb's own native runner.
+  - An earlier draft of this change capped `cocotb>=1.9.0,<2` in the extra
+    instead. That worked, but it was a workaround for an already-fixed upstream
+    bug and it needlessly pinned cocotb-test 0.3.0 users to cocotb 1.x, so it was
+    replaced before release.
+  - The **core** `cocotb>=1.9.0` floor stays open and uncapped.
+  - `cocotb-bus` is capped `<0.3` and `cocotb-coverage` `<2`: those two ARE core
+    imports, written against 0.2.x bus behaviour (the `_add_signal`
+    case-sensitivity asymmetry on optional signals is load-bearing in
+    `apb_components`) and against coverage 1.x, and both have untested newer
+    majors on PyPI.
 
 ## [0.6.8] - 2026-09-30
 

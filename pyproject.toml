@@ -62,15 +62,21 @@ dev = [
 # Plus you need a Verilog simulator on PATH (verilator recommended) and
 # either RDS_RTL_PATH set or tests/sim/_rds/ submodule initialized.
 sim = [
-    # cocotb-test 0.2.5 does `import cocotb.config`, which cocotb 2.x REMOVED.
-    # Installing this extra against cocotb 2.x makes every cocotb_test-based
-    # test fail at collection with "No module named 'cocotb.config'" -- an error
-    # that names the test file and never mentions cocotb-test, so it reads as a
-    # broken repo rather than a dependency conflict. It cost a consuming repo a
-    # tree-wide outage on 2026-09-30. Cap it here rather than in the core
-    # dependencies, because this extra is the only place the conflict exists.
-    "cocotb>=1.9.0,<2",
-    "cocotb-test>=0.2.5",      # cocotb_test.simulator.run
+    # cocotb-test must be >= 0.3.0, and that requirement REPLACES capping cocotb.
+    # 0.2.5 does `import cocotb.config`, which cocotb 2.x removed, so installing
+    # this extra alongside cocotb 2.x made every cocotb_test-based test fail at
+    # COLLECTION with "No module named 'cocotb.config'" -- an error that names
+    # the test file and never mentions cocotb-test, so it reads as a broken repo
+    # rather than a dependency conflict. It cost a consuming repo a tree-wide
+    # outage on 2026-09-30.
+    #
+    # 0.3.0 (2026-09-23) fixes it at the source: no cocotb.config reference
+    # anywhere, replaced by cocotb_test.compat (cocotb_2x_or_newer,
+    # cocotb_config). It declares only cocotb>=1.5 and the shim works on cocotb
+    # 1.x too, so requiring it is strictly better than a `cocotb<2` cap -- the
+    # conflict is gone rather than constrained around, and consumers stay free to
+    # pair this framework with cocotb 2 and cocotb's own native runner.
+    "cocotb-test>=0.3.0",      # cocotb_test.simulator.run
     "pytest-xdist>=3.5",       # parallel test execution (ptwp alias)
     "pytest-asyncio>=0.23",    # async test support some cocotb tests use
     "pytest-rerunfailures>=14", # flake retry for long sim regressions

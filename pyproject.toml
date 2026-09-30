@@ -30,9 +30,19 @@ classifiers = [
 ]
 
 dependencies = [
+    # cocotb is deliberately NOT capped here. The framework itself has not been
+    # shown incompatible with cocotb 2.x, and capping the core would forbid any
+    # consumer pairing it with cocotb 2 plus cocotb's own native runner. The
+    # real incompatibility is cocotb-test <-> cocotb 2.x, so the cap lives in
+    # the [sim] extra below, where cocotb-test is declared.
     "cocotb>=1.9.0",
-    "cocotb-bus>=0.2.1",
-    "cocotb-coverage>=1.2.0",
+    # These two ARE capped: the framework's components are written against the
+    # 0.2.x cocotb-bus behaviour (cocotb_bus._add_signal's case-sensitivity
+    # asymmetry on optional signals is load-bearing in apb_components), and
+    # against cocotb-coverage 1.x. Both have newer majors on PyPI (0.3.0 and
+    # 2.0) that nothing here has been tested against.
+    "cocotb-bus>=0.2.1,<0.3",
+    "cocotb-coverage>=1.2.0,<2",
     "rich>=14.0.0",
     "numpy>=2.0.0",
 ]
@@ -52,6 +62,14 @@ dev = [
 # Plus you need a Verilog simulator on PATH (verilator recommended) and
 # either RDS_RTL_PATH set or tests/sim/_rds/ submodule initialized.
 sim = [
+    # cocotb-test 0.2.5 does `import cocotb.config`, which cocotb 2.x REMOVED.
+    # Installing this extra against cocotb 2.x makes every cocotb_test-based
+    # test fail at collection with "No module named 'cocotb.config'" -- an error
+    # that names the test file and never mentions cocotb-test, so it reads as a
+    # broken repo rather than a dependency conflict. It cost a consuming repo a
+    # tree-wide outage on 2026-09-30. Cap it here rather than in the core
+    # dependencies, because this extra is the only place the conflict exists.
+    "cocotb>=1.9.0,<2",
     "cocotb-test>=0.2.5",      # cocotb_test.simulator.run
     "pytest-xdist>=3.5",       # parallel test execution (ptwp alias)
     "pytest-asyncio>=0.23",    # async test support some cocotb tests use

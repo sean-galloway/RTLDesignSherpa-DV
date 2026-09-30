@@ -4,7 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cocotb-framework"
-version = "0.6.8"
+# The version is READ FROM src/CocoTBFramework/__init__.py -- see
+# [tool.setuptools.dynamic] below. It used to be a literal here as well, and the
+# two drifted for six releases: the published 0.6.7 wheel shipped
+# __version__ = "0.6.1" while its own METADATA said 0.6.7, so anything asking the
+# package its version got an answer three releases stale. One source now.
+# tooling TASK-021.
+dynamic = ["version"]
 description = "Reusable CocoTB verification infrastructure for RTL testing — BFMs, testbenches, and scoreboards for AMBA protocols and more"
 readme = "README.md"
 license = "MIT"
@@ -93,6 +99,14 @@ Homepage = "https://sean-galloway.github.io/RTLDesignSherpa-DV/"
 Documentation = "https://sean-galloway.github.io/RTLDesignSherpa-DV/"
 Repository = "https://github.com/sean-galloway/RTLDesignSherpa-DV"
 Issues = "https://github.com/sean-galloway/RTLDesignSherpa-DV/issues"
+
+[tool.setuptools.dynamic]
+# Read statically from the module's literal -- setuptools parses the assignment
+# without importing the package, so this works in a source tree and needs no
+# fallback. The alternative (importlib.metadata inside __init__.py) would make
+# __version__ depend on the package being INSTALLED, and this repo's own tests
+# import from src/ rather than an installed copy.
+version = {attr = "CocoTBFramework.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -27,6 +27,38 @@ jobs:
       - name: Ruff check
         run: ruff check src/
 
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    # This repo shipped 1509 unit tests, `testpaths = ["tests"]` configured and
+    # pytest in the dev extra -- and nothing ran them. Two consequences inside one
+    # day (2026-09-30): a stale installed copy made tests/unit report 9 failures
+    # that did not exist in src/, and a genuine defect (BoardLock refusing its own
+    # holder) shipped while the suite was green. Neither would have been caught
+    # here. Tracked as issue #82 and RTLDesignSherpa tooling TASK-021.
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # [all,dev] and not [dev]: tests/unit/test_wavedrom_constraints.py imports
+      # ortools.sat at MODULE level, so without the `all` extra collection aborts
+      # (rc=2) and one error hides all 1509 tests rather than failing loudly.
+      - name: Install package and test deps
+        run: pip install -e ".[all,dev]"
+
+      # tests/unit only. tests/sim is the tier needing a real simulator on PATH
+      # plus RDS_RTL_PATH, and belongs in its own job if it is ever wired up.
+      #
+      # The editable install matters: it puts direct_url at this tree, which is
+      # what lets test_version_single_source compare pip's metadata against
+      # CocoTBFramework.__version__ instead of skipping.
+      - name: Unit tests
+        run: python -m pytest tests/unit -q
+
   build:
     name: Build & verify (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

@@ -449,7 +449,7 @@ class APBGAXIScoreboard:
         """Check scoreboard for unmatched transactions."""
         # Wait a bit for any pending transactions
         from cocotb.triggers import Timer
-        await Timer(timeout_ns, units='ns')
+        await Timer(timeout_ns, 'ns')
 
         # Final match attempt
         self._match_transactions()

@@ -596,7 +596,7 @@ class SMBusSlave:
         if self.clock_stretch_cycles <= 0:
             return
         self._drive_scl_low()
-        await Timer(self.clock_stretch_cycles * self.clock_period_ns, units='ns')
+        await Timer(self.clock_stretch_cycles * self.clock_period_ns, 'ns')
         self._release_scl()
 
     async def _send_ack(self):
@@ -925,7 +925,7 @@ class SMBusMaster:
         """Wait for specified nanoseconds"""
         if ns is None:
             ns = self.half_period_ns
-        await Timer(ns, units='ns')
+        await Timer(ns, 'ns')
 
     async def _scl_high_phase(self):
         """Release SCL and begin the high phase only once the WIRE is high.
@@ -956,7 +956,7 @@ class SMBusMaster:
                         f"releasing the clock; continuing so the test can "
                         f"report it")
                     break
-                await Timer(self.stretch_poll_ns, units='ns')
+                await Timer(self.stretch_poll_ns, 'ns')
                 waited += self.stretch_poll_ns
 
         await self._delay()

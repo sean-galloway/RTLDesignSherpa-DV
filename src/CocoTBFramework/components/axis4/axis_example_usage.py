@@ -45,7 +45,7 @@ async def test_axis_basic_transfer(dut):
     """Basic AXIS transfer test using all four components."""
 
     # Create clock
-    clock = Clock(dut.aclk, 10, units="ns")
+    clock = Clock(dut.aclk, 10, "ns")
     cocotb.start_soon(clock.start())
 
     # Wait for reset
@@ -258,7 +258,7 @@ async def test_axis_simple_components(dut):
     """Test simple AXIS components with minimal sideband signals."""
 
     # Create clock
-    clock = Clock(dut.aclk, 10, units="ns")
+    clock = Clock(dut.aclk, 10, "ns")
     cocotb.start_soon(clock.start())
 
     # Wait for reset
@@ -309,7 +309,7 @@ async def test_axis_manual_signal_mapping(dut):
     """Test AXIS components with manual signal mapping."""
 
     # Create clock
-    clock = Clock(dut.aclk, 10, units="ns")
+    clock = Clock(dut.aclk, 10, "ns")
     cocotb.start_soon(clock.start())
 
     await ClockCycles(dut.aclk, 10)

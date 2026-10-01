@@ -205,7 +205,7 @@ class WB4Monitor(_WB4BusMixin, BusMonitor):
     async def _monitor_recv(self):
         while True:
             await FallingEdge(self.clock)
-            await Timer(_SETTLE_PS, units='ps')
+            await Timer(_SETTLE_PS, 'ps')
             cyc, stb, stall = _int(self.bus.CYC), _int(self.bus.STB), _int(self.bus.STALL)
             ack, err, rty = self._term_bits()
             now = get_sim_time('ns')
@@ -422,7 +422,7 @@ class WB4Slave(_WB4BusMixin, BusMonitor):
 
             # ---- sample what the next edge will see ----
             await FallingEdge(self.clock)
-            await Timer(_SETTLE_PS, units='ps')
+            await Timer(_SETTLE_PS, 'ps')
             cyc, stb = _int(self.bus.CYC), _int(self.bus.STB)
             if not cyc:
                 if self.outstanding or self._pending:
@@ -678,7 +678,7 @@ class WB4Master(WB4SignalMixin, BusDriver):
 
             # ---- sample what the next edge will see ----
             await FallingEdge(self.clock)
-            await Timer(_SETTLE_PS, units='ps')
+            await Timer(_SETTLE_PS, 'ps')
             accepted = bool(self._head is not None and (self.classic or not _int(self.bus.STALL)))
             ack, err, rty = self._term_bits()
             st = _status_of(ack, err, rty)

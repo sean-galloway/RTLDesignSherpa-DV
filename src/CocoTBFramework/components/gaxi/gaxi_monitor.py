@@ -229,7 +229,7 @@ class GAXIMonitor(GAXIMonitorBase):
                         self._trigger_coverage_hooks(packet, direction)
 
                 # Wait a bit to avoid oversampling - EXACT WORKING TIMING
-                await Timer(1, units='ps')
+                await Timer(1, 'ps')
 
         except Exception as e:
             self.log.error(f"GAXIMonitor ({self.title}): Exception in _monitor_recv: {e}")

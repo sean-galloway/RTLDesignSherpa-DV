@@ -284,7 +284,7 @@ class FIFOMonitor(FIFOMonitorBase):
                         self.stats.full_cycles += 1
 
                 # Wait a bit to avoid oversampling - EXACT WORKING TIMING
-                await Timer(1, units='ps')
+                await Timer(1, 'ps')
 
         except Exception as e:
             self.log.error(f"FIFOMonitor ({self.title}): Exception in _monitor_recv: {e}")

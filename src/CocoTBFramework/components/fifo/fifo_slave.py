@@ -143,7 +143,7 @@ class FIFOSlave(FIFOMonitorBase):
     async def _recv_phase1(self, last_packet, last_xfer):
         """EXACT WORKING PHASE 1 - uses inherited clean _get_data_dict()"""
         # Wait a brief moment for signal stability
-        await Timer(200, units='ps')
+        await Timer(200, 'ps')
 
         current_time = get_sim_time('ns')
 
@@ -215,7 +215,7 @@ class FIFOSlave(FIFOMonitorBase):
                 last_xfer = True
                 last_packet = packet
                 await RisingEdge(self.clock)
-                await Timer(self.tick_delay, units=self.tick_units)
+                await Timer(self.tick_delay, self.tick_units)
                 return last_packet, last_xfer
             else:
                 # In fifo_mux mode, capture data in the same cycle
@@ -241,7 +241,7 @@ class FIFOSlave(FIFOMonitorBase):
 
         # Deassert read on the rising edge (prepare for next cycle or delay)
         await RisingEdge(self.clock)
-        await Timer(self.tick_delay, units=self.tick_units)
+        await Timer(self.tick_delay, self.tick_units)
         self._set_rd_ready(0)
 
         # Default return values
@@ -284,7 +284,7 @@ class FIFOSlave(FIFOMonitorBase):
             if self.reset_occurring:
                 break
 
-        await Timer(self.tick_delay, units=self.tick_units)
+        await Timer(self.tick_delay, self.tick_units)
 
     def get_stats(self):
         """Get comprehensive statistics - ENHANCED with unified base stats"""

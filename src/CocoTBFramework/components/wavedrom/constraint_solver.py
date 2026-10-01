@@ -671,7 +671,7 @@ class TemporalConstraintSolver:
 
                 # Wait for sample delay
                 if clock_group.sample_delay_ns > 0:
-                    await Timer(clock_group.sample_delay_ns, units='ns')
+                    await Timer(clock_group.sample_delay_ns, 'ns')
 
                 # Sample signals with protocol awareness
                 await self._sample_signals_for_clock_group(clock_group.name)

@@ -202,7 +202,7 @@ class APBMonitor(APBSignalMixin, BusMonitor):
 
         while True:
             await FallingEdge(self.clock)
-            await Timer(200, units='ps')
+            await Timer(200, 'ps')
 
             # Sample current bus state
             curr_psel = int(self.bus.PSEL.value) if self.bus.PSEL.value.is_resolvable else 0
@@ -438,7 +438,7 @@ class APBSlave(APBSignalMixin, BusMonitor):
             if self.is_signal_present('PSLVERR'):
                 self.bus.PSLVERR.value = 0
 
-            await Timer(200, units='ps')
+            await Timer(200, 'ps')
 
             if not (self.bus.PSEL.value.is_resolvable and int(self.bus.PSEL.value)):
                 continue
@@ -509,12 +509,12 @@ class APBSlave(APBSignalMixin, BusMonitor):
             # Extension response hook (no-op in APB4; APB5Slave drives PRUSER/PBUSER)
             self._drive_extension_response(rand_dict)
 
-            await Timer(200, units='ps')
+            await Timer(200, 'ps')
 
             # Wait for the master to assert PENABLE (access phase complete)
             while not int(self.bus.PENABLE.value):
                 await RisingEdge(self.clock)
-                await Timer(200, units='ps')
+                await Timer(200, 'ps')
 
             # Record and dispatch the transaction
             self.count += 1
@@ -797,7 +797,7 @@ class APBMaster(APBSignalMixin, BusDriver):
         self._drive_extension_setup_phase(transaction)
 
         await RisingEdge(self.clock)
-        await Timer(200, units='ps')
+        await Timer(200, 'ps')
 
         for _ in range(penable_delay):
             await RisingEdge(self.clock)
@@ -809,7 +809,7 @@ class APBMaster(APBSignalMixin, BusDriver):
             await FallingEdge(self.clock)
 
         # Wait for signal values to settle before sampling (matches APBMonitor/APBSlave timing)
-        await Timer(200, units='ps')
+        await Timer(200, 'ps')
 
         # check if the slave is asserting an error
         if self.is_signal_present('PSLVERR') and self.bus.PSLVERR.value:

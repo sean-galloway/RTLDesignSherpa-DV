@@ -306,7 +306,7 @@ class FIFOMaster(FIFOComponentBase, BusDriver):
         """EXACT WORKING WAIT METHOD - DO NOT MODIFY"""
         for _ in range(cycles):
             await RisingEdge(self.clock)
-            await Timer(200, units='ps')
+            await Timer(200, 'ps')
             if self.reset_occurring:
                 break
 

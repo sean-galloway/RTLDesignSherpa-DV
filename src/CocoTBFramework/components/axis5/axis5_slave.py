@@ -160,7 +160,7 @@ class AXIS5Slave(AXISSlave):
                         wakeup_val = int(self.wakeup_signal.value)
                         if wakeup_val and not self._wakeup_detected:
                             self._wakeup_detected = True
-                            self._last_wakeup_time = get_sim_time(units='ns')
+                            self._last_wakeup_time = get_sim_time('ns')
                             self.wakeup_events += 1
 
                             if self.log and self.super_debug:

@@ -216,7 +216,7 @@ class AXIS5Monitor(AXISMonitor):
                         if wakeup_val and not self._wakeup_active:
                             # Rising edge of wakeup
                             self._wakeup_active = True
-                            last_wakeup_time = get_sim_time(units='ns')
+                            last_wakeup_time = get_sim_time('ns')
                             self.wakeup_events += 1
                             data_after_wakeup = False
 
@@ -234,7 +234,7 @@ class AXIS5Monitor(AXISMonitor):
                             self._wakeup_active = False
 
                             self._wakeup_history.append({
-                                'time': get_sim_time(units='ns'),
+                                'time': get_sim_time('ns'),
                                 'type': 'deassert'
                             })
 

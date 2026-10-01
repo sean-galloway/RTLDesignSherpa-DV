@@ -4,6 +4,14 @@
 
 ### Changed
 
+- **`Timer`, `Clock` and `get_sim_time` take their unit POSITIONALLY.** 34 sites.
+  Not a rename to `unit=`: that keyword does not exist in cocotb 1.9.2 and would
+  break the supported version outright (`TypeError: Timer.__init__() got an
+  unexpected keyword argument`). Measured across both versions, positional is the
+  only form that is clean on BOTH -- `units=` still works everywhere but raises a
+  DeprecationWarning on 2.x, and one area's run emitted 1884 of them. Our own
+  `TBBase.start_clock(units=...)` keeps its keyword; it is not a cocotb API.
+
 - **Signal values are read with `int()` and `str()`, not `.integer` and
   `.binstr`.** 80 sites across 14 modules. This is forward compatibility with
   cocotb 2.x and it is not cosmetic: in 2.x a MULTI-bit signal returns a

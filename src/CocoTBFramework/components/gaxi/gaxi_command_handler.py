@@ -109,10 +109,10 @@ class GAXICommandHandler:
         """Stop the command handler processing task."""
         self.running = False
         if self.processor_task:
-            await Timer(10, units='ns')
+            await Timer(10, 'ns')
             self.processor_task = None
         if self.response_task:
-            await Timer(10, units='ns')
+            await Timer(10, 'ns')
             self.response_task = None
 
         if self.log:

@@ -328,7 +328,7 @@ class GAXISlave(GAXIMonitorBase):
         self.phase_statistics['phase1_count'] += 1
 
         # Wait a brief moment for signal stability - exact original logic
-        await Timer(200, units='ps')
+        await Timer(200, 'ps')
         current_time = get_sim_time('ns')
 
         # Check if last transfer is pending (fifo_flop mode)
@@ -484,7 +484,7 @@ class GAXISlave(GAXIMonitorBase):
                 last_xfer = True
                 last_packet = packet
                 await RisingEdge(self.clock)
-                await Timer(self.tick_delay, units=self.tick_units)
+                await Timer(self.tick_delay, self.tick_units)
 
                 if self.pipeline_debug:
                     phase_duration = get_sim_time('ns') - phase_start
@@ -520,7 +520,7 @@ class GAXISlave(GAXIMonitorBase):
 
         # Deassert ready on the rising edge (prepare for next cycle or delay)
         await RisingEdge(self.clock)
-        await Timer(self.tick_delay, units=self.tick_units)
+        await Timer(self.tick_delay, self.tick_units)
         self._set_ready(0)
 
         if self.pipeline_debug:
@@ -542,7 +542,7 @@ class GAXISlave(GAXIMonitorBase):
                     self.log.debug(f"Slave({self.title}): wait_cycles interrupted by reset at cycle {cycle}")
                 break
 
-        await Timer(self.tick_delay, units=self.tick_units)
+        await Timer(self.tick_delay, self.tick_units)
 
     def get_pipeline_stats(self):
         """Get pipeline-specific statistics"""

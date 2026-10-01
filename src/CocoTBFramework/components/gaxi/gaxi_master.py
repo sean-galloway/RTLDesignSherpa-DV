@@ -479,7 +479,7 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
         """Enhanced wait method with reset awareness"""
         for _ in range(cycles):
             await RisingEdge(self.clock)
-            await Timer(200, units='ps')
+            await Timer(200, 'ps')
             if self.reset_occurring:
                 if self.pipeline_debug:
                     self.log.debug(f"Master({self.title}): wait_cycles interrupted by reset")

@@ -4,6 +4,19 @@
 
 ### Changed
 
+- **The `cocotb-bus<0.3` cap is lifted.** The cap's stated reason was that the
+  0.2.x `_add_signal` case-sensitivity asymmetry is "load-bearing in
+  apb_components". That was the wrong word: the framework WORKS AROUND the
+  asymmetry (`APBSignalMixin._match_optional_case`), it does not depend on it --
+  0.2.x gates optional signals on a case-SENSITIVE `hasattr`, so a
+  lowercase-port DUT silently loses PSTRB/PPROT/PSLVERR. 0.3.0 fixes that
+  upstream, which makes the workaround redundant rather than broken.
+
+  Measured on the APB suite the cap was protecting, cocotb 1.9.2 both sides:
+  0.2.1 -> 45 passed, 0.3.0 -> 45 passed. 0.3.0 is additionally REQUIRED for any
+  cocotb 2.x work, since 0.2.1 imports the removed `cocotb.decorators`. It
+  declares a `scapy` dependency that nothing on our path imports.
+
 - **`Timer`, `Clock` and `get_sim_time` take their unit POSITIONALLY.** 34 sites.
   Not a rename to `unit=`: that keyword does not exist in cocotb 1.9.2 and would
   break the supported version outright (`TypeError: Timer.__init__() got an

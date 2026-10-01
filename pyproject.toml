@@ -42,12 +42,27 @@ dependencies = [
     # real incompatibility is cocotb-test <-> cocotb 2.x, so the cap lives in
     # the [sim] extra below, where cocotb-test is declared.
     "cocotb>=1.9.0",
-    # These two ARE capped: the framework's components are written against the
-    # 0.2.x cocotb-bus behaviour (cocotb_bus._add_signal's case-sensitivity
-    # asymmetry on optional signals is load-bearing in apb_components), and
-    # against cocotb-coverage 1.x. Both have newer majors on PyPI (0.3.0 and
-    # 2.0) that nothing here has been tested against.
-    "cocotb-bus>=0.2.1,<0.3",
+    # cocotb-bus is NO LONGER capped (2026-10-01). The previous cap said the
+    # 0.2.x `_add_signal` case-sensitivity asymmetry was "load-bearing in
+    # apb_components". That was the wrong word and it cost a release: the
+    # framework does not DEPEND on the asymmetry, it WORKS AROUND it.
+    # `APBSignalMixin._match_optional_case` exists precisely because 0.2.x gates
+    # optional signals on a case-SENSITIVE `hasattr`, so a lowercase-port DUT
+    # silently loses PSTRB/PPROT/PSLVERR -- writes go out with zero byte strobes
+    # and the register just reads back its reset value.
+    #
+    # 0.3.0 FIXES that upstream (optional signals now go through
+    # `_caseInsensGetattr`), so the workaround becomes redundant rather than
+    # broken -- it returns exact matches unchanged.
+    #
+    # Measured before lifting, on the APB suite that the cap was protecting,
+    # cocotb 1.9.2 both sides: 0.2.1 -> 45 passed, 0.3.0 -> 45 passed.
+    # 0.3.0 is also REQUIRED for any cocotb 2.x work: 0.2.1's
+    # `cocotb_bus/drivers/__init__.py` imports `cocotb.decorators`, which 2.x
+    # removed. Note 0.3.0 declares a `scapy` dependency; nothing on the
+    # driver/monitor/bus path this framework uses imports it.
+    "cocotb-bus>=0.2.1",
+    # cocotb-coverage stays capped: 2.0 is still untested here.
     "cocotb-coverage>=1.2.0,<2",
     "rich>=14.0.0",
     "numpy>=2.0.0",

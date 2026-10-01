@@ -62,7 +62,7 @@ class _StubBus:
 
 
 class _StubSignal:
-    """Stub for a cocotb signal handle. ``.value.integer`` is what hooks read.
+    """Stub for a cocotb signal handle. ``int(sig.value)`` is what hooks read.
 
     Hook-driven assignments replace ``.value`` with the raw assigned value;
     ``setimmediatevalue`` calls are recorded in ``immediate_calls``.
@@ -77,9 +77,26 @@ class _StubSignal:
 
 
 class _StubValue:
-    def __init__(self, integer_value: int):
+    """Stands in for a cocotb signal value.
+
+    Must support `int()` and `str()`, because every real thing it impersonates
+    does: cocotb 1.x `BinaryValue`, and cocotb 2.x `Logic` and `LogicArray`.
+    Note `Logic` (a single-bit value) has NO `.integer` attribute at all in
+    2.x -- so a stub offering only `.integer` models a type that does not
+    exist, and the production code reading it that way would be untestable
+    against the version it has to run on.
+    """
+
+    def __init__(self, integer_value: int, width: int = 32):
         self.integer = integer_value
         self.is_resolvable = True
+        self._width = width
+
+    def __int__(self):
+        return self.integer
+
+    def __str__(self):
+        return format(self.integer, f"0{self._width}b")
 
     def __bool__(self):
         return bool(self.integer)

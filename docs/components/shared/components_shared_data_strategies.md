@@ -328,7 +328,10 @@ def get_data_dict(self):
 # Pre-built during initialization - fast!
 def collect_addr(data_dict):
     if addr_signal.value.is_resolvable:
-        data_dict['addr'] = addr_signal.value.integer
+        # int(), not .value.integer: a single-bit signal is a cocotb 2.x
+        # `Logic`, which has no `.integer` at all. int() works on every type
+        # cocotb has returned here -- 1.x BinaryValue, 2.x Logic and LogicArray.
+        data_dict['addr'] = int(addr_signal.value)
     else:
         data_dict['addr'] = -1
 

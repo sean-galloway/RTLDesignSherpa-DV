@@ -140,7 +140,7 @@ class ArbiterMonitor(BusMonitor):
                     else:
                         val = req_signal.value
                         if hasattr(val, 'binstr'):
-                            self.clients = len(val.binstr)
+                            self.clients = len(str(val))
                         else:
                             self.clients = val.n_bits
                 else:
@@ -814,7 +814,7 @@ class ArbiterMonitor(BusMonitor):
                 # end of a CLIENTS=4/MAX_LEVELS=8 vector, making client 3 look
                 # permanently zero-weighted and flagging every grant it got.
                 try:
-                    total = len(sig.value.binstr)
+                    total = len(str(sig.value))
                 except Exception:
                     total = 0
             width = (total // self.clients) if (total and self.clients) else 4
@@ -842,7 +842,7 @@ class ArbiterMonitor(BusMonitor):
             sig = getattr(self.bus, 'req_cost', None)
             if sig is not None:
                 try:
-                    total = len(sig.value.binstr)
+                    total = len(str(sig.value))
                 except Exception:
                     total = 0
             width = (total // self.clients) if (total and self.clients) else 4

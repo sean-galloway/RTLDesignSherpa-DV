@@ -59,7 +59,7 @@ class DFIv6_0Behavior(DFIv5_2Behavior):
         if alert is None:
             return None
         v = alert.value
-        if v.is_resolvable and v.integer == 0:
+        if v.is_resolvable and int(v) == 0:
             return CRCEvent(kind=CRCKind.DRAM_CRC, slice_idx=0)
         return None
 

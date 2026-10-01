@@ -105,7 +105,7 @@ _PHY_MASTER_SIGNALS = ("phymstr_req", "phymstr_ack")
 def _v(sig) -> int:
     """Read a cocotb signal as int, returning 0 if unresolvable (X/Z)."""
     v = sig.value
-    return v.integer if v.is_resolvable else 0
+    return int(v) if v.is_resolvable else 0
 
 
 # ---------------------------------------------------------------------

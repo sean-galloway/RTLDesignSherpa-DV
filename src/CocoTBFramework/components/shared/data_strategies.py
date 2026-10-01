@@ -172,7 +172,7 @@ class DataCollectionStrategy:
         def collect_field(data_dict):
             if signal_obj.value.is_resolvable:
                 try:
-                    value = signal_obj.value.integer
+                    value = int(signal_obj.value)
 
                     # Apply the correct max value (which is now the combined signal max)
                     if value > max_value:

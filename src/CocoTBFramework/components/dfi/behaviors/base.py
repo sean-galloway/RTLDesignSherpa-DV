@@ -55,7 +55,7 @@ from .exceptions import NotSupportedInThisVersionError
 def _bus_value(sig) -> int:
     """Return the integer value of a cocotb signal, 0 if unresolvable."""
     v = sig.value
-    return v.integer if v.is_resolvable else 0
+    return int(v) if v.is_resolvable else 0
 
 
 def _maybe(bus: Any, name: str):

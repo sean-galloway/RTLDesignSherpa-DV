@@ -390,15 +390,15 @@ class GAXISlave(GAXIMonitorBase):
                 hasattr(self, 'ready_sig') and self.ready_sig is not None and
                 self.valid_sig.value.is_resolvable and
                 self.ready_sig.value.is_resolvable and
-                self.valid_sig.value.integer == 1 and
-                self.ready_sig.value.integer == 1):
+                int(self.valid_sig.value) == 1 and
+                int(self.ready_sig.value) == 1):
 
             # Wait for valid to assert to decide to delay the ready
             if (hasattr(self, 'valid_sig') and self.valid_sig is not None and
                 self.valid_sig.value.is_resolvable):
 
                 wait_cycles = 0
-                while self.valid_sig.value.integer == 0:
+                while int(self.valid_sig.value) == 0:
                     await self.wait_cycles(1)
                     wait_cycles += 1
                     if self.pipeline_debug and wait_cycles == 1:
@@ -447,7 +447,7 @@ class GAXISlave(GAXIMonitorBase):
         #    self.pipeline_debug` branches. It is now taken only when needed.
         #  * `self.valid_sig.value` was evaluated THREE times and
         #    `self.ready_sig.value` three times in the handshake test below
-        #    (.is_resolvable, then .integer). Every `.value` access is a fresh
+        #    (.is_resolvable, then int()). Every `.value` access is a fresh
         #    read plus a BinaryValue construction, which is why a profile of a
         #    pumice scheduler run showed 161k handle.value calls and 164k
         #    BinaryValue constructions. Each signal is read ONCE into a local.
@@ -465,7 +465,7 @@ class GAXISlave(GAXIMonitorBase):
             valid_val = ready_val = None
         if (valid_val is not None and ready_val is not None and
             valid_val.is_resolvable and ready_val.is_resolvable and
-            valid_val.integer == 1 and ready_val.integer == 1):
+            int(valid_val) == 1 and int(ready_val) == 1):
 
             if self.pipeline_debug:
                 self.log.debug(f"Slave({self.title}) Phase3: handshake detected, processing transaction")

@@ -205,9 +205,9 @@ class APBMonitor(APBSignalMixin, BusMonitor):
             await Timer(200, units='ps')
 
             # Sample current bus state
-            curr_psel = self.bus.PSEL.value.integer if self.bus.PSEL.value.is_resolvable else 0
-            curr_penable = self.bus.PENABLE.value.integer
-            curr_pready = self.bus.PREADY.value.integer if self.bus.PREADY.value.is_resolvable else 0
+            curr_psel = int(self.bus.PSEL.value) if self.bus.PSEL.value.is_resolvable else 0
+            curr_penable = int(self.bus.PENABLE.value)
+            curr_pready = int(self.bus.PREADY.value) if self.bus.PREADY.value.is_resolvable else 0
 
             # APB transaction completes when:
             # 1. PSEL & PENABLE & PREADY are ALL high (completion condition)
@@ -223,20 +223,20 @@ class APBMonitor(APBSignalMixin, BusMonitor):
 
             if valid_edge:
                 start_time = get_sim_time('ns')
-                address    = self.bus.PADDR.value.integer
-                direction  = pwrite[self.bus.PWRITE.value.integer]
-                loc_pwrite = self.bus.PWRITE.value.integer
-                error      = self.bus.PSLVERR.value.integer if self.is_signal_present('PSLVERR') else 0
+                address    = int(self.bus.PADDR.value)
+                direction  = pwrite[int(self.bus.PWRITE.value)]
+                loc_pwrite = int(self.bus.PWRITE.value)
+                error      = int(self.bus.PSLVERR.value) if self.is_signal_present('PSLVERR') else 0
 
                 if direction == 'READ':
                     if self.bus.PRDATA.value.is_resolvable:
-                        data = self.bus.PRDATA.value.integer
+                        data = int(self.bus.PRDATA.value)
                     else:
                         data = self.bus.PRDATA.value
                 else:
-                    data = self.bus.PWDATA.value.integer
-                strb = self.bus.PSTRB.value.integer if self.is_signal_present('PSTRB') else 0
-                pprot = self.bus.PPROT.value.integer if self.is_signal_present('PPROT') else 0
+                    data = int(self.bus.PWDATA.value)
+                strb = int(self.bus.PSTRB.value) if self.is_signal_present('PSTRB') else 0
+                pprot = int(self.bus.PPROT.value) if self.is_signal_present('PPROT') else 0
                 self.count += 1
 
                 # Build the protocol-specific packet via the extension hook.
@@ -440,7 +440,7 @@ class APBSlave(APBSignalMixin, BusMonitor):
 
             await Timer(200, units='ps')
 
-            if not (self.bus.PSEL.value.is_resolvable and self.bus.PSEL.value.integer):
+            if not (self.bus.PSEL.value.is_resolvable and int(self.bus.PSEL.value)):
                 continue
 
             # PSEL detected — start a transaction.
@@ -453,15 +453,15 @@ class APBSlave(APBSignalMixin, BusMonitor):
                 await RisingEdge(self.clock)
 
             # Sample address, direction, and inputs (data is stable through PREADY).
-            address    = self.bus.PADDR.value.integer
-            direction  = pwrite[self.bus.PWRITE.value.integer]
-            loc_pwrite = self.bus.PWRITE.value.integer
-            pprot      = (self.bus.PPROT.value.integer
+            address    = int(self.bus.PADDR.value)
+            direction  = pwrite[int(self.bus.PWRITE.value)]
+            loc_pwrite = int(self.bus.PWRITE.value)
+            pprot      = (int(self.bus.PPROT.value)
                           if self.is_signal_present('PPROT') else 0)
-            pstrb_in   = (self.bus.PSTRB.value.integer
+            pstrb_in   = (int(self.bus.PSTRB.value)
                           if self.is_signal_present('PSTRB') else
                           (1 << self.strb_bits) - 1)
-            pwdata_in  = (self.bus.PWDATA.value.integer
+            pwdata_in  = (int(self.bus.PWDATA.value)
                           if direction == 'WRITE' else 0)
             extension_inputs = self._capture_extension_input_fields()
 
@@ -512,7 +512,7 @@ class APBSlave(APBSignalMixin, BusMonitor):
             await Timer(200, units='ps')
 
             # Wait for the master to assert PENABLE (access phase complete)
-            while not self.bus.PENABLE.value.integer:
+            while not int(self.bus.PENABLE.value):
                 await RisingEdge(self.clock)
                 await Timer(200, units='ps')
 
@@ -813,12 +813,12 @@ class APBMaster(APBSignalMixin, BusDriver):
 
         # check if the slave is asserting an error
         if self.is_signal_present('PSLVERR') and self.bus.PSLVERR.value:
-            transaction.fields['pslverr'] = self.bus.PSLVERR.value.integer
+            transaction.fields['pslverr'] = int(self.bus.PSLVERR.value)
 
         # if this is a read we should sample the data
         if transaction.direction == 'READ':
             if self.bus.PRDATA.value.is_resolvable:
-                transaction.fields['prdata'] = self.bus.PRDATA.value.integer
+                transaction.fields['prdata'] = int(self.bus.PRDATA.value)
             else:
                 transaction.fields['prdata'] = self.bus.PRDATA.value
 

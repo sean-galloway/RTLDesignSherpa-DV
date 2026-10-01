@@ -925,7 +925,7 @@ class TemporalConstraintSolver:
         """Get integer value from DUT signal"""
         try:
             if hasattr(dut_signal.value, 'integer'):
-                return dut_signal.value.integer
+                return int(dut_signal.value)
             return int(dut_signal.value)
         except Exception:
             return 0

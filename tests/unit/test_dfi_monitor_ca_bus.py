@@ -39,6 +39,12 @@ class _Val:
         self.integer = v
         self.is_resolvable = resolvable
 
+    def __int__(self):
+        return self.integer
+
+    def __str__(self):
+        return format(self.integer, "032b")
+
 
 class _Sig:
     def __init__(self, v=0, resolvable=True):

@@ -14,6 +14,12 @@ class MockVal:
         self.integer = integer
         self.is_resolvable = True
 
+    def __int__(self):
+        return self.integer
+
+    def __str__(self):
+        return format(self.integer, "032b")
+
 
 class MockSig:
     """Minimal stand-in for a cocotb signal handle."""

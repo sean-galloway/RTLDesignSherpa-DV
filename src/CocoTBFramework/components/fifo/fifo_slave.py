@@ -174,8 +174,8 @@ class FIFOSlave(FIFOMonitorBase):
                 getattr(self, 'read_sig', None) is not None and
                 self.empty_sig.value.is_resolvable and
                 self.read_sig.value.is_resolvable and
-                self.empty_sig.value.integer == 0 and
-                self.read_sig.value.integer == 1):
+                int(self.empty_sig.value) == 0 and
+                int(self.read_sig.value) == 1):
             # Previous read in progress, no delay
             return
 
@@ -200,8 +200,8 @@ class FIFOSlave(FIFOMonitorBase):
             hasattr(self, 'empty_sig') and self.empty_sig is not None and
             self.read_sig.value.is_resolvable and
             self.empty_sig.value.is_resolvable and
-            self.read_sig.value.integer == 1 and
-            self.empty_sig.value.integer == 0):
+            int(self.read_sig.value) == 1 and
+            int(self.empty_sig.value) == 0):
 
             # Create a new packet
             packet = self._build_packet()
@@ -232,8 +232,8 @@ class FIFOSlave(FIFOMonitorBase):
                 hasattr(self, 'empty_sig') and self.empty_sig is not None and
                 self.read_sig.value.is_resolvable and
                 self.empty_sig.value.is_resolvable and
-                self.read_sig.value.integer == 1 and
-                self.empty_sig.value.integer == 1):
+                int(self.read_sig.value) == 1 and
+                int(self.empty_sig.value) == 1):
             # Use monitoring statistics for read while empty
             if hasattr(self.stats, 'read_while_empty'):
                 self.stats.read_while_empty += 1

@@ -4,6 +4,28 @@
 
 ### Changed
 
+- **Signal values are read with `int()` and `str()`, not `.integer` and
+  `.binstr`.** 80 sites across 14 modules. This is forward compatibility with
+  cocotb 2.x and it is not cosmetic: in 2.x a MULTI-bit signal returns a
+  `LogicArray`, which still has `.integer` (deprecated), but a SINGLE-bit signal
+  returns a `Logic`, which has **no `.integer` at all**. So every
+  `valid.value.integer` style read -- handshakes, ready/valid, enables -- raises
+  `AttributeError` under cocotb 2.x while the wide reads keep working, which is
+  the most confusing possible failure distribution.
+
+  `int()` is correct on every type cocotb has returned here: 1.x `BinaryValue`,
+  2.x `Logic` and `LogicArray`. Verified equal to the old accessor on 1.9.2
+  before the change (`int(b) == b.integer` and `str(b) == b.binstr` across
+  several widths), so behaviour on the supported version is unchanged.
+
+  `.is_resolvable` is untouched -- it exists on both 2.x types, so the 54 uses of
+  it needed no change.
+
+  Four unit-test doubles gained `__int__`/`__str__`. They modelled `.integer`
+  only, which is a type cocotb 2.x does not have; a double that cannot represent
+  the real object makes the code reading it untestable against the version it
+  must run on.
+
 - **The `[sim]` extra requires `cocotb-test>=0.3.0`, so a plain install cannot
   break a consumer's tree.** `cocotb-test` 0.2.5 imports `cocotb.config`, which
   cocotb 2.x removed, and cocotb 2.1.0 is live on PyPI -- so any

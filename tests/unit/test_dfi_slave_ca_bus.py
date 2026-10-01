@@ -45,6 +45,12 @@ class _Val:
         self.integer = value
         self.is_resolvable = resolvable
 
+    def __int__(self):
+        return self.integer
+
+    def __str__(self):
+        return format(self.integer, "032b")
+
 
 class _Bus:
     def __init__(self, **sigs):

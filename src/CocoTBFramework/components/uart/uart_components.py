@@ -83,7 +83,7 @@ class UARTMonitor(BusMonitor):
             # Wait for start bit (falling edge on idle line)
             while True:
                 await Edge(self.signal)
-                if self.signal.value.integer == 0:  # Start bit detected
+                if int(self.signal.value) == 0:  # Start bit detected
                     break
 
             start_time = get_sim_time('ns')
@@ -91,7 +91,7 @@ class UARTMonitor(BusMonitor):
             # Wait to middle of start bit to verify it's stable
             await self._wait_bit_periods(0.5)
 
-            if self.signal.value.integer != 0:
+            if int(self.signal.value) != 0:
                 # False start bit - return to idle detection
                 continue
 
@@ -99,12 +99,12 @@ class UARTMonitor(BusMonitor):
             data = 0
             for bit_idx in range(8):
                 await self._wait_bit_periods(1.0)
-                bit_val = self.signal.value.integer
+                bit_val = int(self.signal.value)
                 data |= (bit_val << bit_idx)
 
             # Sample stop bit
             await self._wait_bit_periods(1.0)
-            stop_bit = self.signal.value.integer
+            stop_bit = int(self.signal.value)
             framing_error = (stop_bit != 1)
 
             self.count += 1
@@ -299,20 +299,20 @@ class UARTSlave(BusDriver):
             # Wait for start bit
             while True:
                 await Edge(self.rx_signal)
-                if self.rx_signal.value.integer == 0:
+                if int(self.rx_signal.value) == 0:
                     break
 
             # Wait to middle of start bit
             await self._wait_bit_periods(0.5)
 
-            if self.rx_signal.value.integer != 0:
+            if int(self.rx_signal.value) != 0:
                 continue  # False start
 
             # Sample 8 data bits
             data = 0
             for bit_idx in range(8):
                 await self._wait_bit_periods(1.0)
-                bit_val = self.rx_signal.value.integer
+                bit_val = int(self.rx_signal.value)
                 data |= (bit_val << bit_idx)
 
             # Wait for stop bit

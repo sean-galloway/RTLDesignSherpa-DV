@@ -134,7 +134,7 @@ async def _wait_scl_edge_or_condition(scl, sda, rising: bool = True) -> SMBusCon
 
         # SDA moved - classify by SCL level at the moment of the edge
         sda_after = 1 if fired is sda_rise else 0
-        condition = classify_sda_event(scl.value.integer, sda_after)
+        condition = classify_sda_event(int(scl.value), sda_after)
         if condition is not SMBusCondition.IDLE:
             return condition
         # SDA changed while SCL low: normal data transition, keep waiting
@@ -220,7 +220,7 @@ class SMBusMonitor:
             # Wait for SDA falling edge
             await FallingEdge(self.sda)
             # Check if SCL is high (START condition)
-            if self.scl.value.integer == 1:
+            if int(self.scl.value) == 1:
                 return True
         return False
 
@@ -229,12 +229,12 @@ class SMBusMonitor:
         # Wait for SDA rising edge
         await RisingEdge(self.sda)
         # Check if SCL is high (STOP condition)
-        return self.scl.value.integer == 1
+        return int(self.scl.value) == 1
 
     async def _receive_bit(self) -> int:
         """Receive a single bit on SDA, sampled on SCL rising edge"""
         await RisingEdge(self.scl)
-        return self.sda.value.integer
+        return int(self.sda.value)
 
     async def _receive_byte(self, with_ack: bool = True) -> tuple:
         """
@@ -370,7 +370,7 @@ class SMBusMonitor:
             if result != SMBusCondition.IDLE:
                 return byte_val, False, result, False
 
-            bit = self.sda.value.integer
+            bit = int(self.sda.value)
             byte_val = (byte_val << 1) | bit
 
             # Wait for SCL falling; SDA moving while SCL is high is a condition
@@ -383,7 +383,7 @@ class SMBusMonitor:
         if result != SMBusCondition.IDLE:
             return byte_val, False, result, False
 
-        ack = (self.sda.value.integer == 0)
+        ack = (int(self.sda.value) == 0)
 
         # Byte and ACK fully sampled; a condition here ends the transaction
         # but the byte is still valid.
@@ -618,7 +618,7 @@ class SMBusSlave:
     async def _receive_bit(self) -> int:
         """Receive a bit from the bus"""
         await RisingEdge(self.scl_i)
-        bit = self.sda_i.value.integer
+        bit = int(self.sda_i.value)
         await FallingEdge(self.scl_i)
         return bit
 
@@ -648,7 +648,7 @@ class SMBusSlave:
 
         # Receive ACK
         await RisingEdge(self.scl_i)
-        ack = (self.sda_i.value.integer == 0)
+        ack = (int(self.sda_i.value) == 0)
         await FallingEdge(self.scl_i)
 
         return ack
@@ -657,7 +657,7 @@ class SMBusSlave:
         """Wait for START condition"""
         while self._running:
             await FallingEdge(self.sda_i)
-            if self.scl_i.value.integer == 1:
+            if int(self.scl_i.value) == 1:
                 return True
         return False
 
@@ -683,7 +683,7 @@ class SMBusSlave:
             if condition != SMBusCondition.IDLE:
                 return byte_val, condition, False
 
-            bit = self.sda_i.value.integer
+            bit = int(self.sda_i.value)
             byte_val = (byte_val << 1) | bit
 
             condition = await _wait_scl_edge_or_condition(
@@ -1032,7 +1032,7 @@ class SMBusMaster:
         await self._scl_high_phase()
 
         # Sample SDA
-        bit = self.sda_i.value.integer
+        bit = int(self.sda_i.value)
 
         # Clock low
         self._drive_scl_low()

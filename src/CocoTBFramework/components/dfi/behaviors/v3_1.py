@@ -68,7 +68,7 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
         if alert is None:
             return None
         v = alert.value
-        if v.is_resolvable and v.integer == 0:
+        if v.is_resolvable and int(v) == 0:
             return CRCEvent(kind=CRCKind.DRAM_CRC, slice_idx=0)
         return None
 
@@ -126,7 +126,7 @@ class DFIv3_1Behavior(DFIv2_1Behavior):
                 width = len(phylvl_req)
             except TypeError:
                 width = 1
-            if v.is_resolvable and v.integer != (1 << width) - 1:
+            if v.is_resolvable and int(v) != (1 << width) - 1:
                 return TrainingEvent(
                     phase=TrainingPhase.PHY_REQUESTED, slice_idx=0,
                 )

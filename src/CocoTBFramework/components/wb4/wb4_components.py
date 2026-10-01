@@ -55,7 +55,7 @@ _SETTLE_PS = 200
 
 def _int(sig, default=0):
     v = sig.value
-    return v.integer if v.is_resolvable else default
+    return int(v) if v.is_resolvable else default
 
 
 class WB4SignalMixin:

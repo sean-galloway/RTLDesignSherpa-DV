@@ -158,15 +158,15 @@ class APB5Monitor(APBMonitor):
                       direction: str) -> Any:
         """Construct an APB5Packet with USER / WAKEUP fields sampled."""
         del direction  # APB5 doesn't need it; pwrite already carries direction
-        pauser = (self.bus.PAUSER.value.integer
+        pauser = (int(self.bus.PAUSER.value)
                   if self.is_signal_present('PAUSER') else 0)
-        pwuser = (self.bus.PWUSER.value.integer
+        pwuser = (int(self.bus.PWUSER.value)
                   if self.is_signal_present('PWUSER') else 0)
-        pruser = (self.bus.PRUSER.value.integer
+        pruser = (int(self.bus.PRUSER.value)
                   if self.is_signal_present('PRUSER') else 0)
-        pbuser = (self.bus.PBUSER.value.integer
+        pbuser = (int(self.bus.PBUSER.value)
                   if self.is_signal_present('PBUSER') else 0)
-        wakeup = (self.bus.PWAKEUP.value.integer
+        wakeup = (int(self.bus.PWAKEUP.value)
                   if self.is_signal_present('PWAKEUP') else 0)
 
         return APB5Packet(
@@ -295,9 +295,9 @@ class APB5Master(APBMaster):
         :meth:`_drive_extension_setup_phase`), not by the completer.
         """
         if self.is_signal_present('PRUSER'):
-            transaction.fields['pruser'] = self.bus.PRUSER.value.integer
+            transaction.fields['pruser'] = int(self.bus.PRUSER.value)
         if self.is_signal_present('PBUSER'):
-            transaction.fields['pbuser'] = self.bus.PBUSER.value.integer
+            transaction.fields['pbuser'] = int(self.bus.PBUSER.value)
 
     def _clear_extension_signals(self):
         """Deassert master-driven APB5 extensions when the bus is cleared.
@@ -470,9 +470,9 @@ class APB5Slave(APBSlave):
     def _capture_extension_input_fields(self):
         """Sample PAUSER / PWUSER from the bus."""
         return {
-            'pauser': (self.bus.PAUSER.value.integer
+            'pauser': (int(self.bus.PAUSER.value)
                        if self.is_signal_present('PAUSER') else 0),
-            'pwuser': (self.bus.PWUSER.value.integer
+            'pwuser': (int(self.bus.PWUSER.value)
                        if self.is_signal_present('PWUSER') else 0),
         }
 
@@ -491,7 +491,7 @@ class APB5Slave(APBSlave):
         PWAKEUP is observed (sampled) here — it is driven by the master.
         """
         del direction
-        wakeup = (self.bus.PWAKEUP.value.integer
+        wakeup = (int(self.bus.PWAKEUP.value)
                   if self.is_signal_present('PWAKEUP') else 0)
         return APB5Packet(
             data_width=self.bus_width,

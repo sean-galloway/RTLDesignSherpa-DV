@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-10-01
+
 ### Changed
 
 - **Signal width is `len(value)`, not `.n_bits`.** `.n_bits` does not exist on

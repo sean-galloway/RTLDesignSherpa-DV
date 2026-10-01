@@ -4,6 +4,14 @@
 
 ### Changed
 
+- **Signal width is `len(value)`, not `.n_bits`.** `.n_bits` does not exist on
+  either cocotb 2.x type. In `ArbiterMonitor` the old probe asked for `binstr`
+  and fell back to `.n_bits`; on a 2.x single-bit request signal neither exists,
+  so it raised into the handler and silently defaulted to **4 clients**. `len()`
+  is the width on every type cocotb returns here -- 1.x `BinaryValue`, 2.x
+  `LogicArray`, and 2.x `Logic` (len 1) -- so the whole probe collapses to one
+  call that is correct everywhere.
+
 - **The `cocotb-bus<0.3` cap is lifted.** The cap's stated reason was that the
   0.2.x `_add_signal` case-sensitivity asymmetry is "load-bearing in
   apb_components". That was the wrong word: the framework WORKS AROUND the

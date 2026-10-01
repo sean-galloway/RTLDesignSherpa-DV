@@ -138,11 +138,14 @@ class ArbiterMonitor(BusMonitor):
                     if hasattr(req_signal, '_range'):
                         self.clients = len(req_signal._range)
                     else:
-                        val = req_signal.value
-                        if hasattr(val, 'binstr'):
-                            self.clients = len(str(val))
-                        else:
-                            self.clients = val.n_bits
+                        # len() is the width on EVERY type cocotb returns here:
+                        # 1.x BinaryValue, 2.x LogicArray, and 2.x Logic (a
+                        # single bit, len 1). The probe this replaces asked for
+                        # `binstr` and fell back to `.n_bits`, and neither exists
+                        # on a 2.x Logic -- so a 1-bit request signal took the
+                        # fallback, raised AttributeError into the handler below,
+                        # and silently defaulted to 4 clients.
+                        self.clients = len(req_signal.value)
                 else:
                     raise AttributeError("No request signal found")
             except (AttributeError, TypeError):

@@ -337,7 +337,7 @@ async def monitor_test(dut):
     monitor.add_callback(transaction_callback)
     
     # Monitor runs automatically
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
 ```
 
 ### Master-Slave Communication
@@ -476,7 +476,7 @@ async def register_verification(dut):
         await master.send(read_packet)
         
         # Verify in slave memory
-        await Timer(100, units='ns')
+        await Timer(100, 'ns')
         slave.dump_registers()
 ```
 

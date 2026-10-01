@@ -46,7 +46,7 @@ async def test_uart_loopback(dut):
     await uart_tx.send_string("W 1000 DEADBEEF\n")
 
     # Wait for response
-    await Timer(100, units='us')
+    await Timer(100, 'us')
 
     # Check response: "OK\n"
     assert len(uart_rx_mon._recvQ) == 3
@@ -247,7 +247,7 @@ clks_per_bit = int(clock_freq_hz / baud_rate)
 await uart_tx.send_string("W 1000 DEADBEEF\n")
 
 # Wait for processing
-await Timer(50, units='us')
+await Timer(50, 'us')
 
 # Verify response
 assert len(uart_rx_mon._recvQ) >= 3
@@ -263,7 +263,7 @@ test_data = [0x55, 0xAA, 0xF0, 0x0F]
 await uart_tx.send_bytes(test_data)
 
 # Verify echoed back
-await Timer(100, units='us')
+await Timer(100, 'us')
 
 for i, expected in enumerate(test_data):
     assert len(uart_rx_mon._recvQ) > 0
@@ -288,7 +288,7 @@ for cmd, expected_resp in commands:
     await uart_tx.send_string(cmd)
 
     # Wait for response
-    await Timer(100, units='us')
+    await Timer(100, 'us')
 
     # Collect response
     response = ''.join([chr(p.data) for p in uart_rx_mon._recvQ])
@@ -347,7 +347,7 @@ class UARTBridgeTB(TBBase):
         await self.uart_tx.send_string(cmd)
 
         # Wait for "OK" response
-        await Timer(100, units='us')
+        await Timer(100, 'us')
         response = ''.join([chr(p.data) for p in self.uart_rx_mon._recvQ])
         return "OK" in response
 ```

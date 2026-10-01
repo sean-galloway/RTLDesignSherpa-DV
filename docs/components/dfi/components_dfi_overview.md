@@ -115,7 +115,7 @@ from CocoTBFramework.components.shared.memory_model import MemoryModel
 @cocotb.test()
 async def example_test(dut):
     # Clock and reset
-    cocotb.start_soon(Clock(dut.dfi_clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.dfi_clk, 10, "ns").start())
     dut.dfi_rstn.value = 0
     await RisingEdge(dut.dfi_clk)
     await RisingEdge(dut.dfi_clk)
@@ -139,7 +139,7 @@ async def example_test(dut):
     memory = MemoryModel(num_lines=8 * 8192 * 1024, bytes_per_line=8)
     master = DFIMasterMC(dut, dut.dfi_clk)
     slave  = DFISlavePHY(dut, dut.dfi_clk, base=base, memory=memory)
-    await Timer(1, units="ns")
+    await Timer(1, "ns")
 
     # Drive a command sequence
     await master.activate(bank=0, row=0x100)

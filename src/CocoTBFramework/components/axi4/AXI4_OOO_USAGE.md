@@ -153,13 +153,13 @@ async def test_bridge_ooo_deterministic(dut):
     """Test bridge CAM routes OOO responses to correct master."""
 
     # Start clock
-    cocotb.start_soon(Clock(dut.aclk, 10, units='ns').start())
+    cocotb.start_soon(Clock(dut.aclk, 10, 'ns').start())
 
     # Reset
     dut.aresetn.value = 0
-    await Timer(100, units='ns')
+    await Timer(100, 'ns')
     dut.aresetn.value = 1
-    await Timer(50, units='ns')
+    await Timer(50, 'ns')
 
     # Create master
     master_wr = create_axi4_master_wr(

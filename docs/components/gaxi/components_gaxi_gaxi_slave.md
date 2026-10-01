@@ -266,7 +266,7 @@ async def test_gaxi_slave(dut):
     # Transactions will be captured and processed via callbacks
     
     # Wait for some transactions
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Check received transactions
     packets = slave.get_observed_packets()
@@ -350,7 +350,7 @@ async def test_memory_slave(dut):
     
     # Memory operations happen automatically in the pipeline
     # Check memory contents after transactions
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Get memory statistics
     stats = slave.get_stats()
@@ -369,7 +369,7 @@ async def test_pipeline_performance(dut):
                      pipeline_debug=True)
     
     # Run for a period
-    await Timer(10000, units='ns')
+    await Timer(10000, 'ns')
     
     # Analyze pipeline performance
     pipeline_stats = slave.get_pipeline_stats()
@@ -426,7 +426,7 @@ async def test_ready_delays(dut):
     slave.add_callback(track_ready_timing)
     
     # Monitor for a period
-    await Timer(5000, units='ns')
+    await Timer(5000, 'ns')
     
     # Analyze ready delay effectiveness
     pipeline_stats = slave.get_pipeline_stats()
@@ -473,7 +473,7 @@ async def test_callback_processing(dut):
     slave.add_callback(processor.process_transaction)
     
     # Run test
-    await Timer(2000, units='ns')
+    await Timer(2000, 'ns')
     
     # Get processing summary
     summary = processor.get_summary()
@@ -498,7 +498,7 @@ async def test_error_recovery(dut):
     
     try:
         # Run test
-        await Timer(1000, units='ns')
+        await Timer(1000, 'ns')
         
     except Exception as e:
         log.error(f"Test error: {e}")

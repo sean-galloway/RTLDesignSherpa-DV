@@ -332,7 +332,7 @@ scoreboard.add_master_monitor(master_monitor)
 scoreboard.add_slave_monitor(slave_monitor)
 
 # Scoreboard automatically captures and verifies transactions
-await Timer(1000, units='ns')  # Run test
+await Timer(1000, 'ns')  # Run test
 
 # Generate verification report
 error_count = scoreboard.report()
@@ -374,7 +374,7 @@ async def test_multi_id_axi4():
         await master.send_write(write_transaction)
     
     # Wait for completion and verify
-    await Timer(5000, units='ns')
+    await Timer(5000, 'ns')
     
     # Analyze results by ID
     print(f"Write transactions: {scoreboard.write_count}")
@@ -479,7 +479,7 @@ async def test_clock_domain_crossing():
     slow_monitor.add_callback(tracker.on_slow_transaction)
     
     # Run test with clock domain crossing
-    await Timer(10000, units='ns')
+    await Timer(10000, 'ns')
 ```
 
 ## Best Practices

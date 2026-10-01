@@ -306,10 +306,10 @@ async def test_bridge_read_flow():
     
     # Simulate bridge operation timing
     scoreboard.add_apb_transaction(apb_read)
-    await Timer(100, units='ns')  # Bridge processing delay
+    await Timer(100, 'ns')  # Bridge processing delay
     
     scoreboard.add_gaxi_transaction(gaxi_cmd)
-    await Timer(50, units='ns')   # Memory access delay
+    await Timer(50, 'ns')   # Memory access delay
     
     scoreboard.add_gaxi_transaction(gaxi_rsp)
     
@@ -371,15 +371,15 @@ async def test_high_throughput_bridge():
         scoreboard.add_apb_transaction(apb_tx)
         
         # Small delay for bridge processing
-        await Timer(10, units='ns')
+        await Timer(10, 'ns')
         scoreboard.add_gaxi_transaction(gaxi_cmd)
         
         # Memory response delay
-        await Timer(5, units='ns')
+        await Timer(5, 'ns')
         scoreboard.add_gaxi_transaction(gaxi_rsp)
     
     # Wait for all matching to complete
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Analyze results
     stats = scoreboard.get_stats()
@@ -435,7 +435,7 @@ async def test_bridge_error_handling():
     # No response added
     
     # Wait for timeout
-    await Timer(scoreboard.match_timeout_ns + 1000, units='ns')
+    await Timer(scoreboard.match_timeout_ns + 1000, 'ns')
     
     # Analyze error handling
     stats = scoreboard.get_stats()
@@ -510,7 +510,7 @@ async def test_multi_bridge_system():
             
             test_env.add_bridge_transaction(bridge_id, apb_tx, gaxi_cmd, gaxi_rsp)
             
-            await Timer(50, units='ns')
+            await Timer(50, 'ns')
     
     # Generate system report
     system_stats = test_env.generate_comprehensive_report()

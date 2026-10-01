@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs and shipped READMEs use the positional time unit too.** 50 examples
+  across 17 files still showed `Timer(100, units='us')`. The code moved in
+  0.6.9 and the documentation did not, so every example was teaching the form
+  that raises a DeprecationWarning on cocotb 2.x. Two of those files
+  (`components/uart/README.md`, `components/axi4/AXI4_OOO_USAGE.md`) ship
+  INSIDE the package, so they reached users in the 0.6.9 wheel.
+
+
 ## [0.6.9] - 2026-10-01
 
 ### Changed

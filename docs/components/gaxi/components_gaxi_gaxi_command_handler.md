@@ -424,7 +424,7 @@ async def test_response_generation():
         gaxi_slave._recvQ.append(read_cmd)
     
     # Wait for responses
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Check response statistics
     stats = handler.get_stats()
@@ -505,7 +505,7 @@ async def test_memory_integration():
     sequential_read_cmd = create_read_command(addr=0x8000)
     gaxi_slave._recvQ.append(sequential_read_cmd)
     
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Check statistics
     stats = handler.get_stats()
@@ -526,7 +526,7 @@ class PerformanceMonitor:
     async def monitor_performance(self):
         """Continuously monitor handler performance"""
         while self.monitoring:
-            await Timer(1000000, units='ns')  # Every 1ms
+            await Timer(1000000, 'ns')  # Every 1ms
             
             stats = self.handler.get_stats()
             
@@ -680,7 +680,7 @@ handler = GAXICommandHandler(master, slave, memory_model=memory)
 # Regular statistics monitoring
 async def monitor_handler():
     while True:
-        await Timer(1000000, units='ns')
+        await Timer(1000000, 'ns')
         stats = handler.get_stats()
         if stats['error_count'] > 0:
             log.warning(f"Errors detected: {stats}")

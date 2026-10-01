@@ -495,7 +495,7 @@ async def execute_sequence_loop(master, sequence, cycles=None):
         await master.send(packet)
         
         if delay > 0:
-            await Timer(delay, units='ns')
+            await Timer(delay, 'ns')
         
         cycle_count += 1
         

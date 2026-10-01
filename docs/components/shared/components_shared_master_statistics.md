@@ -431,7 +431,7 @@ class PerformanceMonitor:
     def performance_monitor_loop(self):
         """Continuously monitor and report performance"""
         while self.monitoring:
-            yield Timer(1000000, units='ns')  # Every 1ms
+            yield Timer(1000000, 'ns')  # Every 1ms
             
             for name, component in self.components.items():
                 if hasattr(component, 'stats'):

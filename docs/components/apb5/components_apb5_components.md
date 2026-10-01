@@ -433,7 +433,7 @@ async def monitor_test(dut):
     monitor.add_callback(transaction_callback)
 
     # Monitor runs automatically
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
 ```
 
 ### Master-Slave Communication with User Signals

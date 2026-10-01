@@ -433,7 +433,7 @@ async def monitor_performance(master, duration_ms=1000):
         await master.send(packet)
 
         # Brief delay in simulation time (same clock as the termination check)
-        await Timer(1000, units='ns')  # 1µs between sends
+        await Timer(1000, 'ns')  # 1µs between sends
     
     # Analyze performance
     stats = master.get_stats()

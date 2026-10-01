@@ -400,7 +400,7 @@ async def test_basic_gaxi(dut):
     await master.send(packet)
     
     # Verify reception
-    await Timer(100, units='ns')
+    await Timer(100, 'ns')
     received = slave.get_observed_packets()
     assert len(received) > 0
 ```

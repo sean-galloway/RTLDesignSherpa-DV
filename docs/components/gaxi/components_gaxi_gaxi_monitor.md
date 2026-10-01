@@ -143,7 +143,7 @@ async def test_master_monitoring(dut):
     master_monitor.add_callback(log_transaction)
     
     # Run test and let monitor observe
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Check observed transactions
     packets = master_monitor.get_observed_packets()
@@ -184,7 +184,7 @@ async def test_slave_monitoring(dut):
     slave_monitor.add_callback(process_slave_transaction)
     
     # Run test
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Analyze slave activity
     packets = slave_monitor.get_observed_packets()
@@ -236,7 +236,7 @@ async def test_dual_monitoring(dut):
     slave_monitor.add_callback(track_slave)
     
     # Run test
-    await Timer(2000, units='ns')
+    await Timer(2000, 'ns')
     
     # Compare transaction counts
     print(f"Master side: {len(master_transactions)} transactions")
@@ -286,7 +286,7 @@ async def test_protocol_violations(dut):
     monitor.add_callback(check_protocol)
     
     # Run test
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Report violations
     if violations:
@@ -329,7 +329,7 @@ async def test_performance_monitoring(dut):
     monitor.add_callback(track_performance)
     
     # Run test
-    await Timer(5000, units='ns')
+    await Timer(5000, 'ns')
     
     # Analyze performance
     if inter_transaction_times:
@@ -399,7 +399,7 @@ async def test_mode_specific_monitoring(dut):
         monitor.add_callback(log_transaction)
     
     # Run test
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Compare results across modes
     for mode, monitor in monitors.items():
@@ -431,7 +431,7 @@ async def test_scoreboard_integration(dut):
     slave_monitor.add_callback(scoreboard.add_actual)
     
     # Run test
-    await Timer(2000, units='ns')
+    await Timer(2000, 'ns')
     
     # Check scoreboard results
     error_count = scoreboard.report()
@@ -486,7 +486,7 @@ async def test_memory_validation(dut):
     monitor.add_callback(validate_memory_transaction)
     
     # Run test
-    await Timer(1000, units='ns')
+    await Timer(1000, 'ns')
     
     # Get memory statistics
     stats = monitor.get_stats()

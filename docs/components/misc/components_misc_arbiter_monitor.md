@@ -361,9 +361,9 @@ async def test_round_robin_arbiter(dut):
 async def reset_sequence(dut):
     """Apply reset sequence"""
     dut.reset_n.value = 0
-    await Timer(100, units='ns')
+    await Timer(100, 'ns')
     dut.reset_n.value = 1
-    await Timer(50, units='ns')
+    await Timer(50, 'ns')
 
 async def stimulus_sequence(dut):
     """Generate test stimulus"""
@@ -671,7 +671,7 @@ On long runs, poll fairness as you go. Discovering starvation at minute forty of
 # Check statistics periodically during long tests
 async def periodic_stats_check():
     while True:
-        await Timer(1000000, units='ns')  # Every 1ms
+        await Timer(1000000, 'ns')  # Every 1ms
         stats = arbiter_monitor.get_stats_summary()
         if stats['total_transactions'] > 0:
             fairness = arbiter_monitor.get_fairness_index()

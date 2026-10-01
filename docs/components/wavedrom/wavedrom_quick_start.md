@@ -60,7 +60,7 @@ from CocoTBFramework.tbclasses.wavedrom_user.gaxi import GAXIWaveDromTemplate
 @cocotb.test()
 async def gaxi_test(dut):
     # Start clock
-    clock = Clock(dut.axi_aclk, 10, units="ns")
+    clock = Clock(dut.axi_aclk, 10, "ns")
     cocotb.start_soon(clock.start())
 
     # Reset

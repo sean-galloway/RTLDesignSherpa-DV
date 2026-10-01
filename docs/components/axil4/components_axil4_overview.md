@@ -286,7 +286,7 @@ async def test_peripheral_control():
         status = await master_read.read_register(0x00C)
         if status & 0x1:  # Done bit
             break
-        await Timer(100, units='ns')
+        await Timer(100, 'ns')
 
     # Read results
     result = await master_read.read_register(0x010)

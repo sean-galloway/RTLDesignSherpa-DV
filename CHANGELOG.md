@@ -55,6 +55,19 @@
   the real object makes the code reading it untestable against the version it
   must run on.
 
+- **The package version has ONE source.** `pyproject.toml` now declares
+  `dynamic = ["version"]` and reads `CocoTBFramework.__version__`, so
+  `pip show` and the module can no longer disagree. They had disagreed for six
+  releases: the published 0.6.7 wheel shipped `__version__ = "0.6.1"` while its
+  own METADATA said 0.6.7, so anything checking the module's version after an
+  upgrade -- the natural way to confirm a reinstall took -- got an answer three
+  releases stale. Guarded by five tests in `tests/unit`.
+
+- **CI runs the unit tests.** The workflow was `ruff`, an import check and
+  `python -m build`, with no pytest step at all despite 1509 tests in the repo.
+  A `unit-tests` job now runs them, which is what makes the version guard above
+  more than decoration.
+
 - **The `[sim]` extra requires `cocotb-test>=0.3.0`, so a plain install cannot
   break a consumer's tree.** `cocotb-test` 0.2.5 imports `cocotb.config`, which
   cocotb 2.x removed, and cocotb 2.1.0 is live on PyPI -- so any

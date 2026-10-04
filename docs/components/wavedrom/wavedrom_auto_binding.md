@@ -36,7 +36,7 @@ WaveDrom signal binding runs through SignalResolver, the same pattern-matching l
 ### What You Get
 
 - **Automatic discovery** — each logical signal is matched against a list of naming patterns until one sticks
-- **Manual override** — `signal_map` binds exactly what you say, no guessing
+- **Manual override** — `signal_map` pins the signals you name; automatic discovery resolves the rest
 - **A printed mapping table** — you can see what got bound before the test runs
 - **Errors that help** — failures list the valid-like signals present on the DUT and show the override syntax
 - **Protocol coverage** — GAXI, APB, AXIS today, more as presets land
@@ -162,7 +162,7 @@ class GAXIWaveDromTemplate:
   - `'basic_handshake'`: plain valid/ready
   - `'performance'`: throughput analysis
   - `'debug'`: debug patterns
-- `signal_map`: manual override (see below)
+- `signal_map`: optional manual override; may be partial (see below)
 - `clock_signal`: auto-detected when None (tries `axi_aclk`, `i_clk`, `clk`)
 
 ### APBWaveDromTemplate
@@ -188,7 +188,7 @@ class APBWaveDromTemplate:
   - `'timing'`: timing and wait state analysis
   - `'debug'`: debug patterns
   - `'error'`: error-focused
-- `signal_map`: manual override
+- `signal_map`: optional manual override; may be partial (see below)
 - `clock_signal`: auto-detected (tries `pclk`, `apb_pclk`, `i_clk`, `clk`)
 
 ---
@@ -202,7 +202,7 @@ Reach for `signal_map` when you have:
 - Non-standard signal naming
 - A prefix the pattern lists don't cover
 - Legacy RTL you can't rename
-- Or when you just want one signal pinned without touching anything else
+- Or when you just want one or two signals pinned while discovery handles the rest
 
 ### GAXI Manual Override
 
@@ -239,6 +239,56 @@ apb_wave = APBWaveDromTemplate(
 )
 ```
 
+### Partial Override
+
+You only need to list the signals that don't match the automatic patterns. Omitted keys are resolved by discovery, and optional signals can be overridden too.
+
+```python
+# GAXI: most signals follow the wr_ convention, but the data signal is non-standard
+gaxi_wave = GAXIWaveDromTemplate(
+    dut,
+    signal_prefix="wr_",  # discovery finds wr_valid, wr_ready, ...
+    data_width=32,
+    signal_map={
+        'data': 'wr_packet'  # only override the odd name
+    }
+)
+```
+
+```python
+# APB: only the write-data name is non-standard
+apb_wave = APBWaveDromTemplate(
+    dut,
+    signal_prefix="apb_",
+    data_width=32,
+    addr_width=32,
+    signal_map={
+        'pwdata': 'apb_wdata'  # discovery resolves the other APB signals
+    }
+)
+```
+
+### Valid `signal_map` Keys
+
+Allowed keys depend on the wavedrom protocol. Unknown keys still raise `ValueError` (typo protection), and the mapped DUT signal must exist.
+
+| Protocol | Required keys | Optional keys |
+|---|---|---|
+| `gaxi_wavedrom` | `valid`, `ready`, `data` | `data_sig`; in multi-signal mode, any field name from `field_config` |
+| `apb_wavedrom` | `psel`, `penable`, `pready`, `paddr`, `pwdata`, `prdata` | `pwrite` |
+| `axis_wavedrom` | `valid`, `ready`, `data` | `strb`, `last`, `id`, `dest`, `user`, `data_sig`; in multi-signal mode, any field name |
+| `axi4_read_wavedrom` | `arvalid`, `arready`, `rvalid`, `rready` | field names when multi-signal |
+
+### Resolution Source
+
+The resolver reports how the bindings were produced:
+
+- `automatic` — no `signal_map` was used
+- `manual` — the map covered every logical signal that discovery would have tried
+- `mixed` — some signals came from the map and some from automatic discovery
+
+This value is available in `resolver.get_stats()['signal_mapping_source']` and is logged during setup.
+
 ---
 
 ## Multi-Field Protocols
@@ -271,6 +321,10 @@ gaxi_wave = GAXIWaveDromTemplate(
 ### When a Signal Isn't Found
 
 Setup fails loudly, and the message is long on purpose: it shows the patterns tried, the valid-like signals that do exist on the DUT, and the `signal_map` line that would fix it.
+
+Two validation rules still apply:
+- An unknown key in `signal_map` raises `ValueError` (typo protection).
+- A mapped signal name that does not exist on the DUT raises `ValueError`.
 
 ```
 🚨 CRITICAL: No valid signal found for GAXI WaveDrom!
@@ -423,15 +477,13 @@ wave_solver = TemporalConstraintSolver(dut=dut, log=dut._log)
 wave_solver.add_clock_group('default', dut.clk)
 
 # Auto-bind signals
-# Note: providing signal_map bypasses automatic discovery entirely,
-# so list ALL required signals when using it
+# signal_map may be partial: mapped signals are bound first, then automatic
+# discovery resolves any required or optional names that are still missing.
 num_signals = wave_solver.auto_bind_signals(
     protocol_type='gaxi',
-    signal_prefix='',
+    signal_prefix='wr_',
     signal_map={
-        'valid': 'custom_valid',
-        'ready': 'wr_ready',
-        'data': 'wr_data'
+        'valid': 'custom_valid'  # override only the non-conforming signal
     }
 )
 
@@ -449,7 +501,7 @@ await wave_solver.start_sampling()
 await wave_solver.stop_sampling()
 ```
 
-Note the comment in the code — it trips people up: passing `signal_map` bypasses discovery entirely, so the map has to list every required signal, not just the one with the odd name.
+Omitted keys are resolved by automatic discovery. If neither the map nor any pattern finds a required signal, setup still fails with the usual diagnostic message.
 
 ### Debugging Signal Resolution
 

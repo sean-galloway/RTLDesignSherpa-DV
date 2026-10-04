@@ -461,12 +461,15 @@ except TimeoutError:
 ```
 
 ### Signal Mapping Errors
+
+`signal_map` can be partial: mapped keys override discovery, and omitted keys are still resolved by automatic pattern discovery. Unknown keys or non-existent DUT signal names raise `ValueError`.
+
 ```python
 try:
     master = GAXIMaster(dut, "Master", "", clock, field_config)
 except RuntimeError as e:
-    # Try manual signal mapping
-    signal_map = {'valid': 'custom_valid', 'ready': 'custom_ready'}
+    # Patch only the signal that discovery missed
+    signal_map = {'valid': 'custom_valid'}
     master = GAXIMaster(dut, "Master", "", clock, field_config,
                        signal_map=signal_map)
 ```

@@ -277,6 +277,8 @@ stream_stats = monitor.get_stats()
 
 ### Field Configuration Examples
 
+`signal_map` can be a complete map or a partial map. Keys present in the map bind directly to the named DUT signals; omitted required or optional keys are resolved by the normal automatic pattern discovery. Unknown keys still raise `ValueError`, and any mapped name that does not exist on the DUT also raises `ValueError`. When resolution completes, `signal_mapping_source` in the resolver statistics reports `manual`, `mixed`, or `automatic`.
+
 ```python
 # Simple AXIS configuration (data/strb/last only)
 config = AXISFieldConfigs.create_simple_axis_config(data_width=64)
@@ -292,8 +294,20 @@ config = AXISFieldConfigs.create_t_field_config(
 # Manual signal mapping for non-standard signal names
 from CocoTBFramework.components.axis4 import get_axis_signal_map
 
+# A full map still works exactly as before: every listed key is bound
+# directly to the DUT signal name, and omitted keys are resolved by the
+# normal automatic pattern discovery.
 signal_map = get_axis_signal_map(prefix="custom_", direction="master")
 master = AXISMaster(dut, "Custom", "", clk, signal_map=signal_map)
+
+# Partial map: override only the signals that do not match the automatic
+# naming patterns, and let discovery resolve everything else.  Valid AXIS
+# single-signal keys are valid, ready, data, strb, last, id, dest, and user.
+partial_map = {
+    'data': 'axis_payload',   # DUT uses a non-standard payload name
+    'last': 'axis_eop',       # DUT uses end-of-packet instead of tlast
+}
+master = AXISMaster(dut, "Partial", "m_axis_", clk, signal_map=partial_map)
 ```
 
 ### Protocol Customization

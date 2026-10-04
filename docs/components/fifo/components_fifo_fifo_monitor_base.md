@@ -67,7 +67,7 @@ FIFOMonitorBase(dut, title, prefix, clock, field_config,
 - `protocol_type`: Must be set by subclass ('fifo_master' or 'fifo_slave')
 - `log`: Logger instance
 - `super_debug`: Enable detailed debugging
-- `signal_map`: Optional manual signal mapping
+- `signal_map`: Optional manual signal mapping; partial maps merge with automatic discovery
 - `**kwargs`: Additional arguments for BusMonitor
 
 **Note:** You won't instantiate this directly — use FIFOMonitor or FIFOSlave. This page exists so you know where their shared behavior comes from.

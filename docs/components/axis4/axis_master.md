@@ -78,7 +78,7 @@ Construct the master and resolve the bus signals sitting under `prefix`.
 - **`log`** - Logger instance for debug output
 - **`super_debug`** (bool) - Enable detailed debugging
 - **`pipeline_debug`** (bool) - Enable pipeline debugging
-- **`signal_map`** (dict) - Optional manual signal mapping
+- **`signal_map`** (dict) - Optional manual signal mapping. May be partial: present keys bind directly to the named DUT signals, and omitted keys are resolved by automatic pattern discovery. Valid AXIS single-signal keys are `valid`, `ready`, `data`, `strb`, `last`, `id`, `dest`, and `user`.
 
 **Example:**
 ```python
@@ -340,6 +340,29 @@ async def test_custom_packets():
     packet.user = 0xABCD
 
     success = await master.send_packet(packet)
+    assert success
+```
+
+### Partial Signal Mapping
+
+```python
+async def test_partial_signal_map():
+    # Override only the DUT signals that do not match the automatic naming
+    # patterns; automatic discovery resolves the rest.
+    signal_map = {
+        'data': 'stream_payload',  # non-standard payload name
+        'last': 'stream_eop',      # non-standard end-of-frame name
+    }
+
+    master = AXISMaster(
+        dut=dut,
+        title="MappedMaster",
+        prefix="m_axis_",
+        clock=clk,
+        signal_map=signal_map
+    )
+
+    success = await master.send_single_beat(data=0x12345678)
     assert success
 ```
 

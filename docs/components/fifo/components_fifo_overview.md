@@ -275,7 +275,7 @@ components = create_fifo_test_environment(
 ```
 
 ### Custom Configurations
-Every knob, when you need it:
+Every knob, when you need it. `signal_map` can be full or partial — keys present override discovery, and omitted keys are still resolved automatically:
 
 ```python
 # Highly customized setup
@@ -288,7 +288,16 @@ master = create_fifo_master(
     memory_model=custom_memory,
     mode='fifo_flop',
     multi_sig=True,
-    signal_map={'write': 'wr_en', 'full': 'fifo_full'}
+    signal_map={'write': 'wr_en', 'full': 'fifo_full'}  # partial; discovery resolves fields
+)
+
+# Partial map: override only the one signal that doesn't match discovery
+master = create_fifo_master(
+    dut=dut,
+    title="PartialMapMaster",
+    clock=clock,
+    field_config=custom_field_config,
+    signal_map={'full': 'almost_full'}
 )
 ```
 

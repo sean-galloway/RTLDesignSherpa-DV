@@ -1267,8 +1267,16 @@ class SignalResolver:
     """
     Signal resolver using pattern matching against actual top-level DUT ports.
 
+    The resolver discovers signals automatically, but a ``signal_map`` can
+    override any subset of those signals.  When a map is supplied, the mapped
+    entries are bound first and automatic discovery runs afterwards to resolve
+    any logical names that are still missing.  Discovery still hard-fails if a
+    required signal cannot be found.
+
     UPDATED: Now properly handles 'prefix' parameter for both signal discovery and cocotb compatibility.
     ADDED: Optional signal_map parameter for manual signal mapping override.
+    ADDED: Partial signal_map support that merges manual overrides with automatic pattern discovery.
+    ADDED: Optional signal keys accepted in signal_map for typo-protected partial override.
     ADDED: Full FIFO protocol support for signal_map functionality.
     FIXED: Enhanced validation for critical data signals with hard failure.
     """
@@ -1294,11 +1302,16 @@ class SignalResolver:
             pkt_prefix: Packet field prefix
             mode: Protocol mode (kept for RTL parameter)
             super_debug: Enable detailed signal resolution debugging
-            signal_map: Optional manual signal mapping.
+            signal_map: Optional manual signal mapping that may be partial.
+                Any subset of required/optional logical signals can be supplied.
+                Mapped entries are bound first and automatic discovery resolves
+                the remaining logical names.  Unknown keys still raise ValueError.
                 Keys for GAXI: 'valid', 'ready', 'data' (or field names for multi_sig=True).
+                Keys for AXIS: 'valid', 'ready', 'data', plus optional 'strb',
+                'last', 'id', 'dest', 'user' (or field names for multi_sig=True).
                 Keys for FIFO Master: 'write', 'full', 'data' (or field names for multi_sig=True).
                 Keys for FIFO Slave: 'read', 'empty', 'data' (or field names for multi_sig=True).
-                Values: DUT signal name strings. If provided, bypasses automatic discovery.
+                Values: DUT signal name strings.
         """
         # Get caller information for better error reporting
         caller_info = _get_caller_info()
@@ -1361,20 +1374,31 @@ class SignalResolver:
         """
         self.signal_conflicts = {}  # Track multiple matches
         self.missing_signals = []
+        self._map_resolved_count = 0
+        self._discovery_resolved_count = 0
 
-        # Choose resolution method based on signal_map
+        # Bind any manually-mapped signals first.  A partial map is fine:
+        # unmapped required/optional signals are resolved by discovery below.
         if self.signal_map is not None:
             self._log_info(f"Using manual signal mapping with {len(self.signal_map)} signals")
             self._resolve_signals_from_map()
-        else:
-            # Generate parameter combinations (now includes prefix) - only for automatic discovery
-            self.param_combinations = self._generate_parameter_combinations(
-                self.prefix, self.bus_name, self.pkt_prefix
-            )
-            self._log_debug(f"Generated {len(self.param_combinations)} parameter combinations")
 
-            # Resolve all signals using automatic discovery
-            self._resolve_all_signals()
+        # Generate parameter combinations (now includes prefix) for automatic discovery
+        self.param_combinations = self._generate_parameter_combinations(
+            self.prefix, self.bus_name, self.pkt_prefix
+        )
+        self._log_debug(f"Generated {len(self.param_combinations)} parameter combinations")
+
+        # Resolve remaining signals using automatic discovery.  Mapped entries
+        # are skipped so a manual binding is never overwritten.
+        self._resolve_all_signals()
+
+        source = self._get_mapping_source()
+        self._log_info(
+            f"Signal mapping source: {source} - "
+            f"{self._map_resolved_count} from signal_map, "
+            f"{self._discovery_resolved_count} from automatic discovery"
+        )
 
         # Display results and validate
         self._display_signal_mapping()
@@ -1390,15 +1414,17 @@ class SignalResolver:
         """
         Resolve signals using the provided signal_map.
 
-        Maps simplified keys ('valid', 'ready', 'data', field names) to internal logical names.
+        Maps simplified keys ('valid', 'ready', 'data', field names, optional
+        sideband names) to internal logical names.  Only the supplied keys are
+        bound; missing required keys are resolved by automatic discovery.
         """
         self._log_debug(f"Manual signal mapping: {self.signal_map}")
 
-        # Validate signal_map contains required signals
+        # Validate signal_map keys and log which signals discovery will resolve
         self._validate_signal_map()
 
         # Map simplified keys to internal logical names
-        logical_mapping = self._create_logical_mapping()
+        logical_mapping = {**self._create_logical_mapping(), **self._optional_logical_mapping()}
 
         # Resolve each signal from the map
         for simple_key, dut_signal_name in self.signal_map.items():
@@ -1412,13 +1438,15 @@ class SignalResolver:
                 raise ValueError(f"Signal '{dut_signal_name}' (for '{simple_key}') not found on DUT. "
                             f"Available ports: {list(self.top_level_ports.keys())}")
 
-            # Store the resolved signal
+            # Store the resolved signal (do not overwrite an existing binding)
+            if logical_name not in self.resolved_signals:
+                self._map_resolved_count = getattr(self, '_map_resolved_count', 0) + 1
             signal_obj = self.top_level_ports[dut_signal_name]
             self.resolved_signals[logical_name] = signal_obj
             self._log_debug(f"Mapped '{simple_key}' -> '{logical_name}' = '{dut_signal_name}'")
 
     def _validate_signal_map(self):
-        """Validate that signal_map contains all required signals."""
+        """Validate signal_map keys and report missing required keys."""
         if self.protocol_type.startswith('axis') or self.protocol_type.startswith('gaxi'):
             required_keys = {'valid', 'ready'}
 
@@ -1470,17 +1498,22 @@ class SignalResolver:
         else:
             raise ValueError(f"Unknown protocol type: {self.protocol_type}")
 
-        # Check all required keys are present
-        missing_keys = required_keys - set(self.signal_map.keys())
-        if missing_keys:
-            raise ValueError(f"signal_map missing required keys: {missing_keys}. "
-                        f"Required: {required_keys}, Provided: {list(self.signal_map.keys())}")
+        # Valid keys are required keys plus accepted optional keys
+        logical_mapping = self._create_logical_mapping()
+        optional_mapping = self._optional_logical_mapping()
+        allowed_keys = set(logical_mapping.keys()) | set(optional_mapping.keys())
 
-        # Check for unexpected keys
-        unexpected_keys = set(self.signal_map.keys()) - required_keys
+        # Check for unexpected keys (typo protection)
+        unexpected_keys = set(self.signal_map.keys()) - allowed_keys
         if unexpected_keys:
             raise ValueError(f"signal_map contains unexpected keys: {unexpected_keys}. "
-                        f"Valid keys: {required_keys}")
+                        f"Valid keys: {sorted(allowed_keys)}")
+
+        # Missing required keys are not an error anymore; discovery resolves them.
+        missing_keys = required_keys - set(self.signal_map.keys())
+        if missing_keys:
+            self._log_info(f"signal_map does not provide {sorted(missing_keys)}; "
+                          f"automatic discovery will resolve them")
 
     def _create_logical_mapping(self):
         """Create mapping from simplified keys to internal logical names."""
@@ -1536,6 +1569,63 @@ class SignalResolver:
                 logical_mapping['data'] = 'data_sig'
 
         return logical_mapping
+
+    def _optional_logical_mapping(self):
+        """Create mapping from accepted optional simple keys to logical names.
+
+        These keys are valid in ``signal_map`` but are not required.  When a
+        key is supplied, discovery skips the corresponding logical name.
+        """
+        logical_mapping = {}
+        mode_key = 'multi_sig_true' if self.multi_sig else 'multi_sig_false'
+
+        # AXIS single-signal sideband signals
+        if self.protocol_type in ('axis_master', 'axis_slave', 'axis_wavedrom'):
+            if not self.multi_sig:
+                for name in ('strb', 'last', 'id', 'dest', 'user'):
+                    logical = f'{name}_sig'
+                    logical_mapping[name] = logical
+                    logical_mapping[logical] = logical
+
+        # APB wavedrom optional signals that are discoverable but not required
+        if self.protocol_type == 'apb_wavedrom':
+            logical_mapping['pwrite'] = 'pwrite'
+
+        # Multi-sig field logical names (required fields are also accepted)
+        if self.multi_sig and self.field_config:
+            for field_name in self.field_config.field_names():
+                logical = f'field_{field_name}_sig'
+                logical_mapping[field_name] = logical
+                logical_mapping[logical] = logical
+
+        # Config-level and instance-level optional field names
+        optional_fields = set(self.config.get('optional_fields', ()) or ())
+        optional_fields |= set(getattr(self, 'instance_optional_fields', ()) or ())
+        for field_name in optional_fields:
+            logical = f'field_{field_name}_sig'
+            logical_mapping[field_name] = logical
+            logical_mapping[logical] = logical
+
+        # Raw logical names for optional signals discovered in the current mode
+        optional_map = self.config.get('optional_signal_map', {})
+        if mode_key in optional_map:
+            if not self.multi_sig:
+                if self.protocol_type in (
+                    'axis_master', 'axis_slave', 'axis_wavedrom',
+                    'gaxi_master', 'gaxi_slave', 'gaxi_wavedrom',
+                    'fifo_master', 'fifo_slave'
+                ):
+                    logical_mapping['data_sig'] = 'data_sig'
+
+        return logical_mapping
+
+    def _get_mapping_source(self) -> str:
+        """Return whether resolution was automatic, manual, or a mix."""
+        if not self.signal_map:
+            return 'automatic'
+        if getattr(self, '_discovery_resolved_count', 0) == 0:
+            return 'manual'
+        return 'mixed'
 
     def _log_debug(self, message: str):
         """Log debug message with fallback storage."""
@@ -1632,8 +1722,12 @@ class SignalResolver:
     def _resolve_signal_group(self, signal_group: Dict[str, List[str]], required: bool = True):
         """Resolve a group of signals (either required or optional)."""
         for logical_name, patterns in signal_group.items():
+            if logical_name in self.resolved_signals:
+                continue
             signal_obj = self._find_signal_match(logical_name, patterns, required)
             self.resolved_signals[logical_name] = signal_obj
+            if signal_obj is not None:
+                self._discovery_resolved_count = getattr(self, '_discovery_resolved_count', 0) + 1
 
     def _resolve_optional_signals(self):
         """Resolve optional signals based on multi_sig mode."""
@@ -1662,19 +1756,29 @@ class SignalResolver:
                 optional_fields |= set(getattr(self, 'instance_optional_fields', ()) or ())
                 for field_name in self.field_config.field_names():
                     logical_name = f'field_{field_name}_sig'
+                    if logical_name in self.resolved_signals:
+                        continue
                     is_required = field_name not in optional_fields
                     signal_obj = self._find_signal_match(
                         logical_name, patterns,
                         required=is_required, field_name=field_name)
                     self.resolved_signals[logical_name] = signal_obj
+                    if signal_obj is not None:
+                        self._discovery_resolved_count = getattr(self, '_discovery_resolved_count', 0) + 1
             else:
                 # Single signal mode: resolve data signal
                 if self.protocol_type in ['axis_master', 'axis_slave', 'axis_wavedrom']:
-                    signal_obj = self._find_signal_match('data_sig', patterns, required=False)
-                    self.resolved_signals['data_sig'] = signal_obj
+                    if 'data_sig' not in self.resolved_signals:
+                        signal_obj = self._find_signal_match('data_sig', patterns, required=False)
+                        self.resolved_signals['data_sig'] = signal_obj
+                        if signal_obj is not None:
+                            self._discovery_resolved_count = getattr(self, '_discovery_resolved_count', 0) + 1
                 elif self.protocol_type in ['gaxi_master', 'gaxi_slave', 'gaxi_wavedrom']:
-                    signal_obj = self._find_signal_match('data_sig', patterns, required=False)
-                    self.resolved_signals['data_sig'] = signal_obj
+                    if 'data_sig' not in self.resolved_signals:
+                        signal_obj = self._find_signal_match('data_sig', patterns, required=False)
+                        self.resolved_signals['data_sig'] = signal_obj
+                        if signal_obj is not None:
+                            self._discovery_resolved_count = getattr(self, '_discovery_resolved_count', 0) + 1
                 elif self.protocol_type in ['axi4_ar_master', 'axi4_ar_slave',
                                            'axi4_aw_master', 'axi4_aw_slave',
                                            'axi4_r_master', 'axi4_r_slave',
@@ -1687,14 +1791,23 @@ class SignalResolver:
                                            'axi5_b_master', 'axi5_b_slave']:
                     # AXI4/AXI5 channel protocols use packed signals in stub mode
                     # Each channel has its own packet signal: ar_pkt, r_pkt, aw_pkt, w_pkt, b_pkt
-                    signal_obj = self._find_signal_match('data_sig', patterns, required=False)
-                    self.resolved_signals['data_sig'] = signal_obj
+                    if 'data_sig' not in self.resolved_signals:
+                        signal_obj = self._find_signal_match('data_sig', patterns, required=False)
+                        self.resolved_signals['data_sig'] = signal_obj
+                        if signal_obj is not None:
+                            self._discovery_resolved_count = getattr(self, '_discovery_resolved_count', 0) + 1
                 elif self.protocol_type == 'fifo_master':
-                    signal_obj = self._find_signal_match('data_sig', patterns, required=False)
-                    self.resolved_signals['data_sig'] = signal_obj
+                    if 'data_sig' not in self.resolved_signals:
+                        signal_obj = self._find_signal_match('data_sig', patterns, required=False)
+                        self.resolved_signals['data_sig'] = signal_obj
+                        if signal_obj is not None:
+                            self._discovery_resolved_count = getattr(self, '_discovery_resolved_count', 0) + 1
                 elif self.protocol_type == 'fifo_slave':
-                    signal_obj = self._find_signal_match('data_sig', patterns, required=False)
-                    self.resolved_signals['data_sig'] = signal_obj
+                    if 'data_sig' not in self.resolved_signals:
+                        signal_obj = self._find_signal_match('data_sig', patterns, required=False)
+                        self.resolved_signals['data_sig'] = signal_obj
+                        if signal_obj is not None:
+                            self._discovery_resolved_count = getattr(self, '_discovery_resolved_count', 0) + 1
                 elif self.protocol_type == 'axi4_read_wavedrom':
                     # AXI4 read doesn't use data_sig in single mode
                     pass
@@ -1790,8 +1903,13 @@ class SignalResolver:
     def _display_signal_mapping(self):
         """Display signal mapping results in a Rich table."""
         console = Console()
-        mapping_source = "Manual signal_map" if self.signal_map else "Automatic discovery"
-        table = Table(title=f"Signal Mapping for {self.component_name} ({self.protocol_type}) - {mapping_source}")
+        source = self._get_mapping_source()
+        mapping_source_label = {
+            'manual': 'Manual signal_map',
+            'mixed': 'Mixed (signal_map + automatic discovery)',
+            'automatic': 'Automatic discovery',
+        }.get(source, source)
+        table = Table(title=f"Signal Mapping for {self.component_name} ({self.protocol_type}) - {mapping_source_label}")
 
         table.add_column("Logical Signal", style="cyan")
         table.add_column("Matched Signal", style="green")
@@ -2034,9 +2152,9 @@ class SignalResolver:
             'multi_sig_mode': self.multi_sig,
             'mode': self.mode,
             'prefix': self.prefix,  # ADDED
-            'signal_mapping_source': 'manual' if self.signal_map else 'automatic',  # NEW
+            'signal_mapping_source': self._get_mapping_source(),  # NEW
             'total_ports_found': len(self.top_level_ports),
-            'parameter_combinations': len(getattr(self, 'param_combinations', [])),  # May not exist for manual mapping
+            'parameter_combinations': len(getattr(self, 'param_combinations', [])),
             'total_signals': total_signals,
             'resolved_signals': resolved_signals,
             'missing_required': missing_required,

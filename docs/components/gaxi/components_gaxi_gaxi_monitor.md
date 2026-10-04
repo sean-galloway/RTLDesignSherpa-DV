@@ -501,7 +501,7 @@ async def test_memory_validation(dut):
 ### Custom Signal Mapping
 
 ```python
-# For non-standard signal names
+# Full override for non-standard signal names
 signal_map = {
     'valid': 'master_transaction_valid',
     'ready': 'slave_ready_signal',
@@ -514,7 +514,21 @@ monitor = GAXIMonitor(
     prefix="",
     clock=clock,
     field_config=field_config,
-    signal_map=signal_map  # Override automatic discovery
+    signal_map=signal_map
+)
+```
+
+```python
+# Partial map: override only the mis-named signals
+signal_map = {'data': 'transaction_data_bus'}
+
+monitor = GAXIMonitor(
+    dut=dut,
+    title="MostlyStandardMonitor",
+    prefix="",
+    clock=clock,
+    field_config=field_config,
+    signal_map=signal_map
 )
 ```
 
@@ -542,13 +556,16 @@ monitor = GAXIMonitor(
 ## Error Handling
 
 ### Signal Resolution Errors
+
+`signal_map` can be partial: mapped keys override discovery, omitted keys still go through automatic discovery.
+
 ```python
 try:
     monitor = GAXIMonitor(dut, "Monitor", "", clock, field_config)
 except RuntimeError as e:
     print(f"Signal resolution failed: {e}")
-    # Try with manual signal mapping
-    signal_map = create_manual_signal_map()
+    # Patch only the signal that discovery missed
+    signal_map = {'valid': 'custom_valid'}
     monitor = GAXIMonitor(dut, "Monitor", "", clock, field_config,
                          signal_map=signal_map)
 ```

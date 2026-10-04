@@ -73,14 +73,16 @@ class GAXIComponentBase:
 
 **Signal Map Format:**
 ```python
-# Manual signal mapping (bypasses automatic discovery)
+# Manual signal mapping (partial maps merge with automatic discovery)
 signal_map = {
     'valid': 'dut_valid_signal_name',
-    'ready': 'dut_ready_signal_name', 
+    'ready': 'dut_ready_signal_name',
     'data': 'dut_data_signal_name'     # For single-signal mode
     # Or individual field names for multi-signal mode
 }
 ```
+
+Keys in the map bind to exactly the named DUT signals. Keys omitted from the map are resolved by normal automatic pattern discovery. A full map is still supported and behaves as before; a partial map is useful when only one or two signals have non-standard names. Unknown keys raise `ValueError`, as does a mapped DUT signal name that does not exist.
 
 ## Key Methods
 
@@ -241,7 +243,7 @@ The statistics every component reports, whatever its role.
 ```python
 stats = component.get_base_stats_unified()
 print(f"Component type: {stats['component_type']}")
-print(f"Signal mapping source: {stats['signal_mapping_source']}")
+print(f"Signal mapping source: {stats['signal_mapping_source']}")  # 'manual', 'mixed', or 'automatic'
 print(f"Field count: {stats['field_count']}")
 ```
 
@@ -288,10 +290,10 @@ master = GAXIMaster(
 
 ### Manual Signal Mapping
 
-Automatic discovery handles conventional naming. When the DUT names its pins something creative, hand in a map and skip the guessing.
+Automatic discovery handles conventional naming. When the DUT names its pins something creative, hand in a map and skip the guessing. The map can be partial: keys present override discovery for those signals, and omitted keys still go through automatic discovery.
 
 ```python
-# For non-standard signal names
+# Full override for non-standard signal names
 signal_map = {
     'valid': 'master_valid_custom',
     'ready': 'slave_ready_custom',
@@ -303,9 +305,23 @@ master = GAXIMaster(
     dut=dut,
     title="CustomMaster",
     prefix="",
-    clock=clock, 
+    clock=clock,
     field_config=field_config,
-    signal_map=signal_map  # Override automatic discovery
+    signal_map=signal_map
+)
+```
+
+```python
+# Partial map: only the mis-named signals need to be listed
+signal_map = {'valid': 'transaction_valid'}
+
+master = GAXIMaster(
+    dut=dut,
+    title="MostlyStandardMaster",
+    prefix="",
+    clock=clock,
+    field_config=field_config,
+    signal_map=signal_map
 )
 ```
 
@@ -395,6 +411,9 @@ def analyze_component_performance(component):
 ## Error Handling
 
 ### Signal Resolution Errors
+
+A `signal_map` can patch just the signals that discovery fails to find; the rest are still resolved automatically.
+
 ```python
 try:
     master = GAXIMaster(dut, "Master", "", clock, field_config)
@@ -402,9 +421,9 @@ except RuntimeError as e:
     # Detailed error with signal mapping diagnostics
     log.error(f"Signal mapping failed: {e}")
     
-    # Try manual mapping as fallback
-    signal_map = create_fallback_signal_map(dut)
-    master = GAXIMaster(dut, "Master", "", clock, field_config, 
+    # Patch only the signal that discovery missed
+    signal_map = {'valid': 'custom_valid'}
+    master = GAXIMaster(dut, "Master", "", clock, field_config,
                        signal_map=signal_map)
 ```
 
@@ -455,15 +474,14 @@ data_driver = DataDrivingStrategy(..., resolved_signals=resolved_signals)
 
 ## Best Practices
 
-### 1. **Let Automatic Discovery Try First**
+### 1. **Let Automatic Discovery Fill the Gaps**
 ```python
-# Try automatic discovery
+# Automatic discovery resolves everything it can
 component = GAXIMaster(dut, title, prefix, clock, field_config)
 
-# Fall back to manual mapping if needed
-if not all_signals_found:
-    signal_map = {...}
-    component = GAXIMaster(..., signal_map=signal_map)
+# If one signal is non-standard, patch just that one
+signal_map = {'valid': 'custom_valid'}
+component = GAXIMaster(..., signal_map=signal_map)
 ```
 
 ### 2. **Always Complete Base Initialization**

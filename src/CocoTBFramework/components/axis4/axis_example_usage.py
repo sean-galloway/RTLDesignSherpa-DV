@@ -306,7 +306,7 @@ async def test_axis_simple_components(dut):
 
 @cocotb.test()
 async def test_axis_manual_signal_mapping(dut):
-    """Test AXIS components with manual signal mapping."""
+    """Test AXIS components with full and partial manual signal mapping."""
 
     # Create clock
     clock = Clock(dut.aclk, 10, "ns")
@@ -317,11 +317,11 @@ async def test_axis_manual_signal_mapping(dut):
     # Import signal mapping utility
     from CocoTBFramework.components.axis4 import get_axis_signal_map
 
-    # Create manual signal mapping
+    # Full manual signal mapping: every key is bound directly.
+    # Full maps remain fully backward compatible.
     master_signal_map = get_axis_signal_map(prefix="custom_m_", direction="master")
-    get_axis_signal_map(prefix="custom_s_", direction="slave")
+    slave_signal_map = get_axis_signal_map(prefix="custom_s_", direction="slave")
 
-    # Create components with manual signal mapping
     create_axis_master(
         dut=dut,
         clock=dut.aclk,
@@ -331,8 +331,30 @@ async def test_axis_manual_signal_mapping(dut):
         log=logging.getLogger("mapped_master")
     )
 
-    # This demonstrates how to override automatic signal discovery
-    # when your DUT has non-standard signal names
+    create_axis_slave(
+        dut=dut,
+        clock=dut.aclk,
+        prefix="",  # Empty prefix since we're using manual mapping
+        data_width=32,
+        signal_map=slave_signal_map,
+        log=logging.getLogger("mapped_slave")
+    )
+
+    # Partial manual signal mapping: only non-conforming signal names are
+    # overridden; omitted keys are resolved by automatic pattern discovery.
+    partial_map = {
+        'data': 'axis_payload',  # DUT uses a non-standard payload name
+        'last': 'axis_eop',      # DUT uses end-of-packet instead of tlast
+    }
+
+    create_axis_master(
+        dut=dut,
+        clock=dut.aclk,
+        prefix="m_axis_",  # discovery resolves omitted keys under this prefix
+        data_width=32,
+        signal_map=partial_map,
+        log=logging.getLogger("partial_master")
+    )
 
     dut._log.info("Manual signal mapping test completed!")
 

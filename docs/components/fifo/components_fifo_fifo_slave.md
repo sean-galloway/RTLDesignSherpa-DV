@@ -69,7 +69,7 @@ FIFOSlave(dut, title, prefix, clock, field_config,
 - `randomizer`: Optional randomizer for read delays
 - `log`: Logger instance
 - `super_debug`: Enable detailed debugging
-- `signal_map`: Optional manual signal mapping
+- `signal_map`: Optional manual signal mapping; partial maps merge with automatic discovery
 - `**kwargs`: Additional arguments for BusMonitor
 
 The knob set mirrors FIFOMaster's, plus the read-side randomizer.
@@ -96,7 +96,7 @@ slave = FIFOSlave(
     mode='fifo_flop',
     multi_sig=True,
     randomizer=custom_randomizer,
-    signal_map={'read': 'rd_en', 'empty': 'fifo_empty'}
+    signal_map={'read': 'rd_en', 'empty': 'fifo_empty'}  # partial map; discovery resolves data/fields
 )
 ```
 
@@ -539,7 +539,9 @@ print(f"Collection analysis: {analysis}")
 
 ### Custom Signal Mapping
 
-`rd_en` / `fifo_empty` / `dout` instead of the defaults? Map them — don't rename the RTL:
+`rd_en` / `fifo_empty` / `dout` instead of the defaults? Map them — don't rename the RTL. The map can be full or partial; omitted keys are still resolved by automatic discovery.
+
+Valid `signal_map` keys for a FIFO slave are `read`, `empty`, and `data` in single-signal mode, plus any `field_config` field name (including optional field names declared in the protocol's `optional_fields` set or supplied per-instance via `optional_fields=`) in `multi_sig=True` mode. Raw logical names such as `field_<name>_sig` are also accepted.
 
 ```python
 # For non-standard FIFO interfaces
@@ -576,6 +578,20 @@ custom_signals = {
     'read_data': 'dout'
 }
 slave = create_custom_slave(dut, clock, custom_signals)
+```
+
+```python
+# Partial override: only 'empty' differs from discovery's expectations
+partial_map = {'empty': 'fifo_empty'}
+
+slave = FIFOSlave(
+    dut=dut,
+    title="PartialMapSlave",
+    prefix="",
+    clock=clock,
+    field_config=FieldConfig.create_data_only(32),
+    signal_map=partial_map
+)
 ```
 
 ## Protocol Violation Detection

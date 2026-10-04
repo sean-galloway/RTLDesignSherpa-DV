@@ -518,12 +518,16 @@ async def test_error_recovery(dut):
 ## Error Handling
 
 ### Signal Mapping Errors
+
+`signal_map` can be a complete override or a partial patch. Keys that appear in the map bind exactly to the named DUT signals; keys that are omitted fall back to automatic pattern discovery. Unknown keys still raise `ValueError`, and any mapped DUT signal name that does not exist also raises.
+
 ```python
 try:
     slave = GAXISlave(dut, "Slave", "", clock, field_config)
 except RuntimeError as e:
-    # Try manual signal mapping
-    signal_map = {'valid': 'custom_valid', 'ready': 'custom_ready'}
+    # Partial map: override only the signals that discovery can't find,
+    # let automatic discovery resolve the rest.
+    signal_map = {'valid': 'custom_valid'}
     slave = GAXISlave(dut, "Slave", "", clock, field_config,
                      signal_map=signal_map)
 ```

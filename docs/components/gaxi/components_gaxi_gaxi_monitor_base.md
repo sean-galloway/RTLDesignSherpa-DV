@@ -486,11 +486,11 @@ packets = monitor.get_observed_packets()  # Preferred method
 
 ### Signal Handling
 
-Signal resolution comes from GAXIComponentBase — automatic discovery first, manual `signal_map` when the DUT's naming defeats it.
+Signal resolution comes from GAXIComponentBase — automatic discovery, optionally merged with a manual `signal_map`. A partial map overrides only the keys it lists; everything else still runs through automatic discovery.
 
 ```python
 # Automatic signal resolution from GAXIComponentBase
-# Supports both automatic discovery and manual mapping
+# Supports full or partial manual mapping
 monitor = CustomMonitor(dut, "Monitor", "", clock, field_config,
                        signal_map={'valid': 'custom_valid'})
 ```

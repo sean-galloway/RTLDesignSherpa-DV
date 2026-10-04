@@ -103,7 +103,7 @@ packets = sequence.generate_packets()
 
 ### Signal Resolution
 - Automatic signal discovery by pattern matching
-- Manual `signal_map` override for creative DUT naming
+- Manual `signal_map` override for creative DUT naming — full or partial maps merge with discovery
 - Conventional prefix conventions recognized out of the box
 - Single-signal (packed fields) and multi-signal (discrete) modes
 

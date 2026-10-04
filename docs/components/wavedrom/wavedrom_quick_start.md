@@ -316,19 +316,19 @@ Work through it in order:
 
 ### Signals not found?
 
-Pin them by hand with a signal map:
+Pin them by hand with a signal map. The map can be partial — you only need to list the signals that discovery can't find, and discovery resolves the rest:
 
 ```python
 gaxi_wave = GAXIWaveDromTemplate(
     dut=dut,
-    signal_prefix="",
+    signal_prefix="wr_",  # discovery still finds wr_ready, wr_data, ...
     signal_map={
-        'valid': 'my_custom_valid',
-        'ready': 'weird_ready_signal',
-        'data': 'pkt_data'
+        'valid': 'my_custom_valid'  # override just the odd name
     }
 )
 ```
+
+A full map is still valid if every name is non-standard.
 
 ### Wrong data captured?
 

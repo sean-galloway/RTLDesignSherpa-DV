@@ -80,7 +80,7 @@ create_gaxi_master(dut, title, prefix, clock, field_config=None, packet_class=No
 - `memory_model`: Memory model for transactions (optional)
 - `memory_fields`: Field mapping for memory operations (unused - kept for compatibility)
 - `log`: Logger instance (default: dut's logger)
-- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery)
+- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery). Partial maps merge with automatic discovery: mapped keys bind directly, omitted keys are resolved by discovery.
 - `optional_signal_map`: Optional signal mapping (unused - kept for compatibility)
 - `field_mode`: Field mode (unused - kept for compatibility)
 - `multi_sig`: Whether using multi-signal mode
@@ -172,7 +172,7 @@ create_gaxi_monitor(dut, title, prefix, clock, field_config=None, is_slave=False
 - `multi_sig`: Whether using multi-signal mode
 - `bus_name`: Bus/channel name
 - `pkt_prefix`: Packet field prefix
-- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery)
+- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery). Partial maps merge with automatic discovery: mapped keys bind directly, omitted keys are resolved by discovery.
 - `packet_class`: Packet class produced by the receive pipeline (`None` = `GAXIPacket`). Wired through the [`_build_packet()`](components_gaxi_gaxi_component_base.md#_build_packetfield_values) hook
 - `**kwargs`: Additional arguments
 
@@ -279,7 +279,7 @@ create_gaxi_components(dut, clock, title_prefix="", field_config=None,
 - `memory_model`: Memory model for components (auto-created if None)
 - `log`: Logger instance
 - `mode`: Operating mode for slave/monitor
-- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery)
+- `signal_map`: Manual signal mapping dict (forwarded to the component; None = automatic signal discovery). Partial maps merge with automatic discovery: mapped keys bind directly, omitted keys are resolved by discovery.
 - `optional_signal_map`: Optional signal mapping (unused - kept for compatibility)
 - `multi_sig`: Whether using multi-signal mode
 - `bus_name`: Bus/channel name

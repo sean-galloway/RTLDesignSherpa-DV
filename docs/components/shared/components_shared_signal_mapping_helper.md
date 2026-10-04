@@ -27,7 +27,7 @@ Automatic signal discovery and mapping for GAXI and FIFO protocols — pattern-m
 
 ## Overview
 
-The least glamorous part of any BFM is figuring out which DUT port is which logical signal. Naming conventions drift (`awvalid` vs `aw_valid` vs `i_aw_valid`), prefixes multiply, and hardcoding names means every new DUT is a scavenger hunt. `SignalResolver` automates the boring part: it enumerates the DUT's top-level ports, matches them against per-protocol patterns, and applies the results to your component as attributes. When automatic discovery can't cope — and there will be a design where it can't — you pass a `signal_map` and it uses exactly what you gave it, no guessing. Prefix handling for cocotb Bus compatibility is built in, and failures come with diagnostics instead of a bare exception.
+The least glamorous part of any BFM is figuring out which DUT port is which logical signal. Naming conventions drift (`awvalid` vs `aw_valid` vs `i_aw_valid`), prefixes multiply, and hardcoding names means every new DUT is a scavenger hunt. `SignalResolver` automates the boring part: it enumerates the DUT's top-level ports, matches them against per-protocol patterns, and applies the results to your component as attributes. When automatic discovery can't cope — and there will be a design where it can't — you pass a `signal_map`: keys you name bind to exactly those DUT signals, and anything you omit is still resolved by pattern discovery, so a design with one oddball port name costs one dictionary entry, not a full hand mapping. Maps may also override optional signals (e.g. AXIS `tlast`/`tuser`) field by field. Prefix handling for cocotb Bus compatibility is built in, and failures come with diagnostics instead of a bare exception.
 
 ### Key Features
 - **Automatic signal discovery** by pattern-matching against DUT ports
@@ -108,17 +108,23 @@ SignalResolver(protocol_type: str, dut, bus, log, component_name: str,
 - `pkt_prefix`: Packet field prefix
 - `mode`: Protocol mode (kept for RTL parameter)
 - `super_debug`: Enable detailed signal resolution debugging
-- `signal_map`: Optional manual signal mapping (bypasses automatic discovery)
+- `signal_map`: Optional manual signal mapping — **full or partial**. Named keys bind to exactly the given DUT signals; omitted keys are resolved by automatic pattern discovery as usual. Optional signals can be overridden too.
 
 #### Signal Map Format
 
-When using manual `signal_map`, the keys vary by protocol:
+`signal_map` keys vary by protocol. A map may name **every** signal (the historical full-map behavior, unchanged) or **any subset**: the resolver binds the named keys first, then runs pattern discovery for whatever is still unbound, so the two mechanisms merge in one pass. A required signal that neither the map nor any pattern resolves is still a hard failure — partial maps relax what you must type, not what must bind.
+
+Validation rules:
+
+- An **unknown key** raises `ValueError` (typo protection) — the accepted key set is the required keys below plus the optional keys listed for each protocol.
+- A named signal that **does not exist on the DUT** raises `ValueError`.
+- **Omitted keys are not an error** — they are logged and left to discovery. (Earlier versions required every required key; that all-or-nothing rule is gone.)
 
 **GAXI Protocols:**
 - `'valid'`: Valid signal name
 - `'ready'`: Ready signal name  
 - `'data'`: Data signal name (single-signal mode)
-- Field names: Individual field signal names (multi-signal mode)
+- Field names: Individual field signal names (multi-signal mode; required fields plus any name in `optional_fields`)
 
 **FIFO Master:**
 - `'write'`: Write signal name
@@ -132,6 +138,8 @@ When using manual `signal_map`, the keys vary by protocol:
 - `'data'`: Data signal name (single-signal mode)
 - Field names: Individual field signal names (multi-signal mode)
 
+**AXIS (single-signal mode)** additionally accepts the optional keys `'strb'`, `'last'`, `'id'`, `'dest'`, `'user'` — and in multi-signal mode any optional field name — so a DUT that renames only `tlast` costs one entry:
+
 ```python
 # Automatic signal discovery
 resolver = SignalResolver(
@@ -144,7 +152,7 @@ resolver = SignalResolver(
     multi_sig=False
 )
 
-# Manual signal mapping
+# Full manual signal mapping (unchanged behavior)
 signal_map = {
     'valid': 'master_valid',
     'ready': 'slave_ready', 
@@ -157,6 +165,18 @@ resolver = SignalResolver(
     log=log,
     component_name='TestMaster',
     signal_map=signal_map
+)
+
+# Partial map: discovery resolves valid/ready/data; only the two
+# oddball names are pinned. This is the recommended hybrid.
+resolver = SignalResolver(
+    protocol_type='axis_master',
+    dut=dut,
+    bus=bus,
+    log=log,
+    component_name='TestMaster',
+    prefix='m_axis_',
+    signal_map={'last': 'packet_done', 'user': 'sideband_flags'}
 )
 ```
 
@@ -226,9 +246,11 @@ Get statistics about signal resolution.
 ```python
 stats = resolver.get_stats()
 print(f"Resolution rate: {stats['resolution_rate']:.1f}%")
-print(f"Signal mapping source: {stats['signal_mapping_source']}")
+print(f"Signal mapping source: {stats['signal_mapping_source']}")  # 'manual' | 'mixed' | 'automatic'
 print(f"Protocol: {stats['protocol_type']}")
 ```
+
+`signal_mapping_source` tells you how the binding was reached: `'automatic'` (no map — pure pattern discovery), `'manual'` (a `signal_map` named every signal discovery would try), or `'mixed'` (a partial map bound some signals and discovery resolved the rest — the common case once a design has even one oddball port name).
 
 ## Usage Patterns
 
@@ -717,22 +739,28 @@ if not log:
 
 ## Best Practices
 
-### 1. **Start with Automatic Discovery**
-Let the patterns do their job first; fall back to a manual map only when discovery genuinely can't figure it out:
+### 1. **Start with Automatic Discovery, Patch It with a Partial Map**
+Let the patterns do their job, and name only what they can't. A partial `signal_map` merges with discovery in one pass — there is no need to try discovery, catch the failure, and rebuild a full map:
 
 ```python
-# Try automatic discovery first
+# One oddball port name costs one entry; the patterns handle the rest
+resolver = SignalResolver('gaxi_master', dut, bus, log, 'Component',
+                          signal_map={'data': 'transfer_data'})
+resolver.apply_to_component(self)
+
+# A full manual map is still there for the design where nothing matches —
+# the try/except fallback pattern below remains valid, it is just no longer
+# the first tool to reach for:
 try:
     resolver = SignalResolver('gaxi_master', dut, bus, log, 'Component')
     resolver.apply_to_component(self)
 except RuntimeError:
-    # Fall back to manual mapping
     signal_map = create_manual_mapping()
     resolver = SignalResolver('gaxi_master', dut, bus, log, 'Component', signal_map=signal_map)
 ```
 
 ### 2. **Use Manual Mapping for Non-Standard Signals**
-When the RTL names things its own way, say so explicitly rather than hoping the patterns stretch:
+When the RTL names things its own way, say so explicitly rather than hoping the patterns stretch — and say so per signal; only the exceptions need entries:
 
 ```python
 # For custom or non-standard signal names

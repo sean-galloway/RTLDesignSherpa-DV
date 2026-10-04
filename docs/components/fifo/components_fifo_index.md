@@ -117,7 +117,7 @@ graph TB
 
 ### Key Features
 - **One infrastructure**: signal resolution, data handling, and statistics come from the shared base classes, so master, slave, and monitor can't drift apart
-- **Automatic signal discovery**: with a `signal_map` override when the RTL has its own naming ideas
+- **Automatic signal discovery**: with a `signal_map` that overrides or supplements discovery when the RTL has its own naming ideas
 - **Cached and fast**: pre-resolved signals and unified data strategies — 40% faster collection, 30% faster driving than the pre-unification components
 - **Statistics everywhere**: throughput, latency, violations, utilization, all queryable mid-test
 - **Memory integration**: MemoryModel support for scoreboard-style checking without writing a scoreboard
@@ -169,7 +169,7 @@ read_transactions = read_monitor._recvQ
 
 ## Signal Mapping
 
-Discovery first, override when you need to.
+Discovery first, override when you need to. `signal_map` can be **partial**: keys present bind directly, and omitted keys are resolved by automatic discovery. Unknown keys and non-existent DUT signal names still raise `ValueError`.
 
 ### Automatic Discovery
 ```python
@@ -188,6 +188,17 @@ signal_map = {
     'data': 'wr_data'
 }
 master = FIFOMaster(dut, "Master", "", clock, field_config, signal_map=signal_map)
+```
+
+### Partial Signal Mapping
+Only one or two names differ? Map just those and let discovery handle the rest:
+
+```python
+# Only 'full' is non-standard; discovery resolves 'write' and 'data'
+master = FIFOMaster(
+    dut, "PartialMaster", "", clock, field_config,
+    signal_map={'full': 'almost_full'}
+)
 ```
 
 ## Performance Features

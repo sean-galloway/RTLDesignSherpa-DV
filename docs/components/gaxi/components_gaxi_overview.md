@@ -139,14 +139,21 @@ Signal names are the least standard thing in any RTL project, so resolution is a
 
 ### Manual Override
 
-When the DUT names its pins something creative, hand in the map and skip the guessing:
+When the DUT names its pins something creative, hand in a map. The map can be partial: keys present override discovery for those signals, and keys omitted fall back to automatic pattern discovery.
 
 ```python
+# Full override for non-standard names
 signal_map = {
     'valid': 'master_valid_signal',
-    'ready': 'slave_ready_signal', 
+    'ready': 'slave_ready_signal',
     'data': 'transfer_data_signal'
 }
+component = GAXIMaster(dut, ..., signal_map=signal_map)
+```
+
+```python
+# Partial map: only patch the signals that discovery can't resolve
+signal_map = {'valid': 'master_valid_signal'}
 component = GAXIMaster(dut, ..., signal_map=signal_map)
 ```
 

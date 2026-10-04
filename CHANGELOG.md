@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Partial `signal_map` merges with automatic pattern discovery.** `SignalResolver`'s
+  manual mapping was all-or-nothing: omitting any required key raised, so a DUT
+  with one oddball port name forced a full hand mapping. A map may now name any
+  subset — named keys bind to exactly those DUT signals, omitted keys resolve by
+  the normal pattern pass, and a required signal still hard-fails only when
+  neither the map nor any pattern finds it. Optional signals are overridable too
+  (AXIS single-sig `strb`/`last`/`id`/`dest`/`user`, multi-sig optional field
+  names, raw optional logical names). Validation keeps its typo guard (unknown
+  keys and names not on the DUT still raise) but no longer demands completeness.
+  `signal_mapping_source` reports `manual` / `mixed` / `automatic`. Full maps
+  behave exactly as before. Side fix: the full key set from
+  `get_axis_signal_map()` (which includes the optional keys) previously tripped
+  the unexpected-keys check; it validates now. Unit tests in
+  `tests/unit/test_signal_map_partial.py`.
+
 ### Changed
 
 - **Docs and shipped READMEs use the positional time unit too.** 50 examples

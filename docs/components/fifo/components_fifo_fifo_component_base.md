@@ -39,7 +39,7 @@ Shared base class for FIFOMaster, FIFOMonitor, and FIFOSlave. Signal resolution,
 Everything a FIFO component needs that isn't specific to writing or reading lives in this class: finding the DUT's signals, packing and unpacking fields, moving data to and from a MemoryModel, and keeping statistics. It sits on the shared framework pieces rather than re-implementing them, which is exactly why the deprecation note above points you at GAXIComponentBase — that's where all of this actually lives now.
 
 ### Key Features
-- **Unified signal resolution**: automatic discovery against the DUT, with a manual `signal_map` override for interfaces that don't follow the expected naming
+- **Unified signal resolution**: automatic discovery against the DUT, with a manual `signal_map` that overrides or supplements discovery for interfaces that don't follow the expected naming
 - **Cached for speed**: signal handles are resolved once and reused, which is where the 40% faster data collection and 30% faster driving come from
 - **Memory integration**: attach a MemoryModel and transactions can be checked against expected data as they move
 - **Single- or multi-signal modes**: pack every field into one data bus, or give each field its own signal
@@ -83,12 +83,14 @@ FIFOComponentBase(dut, title, prefix, clock, field_config,
 - `memory_model`: Optional memory model for transactions
 - `log`: Logger instance
 - `super_debug`: Enable detailed debugging
-- `signal_map`: Optional manual signal mapping override
+- `signal_map`: Optional manual signal mapping; partial maps merge with automatic discovery
 - `**kwargs`: Additional arguments for specific component types
 
 #### Signal Map Format
 
-When the DUT's signal names don't match what discovery expects, pass a `signal_map` that translates logical names to real ones:
+`signal_map` translates logical names to the DUT's actual signal names. The map can be **partial**: keys present in the map are bound directly, and any omitted logical names are resolved by the normal automatic pattern discovery. A required signal that neither the map nor discovery resolves still raises a hard error. Unknown keys raise `ValueError` (typo protection), and a mapped DUT signal name that does not exist also raises `ValueError`.
+
+Valid FIFO keys are the protocol's required control/data keys — `write`, `full`, `data` for a master and `read`, `empty`, `data` for a slave — plus, in `multi_sig=True` mode, any field name from `field_config` (including optional field names declared in the protocol's `optional_fields` set or supplied per-instance via `optional_fields=`). Raw logical names such as `field_<name>_sig` are also accepted.
 
 **FIFO Master:**
 ```python
@@ -110,6 +112,21 @@ signal_map = {
     # OR field names for multi-signal mode:
     # 'addr': 'rd_addr', 'data': 'rd_data', 'cmd': 'rd_cmd'
 }
+```
+
+**Partial map — override only the names that differ:**
+```python
+# Discovery resolves 'write' and 'data'; only 'full' needs a manual nudge.
+partial_map = {'full': 'almost_full'}
+
+master = CustomFIFOComponent(
+    dut=dut,
+    title="PartialMapMaster",
+    prefix="",
+    clock=clock,
+    field_config=field_config,
+    signal_map=partial_map
+)
 ```
 
 ## Core Methods
@@ -226,7 +243,7 @@ One dict with everything the base knows about itself: component config, signal r
 ```python
 base_stats = component.get_base_stats_unified()
 print(f"Component type: {base_stats['component_type']}")
-print(f"Signal mapping source: {base_stats['signal_mapping_source']}")
+print(f"Signal mapping source: {base_stats['signal_mapping_source']}")  # 'automatic', 'manual', or 'mixed'
 print(f"Field count: {base_stats['field_count']}")
 print(f"Multi-signal mode: {base_stats['multi_signal']}")
 
@@ -309,7 +326,7 @@ master = CustomFIFOComponent(
 
 ### Manual Signal Mapping
 
-When it can't — custom names, `almost_full` instead of `full` — override:
+When it can't — custom names, `almost_full` instead of `full` — override. The map can be full or partial; omitted keys are still resolved by automatic discovery:
 
 ```python
 # Override signal discovery for non-standard naming
@@ -327,6 +344,21 @@ master = CustomFIFOComponent(
     clock=clock,
     field_config=field_config,
     signal_map=signal_map,
+    multi_sig=True
+)
+```
+
+```python
+# Partial override: only 'full' is non-standard, discovery resolves the rest
+partial_map = {'full': 'almost_full'}
+
+master = CustomFIFOComponent(
+    dut=dut,
+    title="PartialMaster",
+    prefix="",
+    clock=clock,
+    field_config=field_config,
+    signal_map=partial_map,
     multi_sig=True
 )
 ```
@@ -513,7 +545,7 @@ self.data_driver = DataDrivingStrategy(
 
 ### Signal Resolution Errors
 
-If discovery fails you get a RuntimeError with the details. The usual recovery is a manual map:
+If discovery fails you get a RuntimeError with the details. The usual recovery is a manual map — full or partial:
 
 ```python
 try:
@@ -522,7 +554,7 @@ except RuntimeError as e:
     # Signal mapping failed - detailed error info provided
     log.error(f"Signal resolution failed: {e}")
     
-    # Try manual signal mapping as fallback
+    # Try manual signal mapping as fallback (only the non-conforming keys)
     signal_map = create_manual_signal_map()
     component = CustomFIFOComponent(
         dut, title, prefix, clock, field_config, signal_map=signal_map

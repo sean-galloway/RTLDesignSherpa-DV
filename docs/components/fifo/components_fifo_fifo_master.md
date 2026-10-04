@@ -69,7 +69,7 @@ FIFOMaster(dut, title, prefix, clock, field_config,
 - `randomizer`: Optional randomizer for write delays
 - `log`: Logger instance
 - `super_debug`: Enable detailed debugging
-- `signal_map`: Optional manual signal mapping
+- `signal_map`: Optional manual signal mapping; partial maps merge with automatic discovery
 - `**kwargs`: Additional arguments for BusDriver
 
 The defaults are sane for a simple data-only FIFO. The knobs you'll actually reach for are `timeout_cycles`, `mode`, `multi_sig`, and `randomizer`.
@@ -96,7 +96,7 @@ master = FIFOMaster(
     mode='fifo_flop',
     multi_sig=True,
     randomizer=custom_randomizer,
-    signal_map={'write': 'wr_en', 'full': 'fifo_full'}
+    signal_map={'write': 'wr_en', 'full': 'fifo_full'}  # partial map; discovery resolves data/fields
 )
 ```
 
@@ -236,7 +236,7 @@ print(f"Queue depth: {stats['queue_depth']}")
 
 # Base statistics from FIFOComponentBase
 print(f"Component type: {stats['component_type']}")
-print(f"Signal mapping: {stats['signal_mapping_source']}")
+print(f"Signal mapping: {stats['signal_mapping_source']}")  # 'automatic', 'manual', or 'mixed'
 ```
 
 ## Usage Patterns
@@ -460,7 +460,9 @@ class RobustMaster:
 
 ### Custom Signal Mapping
 
-If the DUT names its signals `wr_en` / `almost_full` / `din`, don't rename the RTL — map them:
+If the DUT names its signals `wr_en` / `almost_full` / `din`, don't rename the RTL — map them. The map can be full or partial; omitted keys are still resolved by automatic discovery.
+
+Valid `signal_map` keys for a FIFO master are `write`, `full`, and `data` in single-signal mode, plus any `field_config` field name (including optional field names declared in the protocol's `optional_fields` set or supplied per-instance via `optional_fields=`) in `multi_sig=True` mode. Raw logical names such as `field_<name>_sig` are also accepted.
 
 ```python
 # For non-standard FIFO interfaces
@@ -497,6 +499,20 @@ custom_signals = {
     'write_data': 'din'
 }
 master = create_custom_master(dut, clock, custom_signals)
+```
+
+```python
+# Partial override: only 'full' differs from discovery's expectations
+partial_map = {'full': 'almost_full'}
+
+master = FIFOMaster(
+    dut=dut,
+    title="PartialMapMaster",
+    prefix="",
+    clock=clock,
+    field_config=FieldConfig.create_data_only(32),
+    signal_map=partial_map
+)
 ```
 
 ## Performance Analysis

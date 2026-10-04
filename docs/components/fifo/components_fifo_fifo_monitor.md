@@ -69,7 +69,7 @@ FIFOMonitor(dut, title, prefix, clock, field_config, is_slave=False,
 - `fifo_depth`: Assumed FIFO capacity in entries, used for the occupancy estimate (default: 16)
 - `log`: Logger instance
 - `super_debug`: Enable detailed debugging
-- `signal_map`: Optional manual signal mapping
+- `signal_map`: Optional manual signal mapping; partial maps merge with automatic discovery
 - `**kwargs`: Additional arguments for BusMonitor
 
 **Example:**

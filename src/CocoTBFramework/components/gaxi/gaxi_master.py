@@ -400,7 +400,7 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
 
             # Check if ready is asserted at this clock edge
             if hasattr(self, 'ready_sig') and self.ready_sig is not None:
-                if self.ready_sig.value:
+                if int(self.ready_sig.value):
                     if self.pipeline_debug:
                         phase_duration = get_sim_time('ns') - phase_start
                         self.log.debug(f"Master({self.title}) Phase2: handshake detected at cycle {timeout_counter}, "

@@ -805,14 +805,14 @@ class APBMaster(APBSignalMixin, BusDriver):
         self.bus.PENABLE.value = 1
         await FallingEdge(self.clock)
 
-        while not self.bus.PREADY.value:
+        while not int(self.bus.PREADY.value):
             await FallingEdge(self.clock)
 
         # Wait for signal values to settle before sampling (matches APBMonitor/APBSlave timing)
         await Timer(200, 'ps')
 
         # check if the slave is asserting an error
-        if self.is_signal_present('PSLVERR') and self.bus.PSLVERR.value:
+        if self.is_signal_present('PSLVERR') and int(self.bus.PSLVERR.value):
             transaction.fields['pslverr'] = int(self.bus.PSLVERR.value)
 
         # if this is a read we should sample the data

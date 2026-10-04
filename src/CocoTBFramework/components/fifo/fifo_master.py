@@ -203,7 +203,7 @@ class FIFOMaster(FIFOComponentBase, BusDriver):
         timeout_counter = 0
 
         # Check if full signal is high
-        while hasattr(self, 'full_sig') and self.full_sig is not None and self.full_sig.value:
+        while hasattr(self, 'full_sig') and self.full_sig is not None and int(self.full_sig.value):
             await self.wait_cycles(1)
 
             # Keep write deasserted while full
@@ -232,7 +232,7 @@ class FIFOMaster(FIFOComponentBase, BusDriver):
         # Check for write while full error - EXACT WORKING PATTERN
         if (hasattr(self, 'full_sig') and self.full_sig is not None and
             hasattr(self, 'write_sig') and self.write_sig is not None and
-            self.full_sig.value and self.write_sig.value):
+            int(self.full_sig.value) and int(self.write_sig.value)):
             current_time_ns = get_sim_time('ns')
             self.log.error(f"Master({self.title}) Error: {self.title} write while fifo full at {current_time_ns}ns")
             # Update stats - UNIFIED

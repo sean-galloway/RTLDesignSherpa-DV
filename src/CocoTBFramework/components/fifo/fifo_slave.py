@@ -161,7 +161,7 @@ class FIFOSlave(FIFOMonitorBase):
     async def _recv_phase2(self):
         """EXACT WORKING PHASE 2 - DO NOT MODIFY TIMING"""
         # Check if FIFO is empty
-        if hasattr(self, 'empty_sig') and self.empty_sig is not None and self.empty_sig.value:
+        if hasattr(self, 'empty_sig') and self.empty_sig is not None and int(self.empty_sig.value):
             # FIFO is empty, keep read deasserted and update stats
             self._set_rd_ready(0)
             # Note: empty_cycles tracking moved to enhanced stats

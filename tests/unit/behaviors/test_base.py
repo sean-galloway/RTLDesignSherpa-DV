@@ -208,3 +208,39 @@ def test_version_label_is_v2_1(b):
 def test_no_state_on_instance(b):
     """Behavior classes are stateless — instance dict should be empty."""
     assert b.__dict__ == {}
+
+
+# ---------------------------------------------------------------------
+# Per-slice read / gate leveling (G5)
+# ---------------------------------------------------------------------
+
+
+def test_rdlvl_en_reports_lowest_set_slice(b):
+    evt = b.training_step(_quiet_bus(rdlvl_en=0b1010), _STATE)
+    assert evt.phase == TrainingPhase.READ_LEVELING
+    assert evt.slice_idx == 1
+
+
+def test_rdlvl_req_reports_lowest_set_slice(b):
+    evt = b.training_step(_quiet_bus(rdlvl_req=0b0100), _STATE)
+    assert evt.phase == TrainingPhase.READ_LEVELING
+    assert evt.slice_idx == 2
+
+
+def test_gate_training_reports_slice_from_en(b):
+    evt = b.training_step(_quiet_bus(rdlvl_gate_en=0b1000), _STATE)
+    assert evt.phase == TrainingPhase.GATE_TRAINING
+    assert evt.slice_idx == 3
+
+
+def test_write_leveling_preserves_slice_zero(b):
+    evt = b.training_step(_quiet_bus(wrlvl_en=0b0010), _STATE)
+    assert evt.phase == TrainingPhase.WRITE_LEVELING
+    assert evt.slice_idx == 0
+
+
+def test_rdlvl_en_wins_over_req_when_both_assert(b):
+    evt = b.training_step(_quiet_bus(rdlvl_en=0b0001, rdlvl_req=0b0100), _STATE)
+    assert evt.phase == TrainingPhase.READ_LEVELING
+    assert evt.slice_idx == 0
+

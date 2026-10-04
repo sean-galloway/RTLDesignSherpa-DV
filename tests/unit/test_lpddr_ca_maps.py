@@ -1,14 +1,17 @@
-"""LPDDR5 (JESD209-5C Table 201) and LPDDR6 (JESD209-6 Table 254) CA maps.
+"""LPDDR4 (JESD209-4E Table 175), LPDDR5 (JESD209-5C Table 201) and
+LPDDR6 (JESD209-6 Table 254) CA maps.
 
 Golden vectors are hand-derived from the truth tables: bit i of an
-edge value is CAi, H=1, L=0, V/X bits 0. LPDDR5 edges are (R1, F1);
-LPDDR6 edges are (R1, F1, R2, F2).
+edge value is CAi, H=1, L=0, V/X bits 0. LPDDR4 edges are (R1, R2);
+LPDDR5 edges are (R1, F1); LPDDR6 edges are (R1, F1, R2, F2).
 """
 
 import pytest
 
+from CocoTBFramework.components.dfi.ca_dispatch import CACommandDecoder
 from CocoTBFramework.components.dfi.ca_map import CACodec
 from CocoTBFramework.components.dfi.ca_transport import pack_ddr_cmdaddr
+from CocoTBFramework.components.dfi.lpddr4_ca_map import LPDDR4_CA_MAP
 from CocoTBFramework.components.dfi.lpddr5_ca_map import (
     LPDDR5_CA_MAP_8B,
     LPDDR5_CA_MAP_16B,
@@ -21,10 +24,103 @@ from CocoTBFramework.components.dfi.lpddr6_ca_map import (
     LPDDR6_CA_WIDTH,
 )
 
+LP4 = CACodec(LPDDR4_CA_MAP)
 LP5_BG = CACodec(LPDDR5_CA_MAP_BG)
 LP5_16B = CACodec(LPDDR5_CA_MAP_16B)
 LP5_8B = CACodec(LPDDR5_CA_MAP_8B)
 LP6 = CACodec(LPDDR6_CA_MAP)
+
+
+# ===========================================================================
+# LPDDR4 — JESD209-4E Table 175
+# ===========================================================================
+
+def test_lpddr4_r1_opcodes_golden():
+    """R1 CA[5:0] patterns straight off the truth table."""
+    assert LP4.encode("nop")[0] == 0b000000
+    assert LP4.encode("mpc", op=0)[0] == 0b100000
+    assert LP4.encode("pre", ba=0, ab=0)[0] == 0b010000
+    assert LP4.encode("ref", ba=0, ab=0, rfm=0)[0] == 0b001000
+    assert LP4.encode("sre")[0] == 0b011000
+    assert LP4.encode("srx")[0] == 0b010100
+    assert LP4.encode("wr", ba=0, bl=0, c9=0, ap=0)[0] == 0b000100
+    assert LP4.encode("mwr", ba=0, c9=0, ap=0)[0] == 0b001100
+    assert LP4.encode("rd", ba=0, bl=0, c9=0, ap=0)[0] == 0b000010
+    assert LP4.encode("cas", col=0)[0] == 0b010010
+    assert LP4.encode("mrw1", ma=0, op7=0)[0] == 0b000110
+    assert LP4.encode("mrw2", op=0)[0] == 0b010110
+    assert LP4.encode("mrr", ma=0)[0] == 0b001110
+    assert LP4.encode("act", row=0, ba=0)[0] == 0b000001
+
+
+def test_lpddr4_act_row_scatter():
+    """ACTIVATE is a four-edge command; row bits are scattered per Table 175."""
+    row = 0x1A5A5
+    ba = 6
+    edges = LP4.encode("act", row=row, ba=ba)
+    assert len(edges) == 4
+    # ACT-1 R2 carries BA[2:0] on CA[2:0] and R10/R11/R16 on CA4/CA5/CA3.
+    assert edges[1] & 0b111 == ba
+    assert ((edges[1] >> 4) & 1) == ((row >> 10) & 1)   # R10
+    assert ((edges[1] >> 5) & 1) == ((row >> 11) & 1)   # R11
+    assert ((edges[1] >> 3) & 1) == ((row >> 16) & 1)   # R16
+    # ACT-2 R1 carries R17/R18/R6-R9 on CA0-CA5.
+    assert ((edges[2] >> 0) & 1) == ((row >> 17) & 1)   # R17
+    assert ((edges[2] >> 1) & 1) == ((row >> 18) & 1)   # R18
+    assert ((edges[2] >> 2) & 1) == ((row >> 6) & 1)    # R6
+    # ACT-2 R2 carries R0-R5 on CA0-CA5.
+    assert edges[3] == (row & 0b111111)
+    got, f = LP4.decode(edges)
+    assert (got, f) == ("act", {"ba": ba, "row": row})
+
+
+@pytest.mark.parametrize("name,kw", [
+    ("nop", {}),
+    ("mpc", {"op": 0x55}),
+    ("pre", {"ba": 5, "ab": 1}),
+    ("ref", {"ba": 3, "ab": 0, "rfm": 1}),
+    ("act", {"row": 0x1A5A5, "ba": 6}),
+    ("rd", {"ba": 7, "bl": 1, "c9": 1, "ap": 1}),
+    ("wr", {"ba": 2, "bl": 0, "c9": 0, "ap": 1}),
+    ("mwr", {"ba": 1, "c9": 1, "ap": 0}),
+    ("cas", {"col": 0x7F}),
+    ("mrw1", {"ma": 0x2D, "op7": 1}),
+    ("mrw2", {"op": 0x7F}),
+    ("mrr", {"ma": 0x3F}),
+    ("sre", {}),
+    ("srx", {}),
+])
+def test_lpddr4_decode_roundtrip(name, kw):
+    got, fields = LP4.decode(LP4.encode(name, **kw))
+    assert (got, fields) == (name, kw)
+
+
+def test_lpddr4_dispatcher_mrw_pairs_and_reconstructs_op():
+    """MRW-1/MRW-2 pair and the 8-bit OP value (OP7 from MRW-1, OP0-6 from MRW-2)."""
+    dec = CACommandDecoder(LPDDR4_CA_MAP)
+    assert dec.feed(LP4.encode("mrw1", ma=0x2D, op7=1)) is None
+    cmd, args = dec.feed(LP4.encode("mrw2", op=0x7F))
+    assert cmd.value == "mode_register_set"
+    assert args["mr_addr"] == 0x2D
+    assert args["mr_data"] == 0xFF
+
+
+def test_lpddr4_dispatcher_refab_and_refpb():
+    dec = CACommandDecoder(LPDDR4_CA_MAP)
+    cmd, args = dec.feed(LP4.encode("ref", ba=0, ab=1, rfm=0))
+    assert cmd.value == "refresh"
+    assert args["all_banks"] is True
+    cmd, args = dec.feed(LP4.encode("ref", ba=3, ab=0, rfm=0))
+    assert cmd.value == "refresh"
+    assert args["bank"] == 3
+    assert args.get("all_banks") is None
+
+
+def test_lpddr4_dispatcher_rd_ap_becomes_rda():
+    dec = CACommandDecoder(LPDDR4_CA_MAP)
+    cmd, args = dec.feed(LP4.encode("rd", ba=7, bl=1, c9=1, ap=1))
+    assert cmd.value == "read_auto"
+    assert args["auto_precharge"] is True
 
 
 # ===========================================================================

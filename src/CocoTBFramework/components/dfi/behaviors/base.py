@@ -58,6 +58,24 @@ def _bus_value(sig) -> int:
     return int(v) if v.is_resolvable else 0
 
 
+def _active_slice(sig) -> int:
+    """Index of the lowest set bit in a per-slice training signal.
+
+    Returns 0 for a missing signal, an unresolvable value, or an all-zero
+    value. This is the per-slice discriminator for read/gate leveling;
+    other training phases report slice 0.
+    """
+    if sig is None:
+        return 0
+    v = sig.value
+    if not v.is_resolvable:
+        return 0
+    val = int(v)
+    if val == 0:
+        return 0
+    return (val & -val).bit_length() - 1
+
+
 def _maybe(bus: Any, name: str):
     """Fetch an optionally-present bus signal (None if absent)."""
     return getattr(bus, name, None)
@@ -190,6 +208,10 @@ class DFIv2_1Behavior:
         (dfi_wrlvl_en or dfi_wrlvl_req). The delay-register protocol
         (dfi_rdlvl_delay_X / load / edge) is a v2.1-only mechanism the
         BFM drives via primitives; it doesn't create distinct events.
+
+        Read and gate leveling are per-slice; this method reports the
+        index of the lowest active bit. Write leveling and all other
+        training phases default to slice 0.
         """
         del state
         for phase, en_name, req_name in (
@@ -199,9 +221,14 @@ class DFIv2_1Behavior:
         ):
             en = _maybe(bus, en_name)
             req = _maybe(bus, req_name)
-            if (en is not None and _bus_value(en)) or (
-                    req is not None and _bus_value(req)):
-                return TrainingEvent(phase=phase, slice_idx=0)
+            en_active = en is not None and _bus_value(en)
+            req_active = req is not None and _bus_value(req)
+            if en_active or req_active:
+                slice_idx = 0
+                if phase in (TrainingPhase.READ_LEVELING,
+                             TrainingPhase.GATE_TRAINING):
+                    slice_idx = _active_slice(en if en_active else req)
+                return TrainingEvent(phase=phase, slice_idx=slice_idx)
         return None
 
     # ----- Error interface (introduced v3.0) -----

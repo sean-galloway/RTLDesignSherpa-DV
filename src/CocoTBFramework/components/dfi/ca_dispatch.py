@@ -153,12 +153,30 @@ _LPDDR6 = {
     "nop": _t(DRAMCommand.NOP),
 }
 
+_LPDDR4 = {
+    "act": _t(DRAMCommand.ACT),
+    "pre": _t(DRAMCommand.PRE),
+    "ref": _t(DRAMCommand.REF),
+    "rd": _t(DRAMCommand.RD),
+    "wr": _t(DRAMCommand.WR),
+    "mwr": _t(DRAMCommand.WR),
+    "mrw1": _t(DRAMCommand.MRS, pairs_with="mrw2"),
+    "mrw2": _t(DRAMCommand.MRS),
+    "mrr": _t(DRAMCommand.MRS, is_mrr=True),
+    "sre": _t(DRAMCommand.SRE),
+    "srx": _t(DRAMCommand.SRX),
+    "nop": _t(DRAMCommand.NOP),
+    "mpc": _t(DRAMCommand.NOP),
+    "cas": _t(DRAMCommand.NOP),
+}
+
 #: Translation tables by map name. LPDDR5's three bank organizations
 #: share one table — organization changes field widths, not meanings.
 TRANSLATIONS: Dict[str, Dict[str, Translation]] = {
     "ddr5": _DDR5,
     "hbm4_row": _HBM4_ROW,
     "hbm4_col": _HBM4_COL,
+    "lpddr4": _LPDDR4,
     "lpddr5_bg": _LPDDR5,
     "lpddr5_16b": _LPDDR5,
     "lpddr5_8b": _LPDDR5,
@@ -298,8 +316,12 @@ class CACommandDecoder:
         mr_addr = fields.get("ma", fields.get("mra"))
         if mr_addr is not None:
             args["mr_addr"] = mr_addr
-        if "op" in fields and cmd is DRAMCommand.MRS:
-            args["mr_data"] = fields["op"]
+        if cmd is DRAMCommand.MRS:
+            op = fields.get("op", 0)
+            if "op7" in fields:
+                op |= fields["op7"] << 7
+            if op or "op" in fields or "op7" in fields:
+                args["mr_data"] = op
         if tr.is_mrr:
             args["is_mrr"] = True
 

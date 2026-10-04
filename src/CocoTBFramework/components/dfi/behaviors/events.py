@@ -128,6 +128,19 @@ class FreqChangeEvent:
 
 
 # ---------------------------------------------------------------------
+# Geardown mode — v4.0 dfi_geardown_en (DDR4)
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GearDownEvent:
+    """DFI geardown mode assertion. The signal is v4.0-only and is
+    removed in v5.x (superseded by dfi_cs_geardown / 2N mode)."""
+    enabled: bool = True
+    timestamp_ns: float = 0.0
+
+
+# ---------------------------------------------------------------------
 # Training (v2.1-v4.0; interface removed in v5.x)
 # ---------------------------------------------------------------------
 
@@ -146,6 +159,11 @@ class TrainingPhase(str, Enum):
 class TrainingEvent:
     phase: TrainingPhase
     slice_idx: int = 0        # v4.0+ per-slice; 0 for older
+    # LPDDR4 CA-VREF training fields (v4.0 only)
+    calvl_data: Optional[int] = None
+    calvl_done: Optional[bool] = None
+    calvl_result: Optional[bool] = None
+    calvl_strobe: Optional[bool] = None
     timestamp_ns: float = 0.0
 
 

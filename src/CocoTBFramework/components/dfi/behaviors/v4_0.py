@@ -31,12 +31,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .base import _bus_value, _maybe
+from .base import _active_slice, _bus_value, _maybe
 from .events import (
     DisconnectEvent,
     DisconnectPhase,
     FreqChangeEvent,
     FreqChangeProtocol,
+    GearDownEvent,
     TakeoverEvent,
     TrainingEvent,
     TrainingPhase,
@@ -127,13 +128,59 @@ class DFIv4_0Behavior(DFIv3_1Behavior):
             freq_ratio=_bus_value(ratio_sig) if ratio_sig is not None else None,
         )
 
-    # ----- Training: v4.0 adds write-DQ and DB training -----
+    # ----- Training: v4.0 adds write-DQ, DB, and CA-VREF training -----
+
+    def _per_slice_field(self, sig, slice_idx: int, width: int) -> Optional[int]:
+        """Extract the ``width``-bit value for ``slice_idx`` from a
+        per-slice bus. Falls back to the raw integer when the signal
+        width is not introspectable (e.g. mock buses).
+        """
+        if sig is None:
+            return None
+        try:
+            total_width = len(sig)
+        except TypeError:
+            total_width = width
+        slice_count = total_width // width if width else 1
+        if slice_count <= 1:
+            return _bus_value(sig)
+        if not 0 <= slice_idx < slice_count:
+            return None
+        val = _bus_value(sig)
+        return (val >> (slice_idx * width)) & ((1 << width) - 1)
 
     def training_step(self, bus: Any, state: Any) -> Optional[TrainingEvent]:
         """v3.x phases plus v4.0's write DQ training (dfi_wdqlvl_en /
-        req) and DDR4 LRDIMM DB training (dfi_db_train_en)."""
+        req), DDR4 LRDIMM DB training (dfi_db_train_en), and LPDDR4
+        CA-VREF training (dfi_calvl_data/done/result/strobe).
+        """
         evt = super().training_step(bus, state)
         if evt is not None:
+            # Enrich LPDDR4 CA-VREF training with the v4.0 handshake
+            # signals. calvl_en/calvl_req are per-slice; pick the
+            # active slice the same way read leveling does.
+            if evt.phase == TrainingPhase.CA_TRAINING:
+                calvl_en = _maybe(bus, "calvl_en")
+                calvl_req = _maybe(bus, "calvl_req")
+                en_active = calvl_en is not None and _bus_value(calvl_en)
+                slice_idx = _active_slice(
+                    calvl_en if en_active else calvl_req)
+                data = self._per_slice_field(
+                    _maybe(bus, "calvl_data"), slice_idx, 7)
+                strobe = self._per_slice_field(
+                    _maybe(bus, "calvl_strobe"), slice_idx, 1)
+                done_sig = _maybe(bus, "calvl_done")
+                result_sig = _maybe(bus, "calvl_result")
+                return TrainingEvent(
+                    phase=TrainingPhase.CA_TRAINING,
+                    slice_idx=slice_idx,
+                    calvl_data=data,
+                    calvl_done=bool(_bus_value(done_sig))
+                    if done_sig is not None else None,
+                    calvl_result=bool(_bus_value(result_sig))
+                    if result_sig is not None else None,
+                    calvl_strobe=bool(strobe) if strobe is not None else None,
+                )
             return evt
         for phase, en_name, req_name in (
             (TrainingPhase.DQ_TRAINING, "wdqlvl_en", "wdqlvl_req"),
@@ -146,6 +193,21 @@ class DFIv4_0Behavior(DFIv3_1Behavior):
                 req = _maybe(bus, req_name)
                 if req is not None and _bus_value(req):
                     return TrainingEvent(phase=phase, slice_idx=0)
+        return None
+
+    # ----- Geardown mode: v4.0 dfi_geardown_en (DDR4) -----
+
+    def geardown(self, bus: Any, state: Any) -> Optional[GearDownEvent]:
+        """Sample dfi_geardown_en and report entry into geardown mode.
+
+        v4.0 added this signal for DDR4; it is removed in v5.x (the
+        spec superseded it with dfi_cs_geardown / 2N mode). The event
+        reports the assertion; de-assertion is the idle/normal state.
+        """
+        del state
+        sig = _maybe(bus, "geardown_en")
+        if sig is not None and _bus_value(sig):
+            return GearDownEvent(enabled=True)
         return None
 
     # CRC (alert_n), Error interface, CA parity, Low power, Update:

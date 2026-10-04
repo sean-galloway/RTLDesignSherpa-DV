@@ -131,9 +131,62 @@ def test_crc_via_alert_n_inherited(b):
     assert evt is not None
 
 
+def test_geardown_none_when_idle(b):
+    assert b.geardown(_quiet_bus(), _STATE) is None
+
+
+def test_geardown_event_on_assertion(b):
+    evt = b.geardown(_quiet_bus(geardown_en=1), _STATE)
+    assert evt is not None
+    assert evt.enabled is True
+
+
 def test_version_label(b):
     assert b.version_label == "v4.0"
 
 
 def test_stateless(b):
     assert b.__dict__ == {}
+
+
+# ---------------------------------------------------------------------
+# CA-VREF training (LPDDR4, v4.0)
+# ---------------------------------------------------------------------
+
+
+def test_calvl_vref_training_enriched_in_v4_0(b):
+    evt = b.training_step(_quiet_bus(
+        calvl_en=1,
+        calvl_data=0x55,
+        calvl_done=1,
+        calvl_result=0,
+        calvl_strobe=1,
+    ), _STATE)
+    assert evt is not None
+    assert evt.phase == TrainingPhase.CA_TRAINING
+    assert evt.slice_idx == 0
+    assert evt.calvl_data == 0x55
+    assert evt.calvl_done is True
+    assert evt.calvl_result is False
+    assert evt.calvl_strobe is True
+
+
+def test_calvl_vref_training_reports_active_slice(b):
+    evt = b.training_step(_quiet_bus(
+        calvl_en=0b0100,
+        calvl_data=0x1234,
+        calvl_strobe=0b0010,
+    ), _STATE)
+    assert evt.phase == TrainingPhase.CA_TRAINING
+    assert evt.slice_idx == 2
+
+
+def test_calvl_vreq_falls_back_to_req_slice(b):
+    evt = b.training_step(_quiet_bus(
+        calvl_req=0b1000,
+        calvl_done=1,
+    ), _STATE)
+    assert evt.phase == TrainingPhase.CA_TRAINING
+    assert evt.slice_idx == 3
+    assert evt.calvl_done is True
+

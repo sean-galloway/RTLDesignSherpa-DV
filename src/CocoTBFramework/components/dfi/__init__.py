@@ -121,6 +121,7 @@ from .lpddr5_ca_map import (
     LPDDR5_CA_MAP_BG,
     lpddr5_ca_map,
 )
+from .lpddr4_ca_map import LPDDR4_CA_MAP
 from .lpddr6_ca_map import LPDDR6_CA_MAP
 
 __all__ = [
@@ -140,6 +141,7 @@ __all__ = [
     "DDR5_CA_WIDTH",
     "LPDDR5_CA_WIDTH",
     "LPDDR6_CA_WIDTH",
+    "LPDDR4_CA_MAP",
     "LPDDR5_CA_MAP_8B",
     "LPDDR5_CA_MAP_16B",
     "LPDDR5_CA_MAP_BG",

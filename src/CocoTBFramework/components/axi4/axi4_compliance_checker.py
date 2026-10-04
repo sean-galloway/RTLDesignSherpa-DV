@@ -657,11 +657,16 @@ class AXI4ComplianceChecker:
 
     async def cycle_counter(self):
         """Count clock cycles for violation timestamps."""
+        # `except Exception`, never bare: cocotb 2.x cancels leftover tasks at
+        # teardown by throwing CancelledError (a BaseException), and a bare
+        # except swallows it — the coroutine then returns normally and every
+        # test that armed a checker fails at teardown with "Task was cancelled,
+        # but exited normally". Ordinary exceptions still swallow as before.
         try:
             while True:
                 await RisingEdge(self.clock)
                 self.cycle_count += 1
-        except:
+        except Exception:
             pass
 
     def get_compliance_report(self) -> Dict[str, Any]:

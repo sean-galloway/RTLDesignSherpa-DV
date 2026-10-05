@@ -22,7 +22,10 @@ Maintains backward compatibility - existing testbenches work unchanged.
 
 from collections import deque
 
-from cocotb.log import SimLog
+try:
+    from cocotb.logging import SimLog
+except ImportError:
+    from cocotb.log import SimLog
 from cocotb.utils import get_sim_time
 
 

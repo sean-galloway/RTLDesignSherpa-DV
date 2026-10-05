@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Set
 
+import logging
+
 import cocotb
 from cocotb.triggers import ClockCycles, RisingEdge
 from cocotb.utils import get_sim_time
@@ -61,7 +63,7 @@ class ArbiterMaster:
         if log:
             self.log = log
         else:
-            self.log = cocotb.log.getChild("ArbiterMaster")
+            self.log = logging.getLogger("cocotb.ArbiterMaster")
 
         # Client management
         self.client_configs: Dict[int, ClientConfig] = {}

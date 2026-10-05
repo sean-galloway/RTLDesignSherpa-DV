@@ -166,6 +166,10 @@ class ArbiterCompliance:
         # Warning and violation tracking
         self.protocol_warnings = []
         self.max_warnings = 200
+        # Running totals by type and severity. The verdict is computed from
+        # THESE, never from protocol_warnings, which is a bounded detail list.
+        self._warning_totals = {}
+        self._error_totals = {}
 
         # Basic statistics
         self.grant_counts = [0] * clients
@@ -675,9 +679,11 @@ class ArbiterCompliance:
         current_time = transaction.timestamp
         current_winner = transaction.gnt_id
 
-        # Is this a new grant? Ask the monitor, which tagged the transaction
-        # from the rising edge of grant_valid for this client
-        # (_process_ack_mode_grants: 'new_grant' then 'grant_continuation').
+        # Is this a new grant? Ask the monitor, which tags every grant it
+        # reports in ACK mode 'new_grant' (_process_ack_mode_grants: a client
+        # that did not hold the grant on the previous sample, or whose grant
+        # was retired by its ACK, is granted anew; nothing is reported while a
+        # grant waits for its ACK).
         #
         # This used to be re-derived as "the client has no outstanding entry in
         # pending_acks", which is not the same question. A client granted again
@@ -1275,10 +1281,26 @@ class ArbiterCompliance:
     # =======================================================================
 
     def _record_warning(self, warning):
-        """Record a protocol warning"""
+        """Record a protocol warning.
+
+        protocol_warnings is a bounded DETAIL list (max_warnings entries, halved
+        on overflow). The counts the verdict reports live in _warning_totals /
+        _error_totals and are never truncated. They used to be derived from the
+        list, so past 200 warnings the verdict under-counted -- 789 stray ACKs
+        reported as 183 -- and, since errors share the list, two real
+        round_robin_violations were reported as total_errors == 0, which is the
+        gate every arbiter testbench asserts on. Overflow now also keeps every
+        error-severity entry, discarding only the oldest warnings.
+        """
+        totals = self._error_totals if warning['severity'] == 'error' else self._warning_totals
+        totals[warning['type']] = totals.get(warning['type'], 0) + 1
+
         self.protocol_warnings.append(warning)
         if len(self.protocol_warnings) > self.max_warnings:
-            self.protocol_warnings = self.protocol_warnings[-self.max_warnings//2:]
+            errors = [w for w in self.protocol_warnings if w['severity'] == 'error']
+            keep = max(self.max_warnings // 2 - len(errors), 0)
+            recent = [w for w in self.protocol_warnings if w['severity'] != 'error'][-keep:] if keep else []
+            self.protocol_warnings = sorted(errors + recent, key=lambda w: w.get('timestamp', 0))
 
         # Log the warning
         if warning['severity'] == 'error':
@@ -1287,22 +1309,12 @@ class ArbiterCompliance:
             self.log.warning(f"ArbiterCompliance({self.title}): {warning['message']} @ {warning['timestamp']}ns")
 
     def get_warning_summary(self):
-        """Get summary of protocol warnings"""
-        warning_counts = {}
-        error_counts = {}
-
-        for warning in self.protocol_warnings:
-            warning_type = warning['type']
-            if warning['severity'] == 'error':
-                error_counts[warning_type] = error_counts.get(warning_type, 0) + 1
-            else:
-                warning_counts[warning_type] = warning_counts.get(warning_type, 0) + 1
-
+        """Get summary of protocol warnings (totals from the running counters)"""
         return {
-            'total_warnings': len([w for w in self.protocol_warnings if w['severity'] == 'warning']),
-            'total_errors': len([w for w in self.protocol_warnings if w['severity'] == 'error']),
-            'warning_types': warning_counts,
-            'error_types': error_counts,
+            'total_warnings': sum(self._warning_totals.values()),
+            'total_errors': sum(self._error_totals.values()),
+            'warning_types': dict(self._warning_totals),
+            'error_types': dict(self._error_totals),
             'recent_warnings': self.protocol_warnings[-10:] if self.protocol_warnings else []
         }
 
@@ -1361,6 +1373,8 @@ class ArbiterCompliance:
         """Reset all analysis data"""
         self.transaction_queue.clear()
         self.protocol_warnings.clear()
+        self._warning_totals.clear()
+        self._error_totals.clear()
         self.pending_acks.clear()
         self.pending_mask_updates.clear()
 

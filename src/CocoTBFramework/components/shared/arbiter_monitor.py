@@ -630,9 +630,11 @@ class ArbiterMonitor(BusMonitor):
         if not signal_state.gnt_valid or signal_state.gnt_vector == 0:
             return
 
-        # Get ACK information for this cycle
-        ack_received_this_cycle = (signal_state.ack_detected and
-                                (signal_state.ack_vector & signal_state.gnt_vector))
+        # ACK is a LEVEL the DUT samples every cycle, paired with the grant it
+        # answers. It was an edge test here (ack vector changed and nonzero), so
+        # an ACK held high across back-to-back grants to one client acknowledged
+        # every one of them at the DUT and only the first at the monitor.
+        ack_received_this_cycle = bool(signal_state.ack_vector & signal_state.gnt_vector)
 
         if not self.ack_mode:
             # NO-ACK MODE: Report grant every cycle when grant_valid=1
@@ -684,11 +686,18 @@ class ArbiterMonitor(BusMonitor):
 
         client_state = self._ack_mode_state[gnt_id]
 
-        # Check if this is a new grant (rising edge of grant_valid for this client)
-        grant_rising_edge = not client_state['grant_active']
-
-        if grant_rising_edge:
-            # NEW GRANT: First cycle of grant_valid assertion
+        # A grant is new when this client did not hold one on the previous
+        # sample. An ACK retires the grant it answers (below), so a client
+        # granted again on the very next sample -- the arbiter re-arbitrated on
+        # the ACK cycle and it won again, grant_valid never dropping -- is a NEW
+        # grant even though the grant vector did not change.
+        #
+        # This used to be a rising-edge test that was never re-armed by the ACK:
+        # the first grant was reported, every later cycle was tagged
+        # 'grant_continuation', and every ACK the client sent after the first
+        # was 'unexpected_ack' (RTLDesignSherpa-DV #50, residual 2: 5,009 of
+        # them in a 5,002-grant single-requester window).
+        if not client_state['grant_active']:
             client_state['grant_active'] = True
             client_state['grant_start_time'] = current_time
             client_state['waiting_for_ack'] = True
@@ -699,47 +708,47 @@ class ArbiterMonitor(BusMonitor):
 
             self._create_grant_transaction(signal_state, transaction_type="new_grant")
 
-        elif client_state['grant_active'] and ack_received_this_cycle:
-            # ACK RECEIVED: Mark that ACK was received
-            if client_state['waiting_for_ack']:
-                client_state['waiting_for_ack'] = False
+        # ACK sampled with the grant it answers -- including on the grant's own
+        # first cycle -- completes the transaction. The DUT consumes this ACK at
+        # the next clock edge, so whatever it is granting on the next sample is
+        # a new decision. Nothing is reported for a grant that persists after
+        # its ACK; the next sample reports it as the new grant it is.
+        if client_state['grant_active'] and ack_received_this_cycle:
+            client_state['grant_active'] = False
+            client_state['waiting_for_ack'] = False
 
-                if self.debug_enabled:
-                    self.log.debug(f"ArbiterMonitor({self.title}): ACK MODE ACK RECEIVED for client {gnt_id} @ {current_time}ns")
-
-        elif client_state['grant_active'] and not client_state['waiting_for_ack']:
-            # GRANT CONTINUATION: Grant is active and ACK was already received
-            time_since_last_report = current_time - client_state['last_grant_reported']
-
-            if time_since_last_report >= self.clock_period_ns:
-                client_state['last_grant_reported'] = current_time
-
-                if self.debug_enabled:
-                    self.log.debug(f"ArbiterMonitor({self.title}): ACK MODE GRANT CONTINUATION for client {gnt_id} @ {current_time}ns")
-
-                self._create_grant_transaction(signal_state, transaction_type="grant_continuation")
+            if self.debug_enabled:
+                self.log.debug(f"ArbiterMonitor({self.title}): ACK MODE ACK RECEIVED for client {gnt_id}, grant retired @ {current_time}ns")
 
     def _process_ack_changes(self, signal_state):
         """
         Process ACK signal changes
         """
-        if not signal_state.ack_detected:
+        if not signal_state.ack_vector:
+            return
+
+        # The grant owner's ACK bit is a LEVEL: every cycle it is sampled with
+        # the grant it answers is one ACK, because the DUT consumes it every
+        # cycle and a held level across back-to-back grants acknowledges each
+        # of them. Hand exactly that to the compliance model -- the grant it
+        # answers was queued just above, in _process_grant_changes, so the
+        # replay matches them in order.
+        #
+        # Bits from clients that do NOT hold the grant are stray. Those stay
+        # edge-detected: a held stray bit re-presented every cycle produced
+        # ~105 'unexpected_ack' per run on a 4-client arbiter, and it is one
+        # event, not one per cycle.
+        owner_mask = signal_state.gnt_vector if signal_state.gnt_valid else 0
+        owner_ack = signal_state.ack_vector & owner_mask
+        stray_new = signal_state.ack_vector & ~owner_mask & ~signal_state.prev_ack_vector
+        acks = owner_ack | stray_new
+        if not acks:
             return
 
         if self.debug_enabled:
-            self.log.debug(f"ArbiterMonitor({self.title}): ACK DETECTED: 0x{signal_state.ack_vector:x} @ {signal_state.current_time}ns")
+            self.log.debug(f"ArbiterMonitor({self.title}): ACK: 0x{acks:x} (owner 0x{owner_ack:x}, stray 0x{stray_new:x}) @ {signal_state.current_time}ns")
 
-        # Only the NEWLY-asserted bits are new ACKs. ack_detected fires on any
-        # change of the vector, and process_ack_received iterates every set bit
-        # it is handed -- so when one client's ACK asserts while another's is
-        # still held, the held bit was re-presented and reported as an
-        # 'unexpected_ack' against a grant that had already been retired. That
-        # produced ~105 spurious warnings per run on a 4-client arbiter as soon
-        # as two clients could ACK concurrently.
-        new_acks = signal_state.ack_vector & ~signal_state.prev_ack_vector
-        if not new_acks:
-            return
-        self.compliance.queue_ack(new_acks, signal_state.current_time)
+        self.compliance.queue_ack(acks, signal_state.current_time)
 
     def _process_block_changes(self, signal_state):
         """

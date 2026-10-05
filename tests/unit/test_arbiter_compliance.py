@@ -348,3 +348,56 @@ def test_arbiter_master_catalogue_profiles_include_a_saturating_one():
     assert sat['inter_request_delay'] == ([(0, 0)], [1.0])
     assert sat['request_duration'] == ([(1, 1)], [1.0])
     assert sat['enabled_probability'] == ([(1, 1)], [1.0])
+
+
+# =============================================================================
+# Verdict counts must survive the bounded warning list
+# =============================================================================
+
+def _warn(kind, ts, severity='warning'):
+    return {'type': kind, 'message': kind, 'timestamp': ts,
+            'client_id': 0, 'severity': severity}
+
+
+def test_warning_summary_counts_every_warning_past_the_retention_cap():
+    """_record_warning keeps at most max_warnings entries and halves the list
+    when it overflows. The verdict must still count every warning recorded."""
+    comp = make_compliance('rr', ack_mode=True)
+    n = comp.max_warnings * 4
+    for i in range(n):
+        comp._record_warning(_warn('unexpected_ack', i))
+
+    summary = comp.get_warning_summary()
+    assert summary['total_warnings'] == n
+    assert summary['warning_types'] == {'unexpected_ack': n}
+    assert len(comp.protocol_warnings) <= comp.max_warnings, "retention is still bounded"
+
+
+def test_errors_are_never_dropped_by_warning_overflow():
+    """Two errors recorded early, then far more warnings than the cap: the
+    verdict must still report both errors, and keep their detail entries."""
+    comp = make_compliance('rr', ack_mode=True)
+    comp._record_warning(_warn('round_robin_violation', 10, 'error'))
+    comp._record_warning(_warn('round_robin_violation', 20, 'error'))
+    for i in range(comp.max_warnings * 4):
+        comp._record_warning(_warn('unexpected_ack', 100 + i))
+
+    summary = comp.get_warning_summary()
+    assert summary['total_errors'] == 2
+    assert summary['error_types'] == {'round_robin_violation': 2}
+    kept_errors = [w for w in comp.protocol_warnings if w['severity'] == 'error']
+    assert [w['timestamp'] for w in kept_errors] == [10, 20]
+
+
+def test_reset_analysis_clears_the_verdict_totals():
+    comp = make_compliance('rr', ack_mode=True)
+    comp._record_warning(_warn('round_robin_violation', 10, 'error'))
+    comp._record_warning(_warn('unexpected_ack', 20))
+    assert comp.get_warning_summary()['total_errors'] == 1
+
+    comp.reset_analysis()
+
+    summary = comp.get_warning_summary()
+    assert summary['total_errors'] == 0
+    assert summary['total_warnings'] == 0
+    assert summary['error_types'] == {} and summary['warning_types'] == {}

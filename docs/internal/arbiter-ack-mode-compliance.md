@@ -1,89 +1,117 @@
-# Known issue: ACK-mode arbiter compliance loses a grant
+# ACK-mode arbiter compliance: the model lost grants and miscounted ACKs
 
-> **Status:** open, P2. Filed 2026-08-05 alongside the fix for three related
-> defects in the same model. The **no-ACK path is clean** and is asserted on by
-> the consuming testbenches; this is `WAIT_GNT_ACK=1` only.
+> **Status:** FIXED. Defect 1 on 2026-08-07 (`ee0aa9c`, closed #50);
+> defects 2 and 3 on 2026-10-04 (this entry). The **no-ACK grant path was
+> always clean**; defect 3 affected the verdict in both modes.
 >
 > **Issue:** [#50](https://github.com/sean-galloway/RTLDesignSherpa-DV/issues/50)
-> **Component:** `src/CocoTBFramework/components/shared/arbiter_compliance.py`
-> **Tracked downstream as:** COMMON-019 (RTLDesignSherpa, `vault/Tasks/common/`)
+> **Component:** `src/CocoTBFramework/components/shared/arbiter_monitor.py`,
+> `arbiter_compliance.py`
+> **Tracked downstream as:** RTLDesignSherpa `vault/Tasks/common/bug/closed/BUG-009.md`
+> (legacy id COMMON-019)
+> **Regression tests:** `tests/unit/test_arbiter_monitor_ack_mode.py`,
+> `tests/unit/test_arbiter_compliance.py`
 
-## What happens
+## What happened
 
-Two residuals in the ACK path of `ArbiterCompliance`.
+Three defects. All were the model's own; the RTL was correct in every case.
 
-### 1. `round_robin_violation`, roughly 3 runs in 8
+### 1. `round_robin_violation`, roughly 3 runs in 8 -- fixed 2026-08-07
 
-Reproduces on `val/common/test_arbiter_round_robin.py` config `[4-1]`
-(`CLIENTS=4`, `WAIT_GNT_ACK=1`) at `REG_LEVEL=GATE`. Every surviving violation
-has the same shape — the RTL granted a client *further along* the rotation than
-the model expected:
+`_ack_mode_state[i]['grant_active']` was cleared only when `grant_valid` FELL.
+An arbiter that hands the grant straight from one client to the next never
+lowers `grant_valid`, so the old owner's flag stayed `True`; its next grant
+failed the rising-edge test, was tagged `grant_continuation`, and the
+compliance model skipped it -- no check and no mask update. The model fell
+one grant behind the RTL and every later grant read as "expected N, got N+1".
+A hand-off now retires the old owner, and `is_new_grant` reads the
+transaction's own tag instead of re-deriving it from `pending_acks`.
 
-    expected 0, got 1: requests=0x3, mask=0x0, last_winner_at_grant=3
-    expected 1, got 2: requests=0x7, mask=0xe, last_winner_at_grant=0
+### 2. `unexpected_ack` whenever one client was granted back-to-back -- fixed 2026-10-04
 
-In both, the arbiter behaves as if its last winner were one grant ahead of the
-model's. That points at the model **missing a grant**, not the arbiter
-misrotating.
+The 2026-08-07 close reported both symptoms at zero. That was measured on
+`arbiter_round_robin`, whose Rule 3 drops `grant_valid` for one cycle after an
+ACK when only the owner is still requesting -- so on that arbiter a client is
+never granted on consecutive samples, and the path below was never exercised.
 
-Prime suspect is `is_new_grant` in `_check_round_robin_compliance_ack_mode`:
+`arbiter_round_robin_simple_ack` re-arbitrates on the ACK cycle and, if the
+same client is the only requester, grants it again with `grant_valid` held and
+the grant vector unchanged. The monitor recognised a new grant only on a
+rising edge of "this client holds the grant", and an ACK merely cleared
+`waiting_for_ack`: nothing re-armed the detector. Result, in one
+single-requester window: 1 `new_grant`, 5,001 continuations, **5,009
+`unexpected_ack`** against 5,002 grants. Because the testbench counts progress
+in `new_grant` transactions, the window also ran to its 10,000-cycle cap
+instead of its 1,000-grant target. Warning severity, so nothing failed and
+nobody looked.
 
-```python
-existing_pending = [t for t, c in self.pending_acks.items() if c == current_winner]
-is_new_grant = not existing_pending
-```
+A second defect sat in the same path: ACK was treated as an **edge**
+(`ack_vector` changed and nonzero). The DUT samples ACK every cycle, so an ACK
+level held across back-to-back grants acknowledges each of them at the DUT
+and only the first at the monitor.
 
-It is re-derived from `pending_acks` rather than read from the transaction's own
-`transaction_type`, which the monitor already sets (`new_grant` vs
-`grant_continuation`). A grant to a client that still owes an ACK is therefore
-skipped entirely — no compliance check *and* no mask update.
+**The fix**, in `_process_ack_mode_grants` / `_process_grant_changes` /
+`_process_ack_changes`:
 
-### 2. `unexpected_ack` during single-client saturation
+- An ACK sampled with the grant it answers retires that grant. Whatever is
+  granted on the next sample is a new grant, even when the vector did not
+  change. This also covers an ACK on the grant's own first cycle, which the
+  old `if/elif` chain silently dropped.
+- The owner's ACK bit is a sampled level, paired with the current grant and
+  handed to the compliance model every cycle it is high. Stray bits from
+  clients that do not hold the grant stay edge-detected, so a held stray bit
+  is reported once, not once per cycle.
+- `grant_continuation` is no longer emitted. A grant that persists after its
+  ACK is reported as the new grant it is; a grant waiting for its ACK reports
+  nothing, as before. In ACK mode `grants_per_client` therefore now counts
+  grants, not cycles -- the WRR testbench's note that it "over-counts there"
+  no longer applies.
 
-115-150 per run on `c08_w1` and `c16_w1` at `REG_LEVEL=FULL`. All land in the
-single-client saturation phase, where one client is granted repeatedly: more ACK
-edges are observed than grants are registered. `_process_ack_mode_grants`
-reports `new_grant` on the rising edge and `grant_continuation` thereafter, and
-only the former registers a pending ACK. Warning severity, so nothing fails.
+### 3. The verdict under-counted past 200 warnings, and could drop errors -- fixed 2026-10-04
 
-## Suggested work
+Found by the assertion added for defect 2. `_record_warning` kept at most
+`max_warnings = 200` entries in `protocol_warnings` and **halved the list** on
+overflow; `get_warning_summary` counted from that list. At 16 clients a
+testbench that injected 789 stray ACKs on purpose got a verdict of 183. The
+list is shared with error-severity entries, so the halving discards errors
+too: unit-tested, two `round_robin_violation` errors followed by 800 warnings
+produced `total_errors == 0` -- and `total_errors == 0` is the gate every
+arbiter testbench asserts on. In both modes.
 
-1. Make the ACK path register every grant it is handed — or have `is_new_grant`
-   read `transaction.metadata['transaction_type']` instead of re-deriving it
-   from `pending_acks` — then re-measure over >= 8 runs of `[4-1]`.
-2. Reconcile grant/ACK counting for held grants so saturation stops emitting
-   `unexpected_ack`.
-3. When both are clean, drop the `WAIT_GNT_ACK == 1` early return in
-   `arbiter_round_robin_tb.check_monitor_errors()` downstream so ACK mode
-   asserts the way no-ACK does.
+**The fix:** running totals by type and severity (`_warning_totals`,
+`_error_totals`) that are never truncated; the verdict is computed from them.
+`protocol_warnings` stays a bounded detail list, but overflow now keeps every
+error entry and discards only the oldest warnings.
 
-## Context: what was already fixed
+## Measured
 
-Three defects in this model were fixed in the same pass. All three made a
-**correct** arbiter look broken, which is the prior worth holding when this
-model reports a violation:
+Simple ACK arbiter, 4 clients: `unexpected_ack` 176 -> 42, all 42 being stray
+ACKs the testbench injects on purpose -- it now asserts the reported count
+equals the injected count exactly, at every N from 2 to 16; single-requester
+windows land on their targets (1000/500) instead of 5,002; the run takes
+6.8 s instead of 26 s. `arbiter_round_robin[4-1]` unchanged at 0 warnings.
+`arbiter_round_robin_weighted[4-8-1]` 7/7 scenarios. No-ACK simple arbiter
+0 warnings at every N.
 
-- **Wrong request vector.** The check was always paired with the previous
-  cycle's requests — correct for a registered grant, wrong for a combinational
-  one, and worth 144-176 bogus violations per run on `arbiter_round_robin_simple`.
-  Now selected by the `registered_grant` constructor argument.
-- **No `r_last_valid` mirror.** Two grant-less cycles drop the RTL's priority
-  mask back to reset; the model carried its pre-idle winner across the gap and
-  reported a violation on the first grant after every `block_arb` interval.
-- **ACKs processed live against a replay-built table.** `pending_acks` is only
-  written while replaying the queue, so an ACK handled at sample time saw a
-  table that did not yet contain its own grant. ACKs are now queued via
-  `queue_ack` and replayed in one timestamp-ordered stream with the grants.
+## Three traps for whoever touches this next
 
-## Two traps for whoever picks this up
+**The mask state advances during replay, not live.** Grants and ACKs are
+queued and `run_compliance_analysis` walks that queue later. Anything changed
+from the monitor's sampling loop touches state the replay re-derives and
+changes nothing -- the first attempt at the `r_last_valid` fix did exactly
+that, ran clean, and had zero effect on the violation.
 
-**The mask state advances during replay, not live.** Grants are queued and
-`run_compliance_analysis` walks that queue later. Anything you change from the
-monitor's sampling loop touches state the replay re-derives and changes
-nothing — the first attempt at the `r_last_valid` fix did exactly that, ran
-clean, and had zero effect on the violation.
-
-**The replay cannot see cycles, only grants.** Idle counts must be measured by
-the sampling loop and handed over (`idle_before`). Inferring them from
+**The replay cannot see cycles, only grants.** Idle counts must be measured
+by the sampling loop and handed over (`idle_before`). Inferring them from
 transaction timestamps looks equivalent and is not: that inference produced
 40-60 false violations per run.
+
+**Measure a monitor fix on an arbiter that exercises the path, and count
+what the verdict should say before trusting it.** The main arbiter's Rule 3
+bubble made back-to-back same-client grants impossible, so "both symptoms to
+zero" there said nothing about the re-grant path; and a verdict that said 183
+where 789 were logged went unnoticed until a testbench knew the right number.
+The simulator-free harness in `tests/unit/test_arbiter_monitor_ack_mode.py`
+drives the shapes directly: back-to-back re-grant, same-cycle ACK, level-held
+ACK, hand-off without `grant_valid` dropping, the Rule 3 bubble, a grant held
+without ACK, and a stray ACK.

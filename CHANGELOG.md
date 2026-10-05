@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.0.1] - 2026-10-04
+
+### Fixed
+
+- **ACK-mode arbiter monitor: a grant retired by its ACK was never re-armed,
+  and ACK was treated as an edge (#50, residual 2).** `_process_ack_mode_grants`
+  recognised a new grant only on a rising edge of "this client holds the
+  grant", and an ACK only cleared `waiting_for_ack`. An arbiter that
+  re-arbitrates on the ACK cycle and grants the SAME client again -- the only
+  requester, say -- never lowers `grant_valid` or changes the grant vector, so
+  the monitor reported one `new_grant` and tagged every later cycle a
+  continuation, while every ACK after the first was `unexpected_ack`. On
+  `arbiter_round_robin_simple_ack` that was 5,009 unmatched ACKs in a
+  5,002-grant single-requester window, and because the TB counts progress in
+  `new_grant` transactions the window ran to its cycle cap instead of its
+  grant target. An ACK sampled with the grant it answers now retires that
+  grant; whatever is granted on the next sample is a new grant even if the
+  vector did not change. The owner's ACK bit is also handed to the compliance
+  model as a sampled LEVEL each cycle (the DUT consumes it every cycle, so a
+  level held across back-to-back grants acknowledges each of them); stray
+  bits from non-owners stay edge-detected so a held stray bit is one event.
+  `grant_continuation` is no longer emitted -- a grant that persists after its
+  ACK is reported as the new grant it is. Measured on the simple ACK arbiter
+  at 4 clients: `unexpected_ack` 176 -> 42, all 42 being stray ACKs the TB
+  injects on purpose and now asserts on exactly; the single-requester windows
+  land on their grant targets (1000/500) instead of 5,002, and the run takes
+  6.8 s instead of 26 s. `arbiter_round_robin[4-1]` is unchanged at 0
+  warnings (its Rule 3 drops `grant_valid` for a cycle, which the old code
+  handled); `arbiter_round_robin_weighted[4-8-1]` still passes 7/7 scenarios.
+  Unit tests in `tests/unit/test_arbiter_monitor_ack_mode.py` (simulator-free
+  monitor harness, 7 cases incl. the shapes that already worked).
+  `docs/internal/arbiter-ack-mode-compliance.md` updated.
+
+- **Arbiter compliance verdict under-counted past 200 warnings and could
+  report real errors as zero.** `_record_warning` kept at most `max_warnings`
+  (200) entries in `protocol_warnings` and halved the list on overflow;
+  `get_warning_summary` counted from that list. A 16-client run that injected
+  789 stray ACKs on purpose got a verdict of 183, and -- since errors share the
+  list -- two `round_robin_violation` errors followed by 800 warnings produced
+  `total_errors == 0`, the gate every arbiter testbench asserts on, in both
+  modes. Totals are now running counters by type and severity that are never
+  truncated; the bounded detail list keeps every error entry and discards only
+  the oldest warnings. Unit tests in `tests/unit/test_arbiter_compliance.py`.
+
 ## [1.0.0] - 2026-10-04
 
 ### Added

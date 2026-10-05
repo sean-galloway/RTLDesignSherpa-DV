@@ -42,6 +42,7 @@ Everything that talks to your DUT lives here: a master, slave, and monitor for e
 - [**DFI Components**](dfi/components_dfi_overview.md) - DDR PHY Interface (v2.1-v5.x) memory-controller and PHY BFMs with JEDEC timing enforcement
 - [**FIFO Components**](fifo/components_fifo_index.md) - Buffer and queue verification with flow control
 - [**GAXI Components**](gaxi/components_gaxi_index.md) - The generic valid/ready layer the AXI and FIFO BFMs are built on — and a good lightweight choice on its own for checking small internal blocks
+- [**IRQ Components**](irq/index.md) - Passive observation for plain interrupt lines (level or pulse, scalar or vector) — and set-based assertions for the lines that must NOT move
 
 ### Serial Protocols
 - [**SMBus Components**](smbus/components_smbus_overview.md) - System Management Bus with open-drain modeling and CRC-8 packet error checking

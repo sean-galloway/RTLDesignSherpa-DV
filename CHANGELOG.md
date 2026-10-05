@@ -1,8 +1,22 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0] - 2026-10-04
 
 ### Added
+
+- **IRQ BFM family (`components/irq`).** `IRQMonitor`, `IRQMonitorGroup`, and
+  `IRQPacket` for plain interrupt lines — level or pulse, scalar or vector —
+  promoted from RTLDesignSherpa's `bin/TBClasses/irq`, where they lived since
+  2026-09-28 so they could be iterated without a package reinstall. A monitor
+  samples on a clock edge and decomposes each transition into one packet per
+  changed bit; the group drives N lines from ONE sampling coroutine (twelve
+  per-edge scheduler wakeups was the difference between 187 s and 359 s on the
+  legacy `rlb_top` suite) and provides `expect_only` for the negative
+  assertion — naming the line that must NOT have moved. Deliberately not built
+  on GAXI: an interrupt line has no handshake, and a line that grows one
+  belongs to GAXI instead. Documentation under `docs/components/irq/`;
+  unit tests in `tests/unit/test_irq_logic.py`. RDS-side consumers import the
+  package from 1.0.0 onward.
 
 - **Partial `signal_map` merges with automatic pattern discovery.** `SignalResolver`'s
   manual mapping was all-or-nothing: omitting any required key raised, so a DUT
@@ -18,6 +32,20 @@
   `get_axis_signal_map()` (which includes the optional keys) previously tripped
   the unexpected-keys check; it validates now. Unit tests in
   `tests/unit/test_signal_map_partial.py`.
+
+### Fixed
+
+- **cocotb 2.x compatibility (2.1.0 verified over the bridge/math/common/cdc
+  BKM coverage set; every fix dual-version).** Three layers, each invisible
+  until the one above it was fixed: (1) `cycle_counter()` in the axi4/axil4
+  compliance checkers swallowed `CancelledError` through a bare `except:`, which
+  cocotb 2.x converts into a teardown RuntimeError — one per armed checker;
+  (2) implicit `bool()` on `Logic`/`LogicArray` values now wrapped in explicit
+  `int()`; (3) `from cocotb.log import SimLog` and the `cocotb.log` package
+  logger are gone in 2.x — SimLog now imports try/except from `cocotb.logging`,
+  and the arbiter master's fallback logger uses `logging.getLogger` directly.
+  Measured outcome: cdc 349/349, math 401/401, common 945/945 under 2.1.0;
+  bridge at exact parity with its 1.9.2 result.
 
 ### Changed
 

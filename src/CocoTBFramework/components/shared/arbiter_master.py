@@ -18,11 +18,10 @@ ArbiterMaster with Unified Behavior and Drain/Idle Functionality
 Identical behavior for weighted/unweighted arbiters except weight signal management
 """
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Set
-
-import logging
 
 import cocotb
 from cocotb.triggers import ClockCycles, RisingEdge

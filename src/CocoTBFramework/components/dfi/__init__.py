@@ -115,13 +115,13 @@ from .jedec_timings import (
     timings_from_params,
     write_timings_template,
 )
+from .lpddr4_ca_map import LPDDR4_CA_MAP
 from .lpddr5_ca_map import (
     LPDDR5_CA_MAP_8B,
     LPDDR5_CA_MAP_16B,
     LPDDR5_CA_MAP_BG,
     lpddr5_ca_map,
 )
-from .lpddr4_ca_map import LPDDR4_CA_MAP
 from .lpddr6_ca_map import LPDDR6_CA_MAP
 
 __all__ = [

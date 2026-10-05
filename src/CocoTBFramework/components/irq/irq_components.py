@@ -47,7 +47,7 @@ from collections import deque
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 import cocotb
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import RisingEdge
 from cocotb.utils import get_sim_time
 
 from .irq_packet import IRQPacket

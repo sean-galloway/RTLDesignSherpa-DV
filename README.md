@@ -36,6 +36,7 @@ pip install -e ".[dev,all]"
 ```
 CocoTBFramework/
 ├── components/           # Protocol-specific BFMs and drivers
+│   ├── ace/             # AXI4-ACE (coherency extensions)
 │   ├── axi4/            # AXI4 full protocol
 │   ├── axi5/            # AXI5 (AMBA5) protocol
 │   ├── axil4/           # AXI4-Lite
@@ -82,6 +83,27 @@ from CocoTBFramework.components.axi4.axi4_sequence import AXI4Sequence, run_axi4
 - `AXI4ComplianceChecker` — Protocol violation detection and tracking
 - `AXI4Sequence` / `run_axi4_sequence` — Directed-random sequence authoring and pipelined execution
 - `AXI4Packet` — Complete transaction representation with field formatting
+
+#### AXI4-ACE (AXI Coherency Extensions)
+
+AXI4 extended with coherency: ARSNOOP/AWSNOOP on the front side, plus the AC/CR/CD snoop channels and RACK/WACK acknowledges. Implements the cache-ip ACE-shaped port contract (onyx D2 subset).
+
+```python
+from CocoTBFramework.components.ace import (
+    AXI4ACEMasterRead,
+    AXI4ACEMasterWrite,
+    AXI4ACESnoopMaster,
+    AXI4ACESnoopSlave,
+    ACEComplianceChecker,
+)
+```
+
+**Key classes:**
+- `AXI4ACEMasterRead` / `AXI4ACEMasterWrite` — Coherent front-side masters with auto-pulsed RACK/WACK
+- `AXI4ACESnoopMaster` / `AXI4ACESnoopSlave` — CCU-side initiator and cache-side responder for AC/CR/CD
+- `ACEComplianceChecker` — Snoop-order and CRRESP validity checker
+- `ACEPacket` / `SnoopPacket` — Transaction packets including snoop-channel factory methods
+- `ACETransactionType` / `SnoopType` / `CRRESP` / `CacheState` — Coherent transaction and state enumerations
 
 #### AXI5
 

@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.2.0] - 2026-10-06
+
+### Added
+
+- **AXI4-ACE BFM family (`components/ace`)** — full ACE (AXI Coherency
+  Extensions) verification components on top of the existing AXI4 BFMs, per
+  Arm IHI 0022: `AXI4ACEMaster` / `AXI4ACESlave` (front-side, adds RACK/WACK
+  one-cycle auto-pulse after RLAST / B handshake), `AXI4ACESnoopMaster` /
+  `AXI4ACESnoopSlave` (AC/CR/CD snoop channels as `GAXIMaster`/`GAXISlave`
+  bindings), ACE packets and factories (`ACESnoopPacket`, `ACESnoopResponse`,
+  `ACESnoopChannel`, snoop-transaction factories), and a snoop compliance
+  checker (`check_cr_order`, `check_cd_order`, `check_crresp_validity`).
+  Includes in-package `ACE_QUICKSTART.md`, five docs pages
+  (`docs/components/ace/`), and a generated `CocoTB_ACE.pdf` book.
+- **`signal_map` support for ACE** — the helper now carries `axi4ace_*`
+  interface-naming patterns so ACE BFMs resolve signals the same way the AXI4
+  BFMs do.
+
+### Fixed
+
+- **Default snoop handler claimed data transfer on `MAKE_INVALID` of
+  MODIFIED/OWNED lines.** The built-in MESI matrix in `ace_interfaces.py`
+  returned `data_transfer=True, pass_dirty=True` for MakeInvalid on M/O
+  lines, contradicting IHI 0022 and the component's own
+  `CRRESP.validate_for_snoop` ("MakeInvalid forbids DataTransfer"). Both
+  branches now invalidate without claiming transfer or dirty pass.
+
+### Notes
+
+- Validated against RTLDesignSherpa `val/amba` ACE test grids (13 test files,
+  207 parameter combinations at FULL) and the framework unit suite on both
+  cocotb 1.9.2 and 2.1.0.
+
 ## [1.0.1] - 2026-10-04
 
 ### Fixed

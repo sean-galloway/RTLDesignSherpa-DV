@@ -260,6 +260,141 @@ AXI4_BASE_PATTERNS = {
     ],
 }
 
+# AXI4-ACE base signal patterns - for AMBA AXI Coherency Extensions snoop channels
+# AC (snoop address), CR (snoop response) and CD (snoop data) reuse the same
+# prefix/bus_name conventions as AXI4 AR/AW/R/W/B.  Multi-sig field names are
+# 'addr', 'snoop', 'prot' for AC; 'resp' for CR; 'data', 'last' for CD.
+ACE_BASE_PATTERNS = {
+    # AC Channel (Snoop Address) - Master drives acvalid, Slave drives acready
+    'ac_valid_base': [
+        '{prefix}acvalid',
+        '{prefix}ac_valid',
+        '{prefix}{bus_name}acvalid',
+        '{prefix}{bus_name}ac_valid',
+        '{prefix}{pkt_prefix}valid',       # Covers ac_valid when pkt_prefix="ac_"
+        '{prefix}{pkt_prefix}acvalid',
+        '{prefix}axi_acvalid',
+    ],
+    'ac_ready_base': [
+        '{prefix}acready',
+        '{prefix}ac_ready',
+        '{prefix}{bus_name}acready',
+        '{prefix}{bus_name}ac_ready',
+        '{prefix}{pkt_prefix}ready',       # Covers ac_ready when pkt_prefix="ac_"
+        '{prefix}{pkt_prefix}acready',
+        '{prefix}axi_acready',
+    ],
+    # AC Channel packet patterns (for stub packed mode)
+    'ac_pkt_base': [
+        '{prefix}_ac_pkt',          # Matches fub_axi_ac_pkt
+        '{prefix}ac_pkt',
+        '{prefix}{bus_name}_ac_pkt',
+        '{prefix}{bus_name}ac_pkt',
+        '{prefix}{pkt_prefix}_pkt',
+        '{prefix}{pkt_prefix}pkt',
+    ],
+
+    # CR Channel (Snoop Response) - Slave drives crvalid, Master drives crready
+    'cr_valid_base': [
+        '{prefix}crvalid',
+        '{prefix}cr_valid',
+        '{prefix}{bus_name}crvalid',
+        '{prefix}{bus_name}cr_valid',
+        '{prefix}{pkt_prefix}valid',       # Covers cr_valid when pkt_prefix="cr_"
+        '{prefix}{pkt_prefix}crvalid',
+        '{prefix}axi_crvalid',
+    ],
+    'cr_ready_base': [
+        '{prefix}crready',
+        '{prefix}cr_ready',
+        '{prefix}{bus_name}crready',
+        '{prefix}{bus_name}cr_ready',
+        '{prefix}{pkt_prefix}ready',       # Covers cr_ready when pkt_prefix="cr_"
+        '{prefix}{pkt_prefix}crready',
+        '{prefix}axi_crready',
+    ],
+    # CR Channel packet patterns (for stub packed mode)
+    'cr_pkt_base': [
+        '{prefix}_cr_pkt',          # Matches fub_axi_cr_pkt
+        '{prefix}cr_pkt',
+        '{prefix}{bus_name}_cr_pkt',
+        '{prefix}{bus_name}cr_pkt',
+        '{prefix}{pkt_prefix}_pkt',
+        '{prefix}{pkt_prefix}pkt',
+    ],
+
+    # CD Channel (Snoop Data) - Slave drives cdvalid, Master drives cdready
+    'cd_valid_base': [
+        '{prefix}cdvalid',
+        '{prefix}cd_valid',
+        '{prefix}{bus_name}cdvalid',
+        '{prefix}{bus_name}cd_valid',
+        '{prefix}{pkt_prefix}valid',       # Covers cd_valid when pkt_prefix="cd_"
+        '{prefix}{pkt_prefix}cdvalid',
+        '{prefix}axi_cdvalid',
+    ],
+    'cd_ready_base': [
+        '{prefix}cdready',
+        '{prefix}cd_ready',
+        '{prefix}{bus_name}cdready',
+        '{prefix}{bus_name}cd_ready',
+        '{prefix}{pkt_prefix}ready',       # Covers cd_ready when pkt_prefix="cd_"
+        '{prefix}{pkt_prefix}cdready',
+        '{prefix}axi_cdready',
+    ],
+    'cd_data_base': [
+        '{prefix}cddata',
+        '{prefix}cd_data',
+        '{prefix}{bus_name}cddata',
+        '{prefix}{bus_name}cd_data',
+        '{prefix}{pkt_prefix}data',
+        '{prefix}axi_cddata',
+    ],
+    # CD Channel packet patterns (for stub packed mode)
+    'cd_pkt_base': [
+        '{prefix}_cd_pkt',          # Matches fub_axi_cd_pkt
+        '{prefix}cd_pkt',
+        '{prefix}_cddata',          # Alternative: some designs use cddata for packed CD
+        '{prefix}cddata',
+        '{prefix}{bus_name}_cd_pkt',
+        '{prefix}{bus_name}cd_pkt',
+        '{prefix}{pkt_prefix}_pkt',
+        '{prefix}{pkt_prefix}pkt',
+    ],
+
+    # Field patterns for multi-signal mode
+    'ac_field_base': [
+        '{prefix}ac{field_name}',
+        '{prefix}ac_{field_name}',
+        '{prefix}{bus_name}ac{field_name}',
+        '{prefix}{bus_name}ac_{field_name}',
+        '{prefix}{bus_name}_ac{field_name}',   # For s_axi_ac_addr style
+        '{prefix}{pkt_prefix}{field_name}',
+        '{prefix}axi_ac{field_name}',
+        '{prefix}axi4_ac{field_name}',          # For axi4_acaddr style
+    ],
+    'cr_field_base': [
+        '{prefix}cr{field_name}',
+        '{prefix}cr_{field_name}',
+        '{prefix}{bus_name}cr{field_name}',
+        '{prefix}{bus_name}cr_{field_name}',
+        '{prefix}{bus_name}_cr{field_name}',   # For s_axi_cr_resp style
+        '{prefix}{pkt_prefix}{field_name}',
+        '{prefix}axi_cr{field_name}',
+        '{prefix}axi4_cr{field_name}',          # For axi4_crresp style
+    ],
+    'cd_field_base': [
+        '{prefix}cd{field_name}',
+        '{prefix}cd_{field_name}',
+        '{prefix}{bus_name}cd{field_name}',
+        '{prefix}{bus_name}cd_{field_name}',
+        '{prefix}{bus_name}_cd{field_name}',   # For s_axi_cd_data style
+        '{prefix}{pkt_prefix}{field_name}',
+        '{prefix}axi_cd{field_name}',
+        '{prefix}axi4_cd{field_name}',          # For axi4_cddata style
+    ],
+}
+
 # AXIS base signal patterns - NEW for AXIS protocol support
 AXIS_BASE_PATTERNS = {
     # Master-side patterns (for AXIS masters)
@@ -484,6 +619,14 @@ AXI5_OPTIONAL_B_FIELDS = ('user', 'trace', 'tag', 'tagmatch')
 # the correct reading for a DUT that implements neither feature.
 AXI5_OPTIONAL_R_FIELDS = ('user', 'poison', 'tag', 'trace', 'tagmatch',
                           'chunknum', 'chunkstrb', 'chunkv')
+
+# AXI4-ACE. The ACE snoop channels carry only a subset of AXI4 qualifiers.
+# AC has addr/snoop/prot; CR has resp; CD has data/last. Only AC prot defaults
+# to 0 when absent. rack/wack are standalone acknowledge pulses and are NOT
+# resolved through this channel mapper; they are bound by the ACE BFM classes.
+ACE_OPTIONAL_AC_FIELDS = ('prot',)
+ACE_OPTIONAL_CR_FIELDS = ()
+ACE_OPTIONAL_CD_FIELDS = ()
 
 # AXI4-Lite. The Lite channel set is addr+prot / data+strb / resp, so very
 # little CAN be optional -- and the two that look optional are exactly the two
@@ -766,6 +909,147 @@ PROTOCOL_SIGNAL_CONFIGS = {
         'optional_signal_map': {
             'multi_sig_false': AXI4_BASE_PATTERNS['b_pkt_base'],  # Packed B packet for stubs
             'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
+        }
+    },
+
+    # ===========================================================================
+    # AXI4-ACE PROTOCOL CONFIGURATIONS
+    # ===========================================================================
+    # AXI4-ACE extends AXI4 with snoop channels (AC/CR/CD) and adds ARSNOOP /
+    # AWSNOOP to the address channels. The AR/AW/W/R/B entries reuse the AXI4
+    # base patterns; the snoop fields bind through the same field pattern with
+    # field_name='snoop'. RACK/WACK are standalone acknowledge pulses and are
+    # intentionally NOT listed here -- they are bound by the ACE BFM classes.
+
+    'axi4ace_ar_master': {
+        'optional_fields': AXI4_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],  # Master drives arvalid
+            'i_ready':    AXI4_BASE_PATTERNS['ar_ready_base']   # Master reads arready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['ar_pkt_base'],  # Packed AR packet for stubs
+            'multi_sig_true':  AXI4_BASE_PATTERNS['ar_field_base']
+        }
+    },
+
+    'axi4ace_aw_master': {
+        'optional_fields': AXI4_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],  # Master drives awvalid
+            'i_ready':    AXI4_BASE_PATTERNS['aw_ready_base']   # Master reads awready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['aw_pkt_base'],  # Packed AW packet for stubs
+            'multi_sig_true':  AXI4_BASE_PATTERNS['aw_field_base']
+        }
+    },
+
+    'axi4ace_w_master': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['w_valid_base'],  # Master drives wvalid
+            'i_ready':    AXI4_BASE_PATTERNS['w_ready_base']   # Master reads wready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['w_pkt_base'],  # Packed W packet for stubs
+            'multi_sig_true':  AXI4_BASE_PATTERNS['w_field_base']
+        }
+    },
+
+    'axi4ace_r_slave': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['r_valid_base'],  # Slave reads rvalid
+            'o_ready':    AXI4_BASE_PATTERNS['r_ready_base']   # Slave drives rready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['r_pkt_base'],  # Packed R packet for stubs
+            'multi_sig_true':  AXI4_BASE_PATTERNS['r_field_base']
+        }
+    },
+
+    'axi4ace_b_slave': {
+        'optional_fields': AXI4_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['b_valid_base'],  # Slave reads bvalid
+            'o_ready':    AXI4_BASE_PATTERNS['b_ready_base']   # Slave drives bready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['b_pkt_base'],  # Packed B packet for stubs
+            'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
+        }
+    },
+
+    'axi4ace_ac_master': {
+        'optional_fields': ACE_OPTIONAL_AC_FIELDS,
+        'signal_map': {
+            'o_valid':    ACE_BASE_PATTERNS['ac_valid_base'],  # Master drives acvalid
+            'i_ready':    ACE_BASE_PATTERNS['ac_ready_base']   # Master reads acready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': ACE_BASE_PATTERNS['ac_pkt_base'],  # Packed AC packet for stubs
+            'multi_sig_true':  ACE_BASE_PATTERNS['ac_field_base']
+        }
+    },
+
+    'axi4ace_ac_slave': {
+        'optional_fields': ACE_OPTIONAL_AC_FIELDS,
+        'signal_map': {
+            'i_valid':    ACE_BASE_PATTERNS['ac_valid_base'],  # Slave reads acvalid
+            'o_ready':    ACE_BASE_PATTERNS['ac_ready_base']   # Slave drives acready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': ACE_BASE_PATTERNS['ac_pkt_base'],  # Packed AC packet for stubs
+            'multi_sig_true':  ACE_BASE_PATTERNS['ac_field_base']
+        }
+    },
+
+    'axi4ace_cr_master': {
+        'optional_fields': ACE_OPTIONAL_CR_FIELDS,
+        'signal_map': {
+            'i_valid':    ACE_BASE_PATTERNS['cr_valid_base'],  # Master reads crvalid
+            'o_ready':    ACE_BASE_PATTERNS['cr_ready_base']   # Master drives crready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': ACE_BASE_PATTERNS['cr_pkt_base'],  # Packed CR packet for stubs
+            'multi_sig_true':  ACE_BASE_PATTERNS['cr_field_base']
+        }
+    },
+
+    'axi4ace_cr_slave': {
+        'optional_fields': ACE_OPTIONAL_CR_FIELDS,
+        'signal_map': {
+            'o_valid':    ACE_BASE_PATTERNS['cr_valid_base'],  # Slave drives crvalid
+            'i_ready':    ACE_BASE_PATTERNS['cr_ready_base']   # Slave reads crready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': ACE_BASE_PATTERNS['cr_pkt_base'],  # Packed CR packet for stubs
+            'multi_sig_true':  ACE_BASE_PATTERNS['cr_field_base']
+        }
+    },
+
+    'axi4ace_cd_master': {
+        'optional_fields': ACE_OPTIONAL_CD_FIELDS,
+        'signal_map': {
+            'i_valid':    ACE_BASE_PATTERNS['cd_valid_base'],  # Master reads cdvalid
+            'o_ready':    ACE_BASE_PATTERNS['cd_ready_base']   # Master drives cdready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': ACE_BASE_PATTERNS['cd_pkt_base'],  # Packed CD packet for stubs
+            'multi_sig_true':  ACE_BASE_PATTERNS['cd_field_base']
+        }
+    },
+
+    'axi4ace_cd_slave': {
+        'optional_fields': ACE_OPTIONAL_CD_FIELDS,
+        'signal_map': {
+            'o_valid':    ACE_BASE_PATTERNS['cd_valid_base'],  # Slave drives cdvalid
+            'i_ready':    ACE_BASE_PATTERNS['cd_ready_base']   # Master reads cdready
+        },
+        'optional_signal_map': {
+            'multi_sig_false': ACE_BASE_PATTERNS['cd_pkt_base'],  # Packed CD packet for stubs
+            'multi_sig_true':  ACE_BASE_PATTERNS['cd_field_base']
         }
     },
 
@@ -1788,7 +2072,18 @@ class SignalResolver:
                                            'axi5_aw_master', 'axi5_aw_slave',
                                            'axi5_r_master', 'axi5_r_slave',
                                            'axi5_w_master', 'axi5_w_slave',
-                                           'axi5_b_master', 'axi5_b_slave']:
+                                           'axi5_b_master', 'axi5_b_slave',
+                                           'axi4ace_ar_master',
+                                           'axi4ace_aw_master',
+                                           'axi4ace_w_master',
+                                           'axi4ace_r_slave',
+                                           'axi4ace_b_slave',
+                                           'axi4ace_ac_master',
+                                           'axi4ace_ac_slave',
+                                           'axi4ace_cr_master',
+                                           'axi4ace_cr_slave',
+                                           'axi4ace_cd_master',
+                                           'axi4ace_cd_slave']:
                     # AXI4/AXI5 channel protocols use packed signals in stub mode
                     # Each channel has its own packet signal: ar_pkt, r_pkt, aw_pkt, w_pkt, b_pkt
                     if 'data_sig' not in self.resolved_signals:

@@ -29,6 +29,12 @@ def test_protocol_types_is_frozenset():
     "axi5_aw_master", "axi5_aw_slave",
     "axi5_w_master",  "axi5_w_slave",
     "axi5_b_master",  "axi5_b_slave",
+    # AXI4-ACE
+    "axi4ace_ar_master", "axi4ace_aw_master", "axi4ace_w_master",
+    "axi4ace_r_slave",   "axi4ace_b_slave",
+    "axi4ace_ac_master", "axi4ace_ac_slave",
+    "axi4ace_cr_master", "axi4ace_cr_slave",
+    "axi4ace_cd_master", "axi4ace_cd_slave",
 ])
 def test_validate_accepts_known_types(protocol_type):
     """Every expected identifier validates without error."""
@@ -78,16 +84,21 @@ def test_set_size_matches_expected_channels():
     # startswith("axi4_") does NOT match "axil4_" -- the fifth character is
     # 'l', not '_'. Matching the families loosely is how the Lite entries got
     # past a different guard in signal_mapping_helper's test.
-    per_family = {
-        fam: {t for t in PROTOCOL_TYPES if t.startswith(fam + "_")}
-        for fam in ("axi4", "axi5", "axil4", "axil5")
-    }
+    per_family = {}
+    for fam in ("axi4", "axi5", "axil4", "axil5"):
+        # axi4ace_ identifiers start with "axi4_" but are their own family.
+        per_family[fam] = {
+            t for t in PROTOCOL_TYPES
+            if t.startswith(fam + "_") and not t.startswith("axi4ace_")
+        }
+    per_family["axi4ace"] = {t for t in PROTOCOL_TYPES if t.startswith("axi4ace_")}
 
     assert len(fifo) == 2, sorted(fifo)
     assert len(gaxi) == 2, sorted(gaxi)
     assert len(axis) == 2, sorted(axis)
     for fam, members in per_family.items():
-        assert len(members) == 10, f"{fam}: {sorted(members)}"
+        expected = 11 if fam == "axi4ace" else 10
+        assert len(members) == expected, f"{fam}: {sorted(members)}"
 
     counted = fifo | gaxi | axis | set().union(*per_family.values())
     assert counted == PROTOCOL_TYPES, (

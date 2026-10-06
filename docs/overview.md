@@ -150,6 +150,7 @@ The framework covers the common industry buses plus the internal interfaces that
 #### Standard Protocol Support
 - **APB (Advanced Peripheral Bus)**: complete ARM AMBA APB implementation with multi-slave support
 - **AXI4**: full AXI4 with ID tracking, channel separation, and out-of-order support
+- **AXI4-ACE**: AXI4 extended with coherency: ARSNOOP/AWSNOOP, the AC/CR/CD snoop channels, and RACK/WACK
 - **GAXI (Generic AXI)**: the generic valid/ready layer the AXI-family BFMs are built on — standalone, it covers small internal blocks with packed-field or multi-signal interfaces
 - **FIFO**: buffer and queue protocols with flow control and multi-field support
 

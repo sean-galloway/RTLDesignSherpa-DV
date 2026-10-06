@@ -35,6 +35,7 @@ Everything that talks to your DUT lives here: a master, slave, and monitor for e
 - [**APB5 Components**](apb5/components_apb5_overview.md) - APB5 (AMBA5) extensions with USER and WAKEUP signal support
 - [**Wishbone B4 Components**](wb4/components_wb4_index.md) - Wishbone B4 pipelined master, slave and monitor with the protocol checks
 - [**AXI4 Components**](axi4/index.md) - Full AXI4: burst transactions, outstanding operations, and compliance checking
+- [**AXI4-ACE Components**](ace/index.md) - AXI4 with coherency extensions: ARSNOOP/AWSNOOP plus the AC/CR/CD snoop channels
 - [**AXI5 Components**](axi5/components_axi5_overview.md) - AMBA5-generation AXI with the extended signal set and compliance checking
 - [**AXIL4 Components**](axil4/index.md) - AXI4-Lite, trimmed down for register-style memory-mapped interfaces
 - [**AXIS4 Components**](axis4/index.md) - AXI4-Stream for packet-based streaming data
@@ -105,6 +106,7 @@ graph TB
     subgraph Protocol["Protocol Components"]
         APB[APB Components]
         AXI4[AXI4 Components]
+        ACE[AXI4-ACE Components]
         AXIL4[AXIL4 Components]
         AXIS4[AXIS4 Components]
         GAXI[GAXI Components]
@@ -137,6 +139,7 @@ Read the arrows as "builds on": protocols at the top, shared infrastructure at t
 ### Protocol Coverage
 - **APB**: ARM's peripheral bus, with multi-slave support and register testing
 - **AXI4**: full memory-mapped AXI4 — bursts and outstanding transactions
+- **AXI4-ACE**: AXI4 extended with coherency: snoop channels, snoop types, and RACK/WACK
 - **AXIL4**: AXI4-Lite for register access and configuration
 - **AXIS4**: AXI4-Stream for high-throughput packet streaming
 - **GAXI**: the shared valid/ready substrate, and the quickest way to exercise a small FIFO-based block

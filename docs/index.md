@@ -34,7 +34,7 @@ Welcome to the CocoTBFramework — a verification framework built on cocotb, wit
 
 ### Verification Components
 - [**Components**](components/components_index.md) - Protocol BFMs: masters, slaves, monitors, and the utilities around them
-  - **AXI4 / AXI5 / AXI4-Lite**: full AMBA memory-mapped BFMs with compliance checking
+  - **AXI4 / AXI4-ACE / AXI5 / AXI4-Lite**: full AMBA memory-mapped BFMs with compliance checking
   - **APB / APB5**: Advanced Peripheral Bus components
   - **AXI-Stream (AXIS4 / AXIS5)**: unidirectional streaming components
   - **DFI**: DDR PHY Interface (v2.1-v5.x) memory-controller and PHY BFMs
@@ -154,6 +154,7 @@ graph TB
     subgraph Components["Components Layer - Protocol Implementation"]
         subgraph Comp_Proto["Protocol Components"]
             C_APB[APB]
+            C_ACE[AXI4-ACE]
             C_FIFO[FIFO]
             C_GAXI[GAXI]
         end
@@ -182,6 +183,7 @@ Components do the pin work, scoreboards do the checking, TBClasses wire it all i
 - **FIFO**: buffer protocols with flow control and multi-field packets
 - **GAXI**: the shared valid/ready substrate — and the lightweight option for small internal blocks
 - **AXI4**: full AXI4 with ID tracking and channel separation
+- **AXI4-ACE**: AXI4 with coherency extensions: snoop channels, snoop types, and acknowledge pulses
 - **Cross-Protocol**: bridge verification and protocol transformation
 
 ### Randomization

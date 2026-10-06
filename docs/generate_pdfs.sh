@@ -91,6 +91,7 @@ family_book() {  # <key> <Title> <out-name> <doc-subdir>
   rm -f "${COMP}/${sub}/_book_${key}_index.md"
 }
 
+family_book ace      "AXI4-ACE BFM"        CocoTB_ACE         ace
 family_book apb      "APB4 BFM"            CocoTB_APB4        apb
 family_book apb5     "APB5 BFM"            CocoTB_APB5        apb5
 family_book axi4     "AXI4 BFM"            CocoTB_AXI4        axi4

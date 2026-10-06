@@ -76,6 +76,12 @@ nav:
       - Compliance Checker: components/axi4/components_axi4_compliance.md
       - Randomization: components/axi4/components_axi4_randomization.md
 
+    - AXI4-ACE:
+      - Overview: components/ace/components_ace_overview.md
+      - Interfaces: components/ace/components_ace_interfaces.md
+      - Packet: components/ace/components_ace_packet.md
+      - Compliance Checker: components/ace/components_ace_compliance.md
+
     - AXI5:
       - Overview: components/axi5/components_axi5_overview.md
       - Interfaces: components/axi5/components_axi5_interfaces.md

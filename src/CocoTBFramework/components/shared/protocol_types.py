@@ -18,8 +18,8 @@ Single source of truth for the ``protocol_type`` string accepted by
 ready/valid base). Both bases previously hard-coded their own copies of this
 list, which drifted over time — see issue #9.
 
-Add a new identifier here when introducing a new ready/valid channel type,
-then register the matching signal pattern in
+Add a new identifier here when introducing a new ready/valid channel type
+(or ACE snoop channel), then register the matching signal pattern in
 ``signal_mapping_helper.PROTOCOL_SIGNAL_CONFIGS``.
 
 **Both halves, or the failure is late and confusing.** Registering only the
@@ -72,6 +72,13 @@ PROTOCOL_TYPES: FrozenSet[str] = frozenset({
     "axil5_aw_master", "axil5_aw_slave",
     "axil5_w_master",  "axil5_w_slave",
     "axil5_b_master",  "axil5_b_slave",
+    # AXI4-ACE per-channel (AMBA AXI Coherency Extensions)
+    # AR/AW/W are master-only; R/B are slave-only; AC/CR/CD are symmetric.
+    "axi4ace_ar_master", "axi4ace_aw_master", "axi4ace_w_master",
+    "axi4ace_r_slave",   "axi4ace_b_slave",
+    "axi4ace_ac_master", "axi4ace_ac_slave",
+    "axi4ace_cr_master", "axi4ace_cr_slave",
+    "axi4ace_cd_master", "axi4ace_cd_slave",
 })
 
 

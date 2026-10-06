@@ -140,6 +140,7 @@ where = ["src"]
 "CocoTBFramework.components.dfi" = ["jedec/*.csv", "jedec/*.md", "jedec/*.example"]
 "CocoTBFramework.components.axi4" = ["*.md"]
 "CocoTBFramework.components.uart" = ["*.md"]
+"CocoTBFramework.components.ace" = ["*.md"]
 
 [tool.ruff]
 target-version = "py310"

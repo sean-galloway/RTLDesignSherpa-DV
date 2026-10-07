@@ -809,7 +809,6 @@ class AXI4ACESnoopMaster:
             return SnoopResult(CRRESP(0), [], 0)
 
         self._outstanding = True
-        start_cycle = cocotb.utils.get_sim_time("ns")
 
         ac_packet = self.ac_channel.create_packet(
             addr=addr,
@@ -827,7 +826,6 @@ class AXI4ACESnoopMaster:
         if crresp.data_transfer:
             data = await self._recv_cd()
 
-        end_cycle = cocotb.utils.get_sim_time("ns")
         # Latency in clock cycles: assume clock period in ns is not known,
         # so report 0 unless a caller overrides. Tests can check data/order.
         latency = 0

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.1] - 2026-10-06
+
+### Fixed
+
+- **Lifted the `cocotb-coverage<2` dependency cap** — the only change in
+  this release. cocotb-coverage 2.0 was validated on cocotb 2.1.0 (RDS
+  tooling TASK-029): decorator/class surface unchanged, XML/YML export
+  exercised, BKM `val/cdc` coverage run green with the identical artifact
+  set as the 1.9.2 control. The 1.2.0 wheel's frozen metadata still
+  required `<2`, which blocked any environment from co-installing
+  cocotb 2.x + cocotb-coverage 2.0 alongside the framework. No API change;
+  pure packaging fix.
+
 ## [1.2.0] - 2026-10-06
 
 ### Added

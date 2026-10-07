@@ -43,10 +43,10 @@ from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 
 from .ace_field_configs import AXI4ACEFieldConfigHelper
-from .ace_packet import ACEPacket, SnoopPacket
+from .ace_packet import SnoopPacket
 from .ace_transaction import (
-    ACETransactionType,
     CRRESP,
+    ACETransactionType,
     CacheState,
     SnoopType,
 )

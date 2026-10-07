@@ -88,10 +88,10 @@ from .ace_packet import (
 
 # Transaction / CRRESP helpers
 from .ace_transaction import (
-    ACETransactionType,
     CRRESP,
-    CRRESPBit,
+    ACETransactionType,
     CacheState,
+    CRRESPBit,
     SnoopType,
 )
 

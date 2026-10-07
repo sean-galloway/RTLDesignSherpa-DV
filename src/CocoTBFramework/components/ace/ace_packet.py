@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..axi4.axi4_packet import AXI4Packet
 from .ace_field_configs import AXI4ACEFieldConfigHelper
-from .ace_transaction import ACETransactionType, CRRESP, SnoopType
+from .ace_transaction import CRRESP, ACETransactionType, SnoopType
 
 
 class ACEPacket(AXI4Packet):

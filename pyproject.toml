@@ -62,8 +62,12 @@ dependencies = [
     # removed. Note 0.3.0 declares a `scapy` dependency; nothing on the
     # driver/monitor/bus path this framework uses imports it.
     "cocotb-bus>=0.2.1",
-    # cocotb-coverage stays capped: 2.0 is still untested here.
-    "cocotb-coverage>=1.2.0,<2",
+    # cocotb-coverage 2.0 validated on cocotb 2.1.0 (tooling TASK-029,
+    # 2026-10-06): decorator/class surface unchanged (CoverageDB, CoverPoint,
+    # CoverCross, coverage_section, merge_coverage, reportCoverage), XML/YML
+    # export exercised, BKM val/cdc COVERAGE=1 run green with the identical
+    # artifact set. The <2 cap was protecting the pre-2.x pin era only.
+    "cocotb-coverage>=1.2.0",
     "rich>=14.0.0",
     "numpy>=2.0.0",
 ]

@@ -54,14 +54,14 @@ DELIBERATELY_STRICT_FIELDS = {
 # entirely and the contract went unenforced for twenty configs.
 AXI_CONFIG_KEYS = sorted(
     k for k in PROTOCOL_SIGNAL_CONFIGS
-    if k.startswith(('axi4_', 'axi5_', 'axil4_', 'axil5_'))
+    if k.startswith(('axi3_', 'axi4_', 'axi5_', 'axil4_', 'axil5_'))
     and k.endswith(('_master', '_slave'))
 )
 
 
 def test_axi_configs_are_present():
     """Guard the guard: if the table is empty these checks prove nothing."""
-    assert len(AXI_CONFIG_KEYS) == 40, (
+    assert len(AXI_CONFIG_KEYS) == 50, (
         f"expected 40 AXI4/AXI5/AXI4-Lite/AXI5-Lite channel configs, "
         f"found {len(AXI_CONFIG_KEYS)}: "
         f"{AXI_CONFIG_KEYS}"
@@ -163,6 +163,9 @@ def test_declared_optional_fields_actually_exist_on_the_channel():
     the AXI5 configs is the deliberate exception: AMBA5 removed the signal, and
     the entry is what lets an AXI4-shaped BFM bind against an AXI5 port.
     """
+    from CocoTBFramework.components.axi3.axi3_field_configs import (
+        get_axi3_field_configs,
+    )
     from CocoTBFramework.components.axi4.axi4_field_configs import (
         get_axi4_field_configs,
     )
@@ -173,7 +176,8 @@ def test_declared_optional_fields_actually_exist_on_the_channel():
     ALLOWED_ABSENT = {'region'}   # AMBA5 removed it; kept for AXI4-shaped BFMs
 
     stale = {}
-    for tag, cfgs in (('axi4', get_axi4_field_configs()),
+    for tag, cfgs in (('axi3', get_axi3_field_configs()),
+                      ('axi4', get_axi4_field_configs()),
                       ('axi5', get_axi5_field_configs())):
         for chan, cfg in cfgs.items():
             declared = set(cfg.field_names())

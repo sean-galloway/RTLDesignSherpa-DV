@@ -48,6 +48,12 @@ PROTOCOL_TYPES: FrozenSet[str] = frozenset({
     # AXI-Stream
     "axis_master",
     "axis_slave",
+    # AXI3 per-channel
+    "axi3_ar_master", "axi3_ar_slave",
+    "axi3_r_master",  "axi3_r_slave",
+    "axi3_aw_master", "axi3_aw_slave",
+    "axi3_w_master",  "axi3_w_slave",
+    "axi3_b_master",  "axi3_b_slave",
     # AXI4 per-channel
     "axi4_ar_master", "axi4_ar_slave",
     "axi4_r_master",  "axi4_r_slave",

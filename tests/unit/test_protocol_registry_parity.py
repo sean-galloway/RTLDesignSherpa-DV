@@ -61,7 +61,7 @@ def test_every_protocol_type_has_signal_patterns():
     )
 
 
-@pytest.mark.parametrize("family", ('axi4', 'axi5', 'axil4', 'axil5'))
+@pytest.mark.parametrize("family", ('axi3', 'axi4', 'axi5', 'axil4', 'axil5'))
 @pytest.mark.parametrize("channel", ('aw', 'ar', 'w', 'b', 'r'))
 @pytest.mark.parametrize("role", ('master', 'slave'))
 def test_every_amba_channel_is_registered_in_both(family, channel, role):

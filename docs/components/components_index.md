@@ -32,8 +32,10 @@ Everything that talks to your DUT lives here: a master, slave, and monitor for e
 
 ### Bus Protocols
 - [**APB Components**](apb/components_apb_index.md) - APB masters, slaves, and monitors with multi-slave transaction support
+- [**APB3 Components**](apb3/components_apb3_overview.md) - APB3 subset: APB4 minus PPROT/PSTRB, only PSLVERR optional
 - [**APB5 Components**](apb5/components_apb5_overview.md) - APB5 (AMBA5) extensions with USER and WAKEUP signal support
 - [**Wishbone B4 Components**](wb4/components_wb4_index.md) - Wishbone B4 pipelined master, slave and monitor with the protocol checks
+- [**AXI3 Components**](axi3/components_axi3_overview.md) - Standalone AXI3: 4-bit LEN, 2-bit LOCK, WID, no QoS/REGION
 - [**AXI4 Components**](axi4/index.md) - Full AXI4: burst transactions, outstanding operations, and compliance checking
 - [**AXI4-ACE Components**](ace/index.md) - AXI4 with coherency extensions: ARSNOOP/AWSNOOP plus the AC/CR/CD snoop channels
 - [**AXI5 Components**](axi5/components_axi5_overview.md) - AMBA5-generation AXI with the extended signal set and compliance checking

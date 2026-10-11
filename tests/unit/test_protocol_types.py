@@ -19,6 +19,11 @@ def test_protocol_types_is_frozenset():
     "fifo_master", "fifo_slave",
     "gaxi_master", "gaxi_slave",
     "axis_master", "axis_slave",
+    "axi3_ar_master", "axi3_ar_slave",
+    "axi3_r_master",  "axi3_r_slave",
+    "axi3_aw_master", "axi3_aw_slave",
+    "axi3_w_master",  "axi3_w_slave",
+    "axi3_b_master",  "axi3_b_slave",
     "axi4_ar_master", "axi4_ar_slave",
     "axi4_r_master",  "axi4_r_slave",
     "axi4_aw_master", "axi4_aw_slave",
@@ -85,7 +90,7 @@ def test_set_size_matches_expected_channels():
     # 'l', not '_'. Matching the families loosely is how the Lite entries got
     # past a different guard in signal_mapping_helper's test.
     per_family = {}
-    for fam in ("axi4", "axi5", "axil4", "axil5"):
+    for fam in ("axi3", "axi4", "axi5", "axil4", "axil5"):
         # axi4ace_ identifiers start with "axi4_" but are their own family.
         per_family[fam] = {
             t for t in PROTOCOL_TYPES

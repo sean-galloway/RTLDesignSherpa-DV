@@ -79,6 +79,32 @@ def test_apb5_slave_inherits_apb_slave():
 
 
 # ----------------------------------------------------------------------
+# #87: APB3 classes inherit APB classes
+# ----------------------------------------------------------------------
+
+
+def test_apb3_monitor_inherits_apb_monitor():
+    from CocoTBFramework.components.apb.apb_components import APBMonitor
+    from CocoTBFramework.components.apb3.apb3_components import APB3Monitor
+
+    assert issubclass(APB3Monitor, APBMonitor)
+
+
+def test_apb3_master_inherits_apb_master():
+    from CocoTBFramework.components.apb.apb_components import APBMaster
+    from CocoTBFramework.components.apb3.apb3_components import APB3Master
+
+    assert issubclass(APB3Master, APBMaster)
+
+
+def test_apb3_slave_inherits_apb_slave():
+    from CocoTBFramework.components.apb.apb_components import APBSlave
+    from CocoTBFramework.components.apb3.apb3_components import APB3Slave
+
+    assert issubclass(APB3Slave, APBSlave)
+
+
+# ----------------------------------------------------------------------
 # Type annotations (#11) — verify the aliases are exported
 # ----------------------------------------------------------------------
 

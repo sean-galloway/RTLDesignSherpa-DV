@@ -100,10 +100,17 @@ nav:
       - Packet: components/apb/components_apb_apb_packet.md
       - Sequence: components/apb/components_apb_apb_sequence.md
 
+    - APB3:
+      - Overview: components/apb3/components_apb3_overview.md
+
     - APB5:
       - Overview: components/apb5/components_apb5_overview.md
       - Components: components/apb5/components_apb5_components.md
       - Packet: components/apb5/components_apb5_packet.md
+
+    - AXI3:
+      - Overview: components/axi3/components_axi3_overview.md
+      - Interfaces: components/axi3/components_axi3_interfaces.md
 
     - Wishbone B4:
       - Index: components/wb4/components_wb4_index.md

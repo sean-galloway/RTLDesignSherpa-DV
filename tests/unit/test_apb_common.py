@@ -11,6 +11,11 @@ from CocoTBFramework.components.apb.apb_components import (
     APBSignalMixin,
     APBSlave,
 )
+from CocoTBFramework.components.apb3.apb3_components import (
+    APB3Master,
+    APB3Monitor,
+    APB3Slave,
+)
 from CocoTBFramework.components.apb5.apb5_components import (
     APB5Master,
     APB5Monitor,
@@ -85,8 +90,19 @@ def test_apb5_extensions_include_expected_user_signals():
 # DUT without PSTRB/PSLVERR/PPROT (or the APB5 extensions) can't bind.
 # ----------------------------------------------------------------------
 
+APB3_CLASSES = [APB3Monitor, APB3Slave, APB3Master]
 APB4_CLASSES = [APBMonitor, APBSlave, APBMaster]
 APB5_CLASSES = [APB5Monitor, APB5Slave, APB5Master]
+
+
+@pytest.mark.parametrize("cls", APB3_CLASSES)
+def test_apb3_default_split_required_vs_optional(cls):
+    """APB3 BFMs: required = mandatory APB4 base; optional = PSLVERR only."""
+    required, optional = cls._resolve_signal_lists(None)
+    assert set(required) == set(BASE_APB_SIGNALS)
+    assert set(optional) == {"PSLVERR"}
+    for sig in ("PPROT", "PSTRB"):
+        assert sig not in optional, f"{cls.__name__} must not make {sig} optional"
 
 
 @pytest.mark.parametrize("cls", APB4_CLASSES)
@@ -105,7 +121,7 @@ def test_apb5_default_split_required_vs_optional(cls):
     assert set(optional) == set(apb5_optional_signals)
 
 
-@pytest.mark.parametrize("cls", APB4_CLASSES + APB5_CLASSES)
+@pytest.mark.parametrize("cls", APB3_CLASSES + APB4_CLASSES + APB5_CLASSES)
 def test_no_optional_signal_in_required_list(cls):
     """The high-severity bug: optional signals must not be required."""
     required, optional = cls._resolve_signal_lists(None)
@@ -123,7 +139,7 @@ def test_apb5_extensions_not_required(cls):
         assert sig not in required, f"{cls.__name__} must not require {sig}"
 
 
-@pytest.mark.parametrize("cls", APB4_CLASSES + APB5_CLASSES)
+@pytest.mark.parametrize("cls", APB3_CLASSES + APB4_CLASSES + APB5_CLASSES)
 def test_explicit_signals_used_verbatim(cls):
     """A caller-supplied signal list takes full control (no optional set)."""
     custom = ["PSEL", "PENABLE", "PADDR"]
@@ -133,7 +149,7 @@ def test_explicit_signals_used_verbatim(cls):
     assert optional == []
 
 
-@pytest.mark.parametrize("cls", APB4_CLASSES + APB5_CLASSES)
+@pytest.mark.parametrize("cls", APB3_CLASSES + APB4_CLASSES + APB5_CLASSES)
 def test_all_bfms_use_signal_mixin(cls):
     """Signal-list resolution and is_signal_present come from one place."""
     assert issubclass(cls, APBSignalMixin)

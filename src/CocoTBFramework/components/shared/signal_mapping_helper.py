@@ -600,6 +600,13 @@ AXI4_OPTIONAL_AX_FIELDS = ('lock', 'cache', 'prot', 'qos', 'region', 'user')
 # W/R/B channels carry only the user-defined extension.
 AXI4_OPTIONAL_DATA_FIELDS = ('user',)
 
+# AXI3 drops QoS and REGION and carries WID, but the optional qualifier set is
+# otherwise the same zero-default group.  WID is treated as required (it is a
+# strict field per DELIBERATELY_STRICT_FIELDS), so the W channel only allows
+# USER to be optional.
+AXI3_OPTIONAL_AX_FIELDS = ('lock', 'cache', 'prot', 'user')
+AXI3_OPTIONAL_DATA_FIELDS = ('user',)
+
 # AXI5 keeps the AXI4 qualifiers and adds its own, every one of which defaults
 # to 0 meaning "this optional feature is not in use". AxREGION is retained even
 # though AMBA5 removed the signal: that entry is what lets an AXI4-shaped BFM
@@ -658,6 +665,132 @@ AXIL5_OPTIONAL_R_FIELDS = ('user', 'trace', 'loop', 'poison')
 
 
 PROTOCOL_SIGNAL_CONFIGS = {
+    # ===========================================================================
+    # AXI3 PROTOCOL CONFIGURATIONS
+    # ===========================================================================
+    # AXI3 uses the same base signal names as AXI4.  The only differences here
+    # are the optional_fields qualifier sets (no QoS/REGION, WID is required).
+
+    'axi3_ar_master': {
+        'optional_fields': AXI3_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],
+            'i_ready':    AXI4_BASE_PATTERNS['ar_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['ar_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['ar_field_base']
+        }
+    },
+
+    'axi3_ar_slave': {
+        'optional_fields': AXI3_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['ar_valid_base'],
+            'o_ready':    AXI4_BASE_PATTERNS['ar_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['ar_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['ar_field_base']
+        }
+    },
+
+    'axi3_r_slave': {
+        'optional_fields': AXI3_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['r_valid_base'],
+            'o_ready':    AXI4_BASE_PATTERNS['r_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['r_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['r_field_base']
+        }
+    },
+
+    'axi3_r_master': {
+        'optional_fields': AXI3_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['r_valid_base'],
+            'i_ready':    AXI4_BASE_PATTERNS['r_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['r_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['r_field_base']
+        }
+    },
+
+    'axi3_aw_master': {
+        'optional_fields': AXI3_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],
+            'i_ready':    AXI4_BASE_PATTERNS['aw_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['aw_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['aw_field_base']
+        }
+    },
+
+    'axi3_aw_slave': {
+        'optional_fields': AXI3_OPTIONAL_AX_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['aw_valid_base'],
+            'o_ready':    AXI4_BASE_PATTERNS['aw_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['aw_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['aw_field_base']
+        }
+    },
+
+    'axi3_w_master': {
+        'optional_fields': AXI3_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['w_valid_base'],
+            'i_ready':    AXI4_BASE_PATTERNS['w_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['w_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['w_field_base']
+        }
+    },
+
+    'axi3_w_slave': {
+        'optional_fields': AXI3_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['w_valid_base'],
+            'o_ready':    AXI4_BASE_PATTERNS['w_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['w_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['w_field_base']
+        }
+    },
+
+    'axi3_b_slave': {
+        'optional_fields': AXI3_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'i_valid':    AXI4_BASE_PATTERNS['b_valid_base'],
+            'o_ready':    AXI4_BASE_PATTERNS['b_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['b_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
+        }
+    },
+
+    'axi3_b_master': {
+        'optional_fields': AXI3_OPTIONAL_DATA_FIELDS,
+        'signal_map': {
+            'o_valid':    AXI4_BASE_PATTERNS['b_valid_base'],
+            'i_ready':    AXI4_BASE_PATTERNS['b_ready_base']
+        },
+        'optional_signal_map': {
+            'multi_sig_false': AXI4_BASE_PATTERNS['b_pkt_base'],
+            'multi_sig_true':  AXI4_BASE_PATTERNS['b_field_base']
+        }
+    },
+
     # ===========================================================================
     # AXI4 PROTOCOL CONFIGURATIONS - NEW
     # ===========================================================================
@@ -2063,7 +2196,12 @@ class SignalResolver:
                         self.resolved_signals['data_sig'] = signal_obj
                         if signal_obj is not None:
                             self._discovery_resolved_count = getattr(self, '_discovery_resolved_count', 0) + 1
-                elif self.protocol_type in ['axi4_ar_master', 'axi4_ar_slave',
+                elif self.protocol_type in ['axi3_ar_master', 'axi3_ar_slave',
+                                           'axi3_aw_master', 'axi3_aw_slave',
+                                           'axi3_r_master', 'axi3_r_slave',
+                                           'axi3_w_master', 'axi3_w_slave',
+                                           'axi3_b_master', 'axi3_b_slave',
+                                           'axi4_ar_master', 'axi4_ar_slave',
                                            'axi4_aw_master', 'axi4_aw_slave',
                                            'axi4_r_master', 'axi4_r_slave',
                                            'axi4_w_master', 'axi4_w_slave',

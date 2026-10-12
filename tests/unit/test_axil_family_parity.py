@@ -106,18 +106,18 @@ def test_axil5_transaction_subclasses_axil4():
 def test_axil5_records_absent_groups_as_absent():
     """A group the DUT was built without must not be recorded as 0.
 
-    'MPAM is zero' and 'this DUT has no MPAM' mean different things, and
+    'TRACE is zero' and 'this DUT has no TRACE' mean different things, and
     collapsing them makes a build mismatch unreadable after the fact.
     """
     from CocoTBFramework.components.axil5.axil5_transaction import AXIL5Transaction
     txn = AXIL5Transaction(0, 'write')
 
-    class AWNoMpam:
+    class AWNoTrace:
         awaddr = 0x100
         awuser = 3
-    txn.add_address_packet(AWNoMpam())
+    txn.add_address_packet(AWNoTrace())
     assert 'user' in txn.addr_sideband
-    assert 'mpam' not in txn.addr_sideband
+    assert 'trace' not in txn.addr_sideband
 
 
 def test_axil4_constraints_omit_what_lite_does_not_have():
@@ -136,12 +136,17 @@ def test_axil4_constraints_omit_what_lite_does_not_have():
         assert absent not in fields, f"{absent} has no AXI4-Lite meaning"
 
 
-def test_axil5_puts_exclusive_access_back():
-    """AXI5-Lite adds AxLOCK, so the rate is meaningful again."""
+def test_axil5_has_no_exclusive_access():
+    """AXI5-Lite does not support exclusive accesses (IHI 0022L B2.1.5) and
+    has no AxLOCK (Table B2.2), so there is no rate to set. It DOES carry the
+    transaction ID, so an ID rate exists."""
     from CocoTBFramework.components.axil5.axil5_randomization_config import (
         AXIL5ConstraintSet,
     )
-    assert 'exclusive_access_rate' in vars(AXIL5ConstraintSet())
+    fields = set(vars(AXIL5ConstraintSet()))
+    assert 'exclusive_access_rate' not in fields
+    assert not {'loop_rate', 'mpam_rate', 'mecid_rate', 'nsaid_rate'} & fields
+    assert 'id_rate' in fields
 
 
 def test_axil5_with_no_groups_configured_is_axil4_shaped():

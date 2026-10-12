@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: 2026 sean galloway
 """AXI5-Lite (AXIL5) components.
 
-AXI4-Lite plus AXI5's optional signal groups (USER, TRACE, LOOP, MPAM, MECID,
-NSAID, POISON, exclusive access). The interfaces subclass the AXIL4 ones and
+AXI4-Lite plus the AXI5-Lite transaction ID (AWID/BID, ARID/RID) and the
+optional groups Table B2.2 of IHI 0022 Issue L allows on AXI5-Lite (USER,
+TRACE, POISON). The interfaces subclass the AXIL4 ones and
 swap in an AXI5-Lite field-config helper -- the channel logic is shared, not
 copied, because the two protocols differ only in which optional fields exist.
 

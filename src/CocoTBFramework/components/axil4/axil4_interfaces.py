@@ -58,7 +58,7 @@ def channel_field_kwargs(channel, pkt_prefix, transaction_kwargs, already):
     """Values for a channel's OPTIONAL declared fields, from transaction kwargs.
 
     Fields are addressed the way they are named on the wire -- ``awuser``,
-    ``wpoison``, ``arloop`` -- so a caller writes what the DUT's port is called
+    ``wpoison``, ``arid`` -- so a caller writes what the DUT's port is called
     and there is no ambiguity when two channels declare the same field (AW and
     W both have ``user``).
 
@@ -82,6 +82,19 @@ def channel_field_kwargs(channel, pkt_prefix, transaction_kwargs, already):
     return out
 
 
+def reflected_id(response_channel, request_packet):
+    """``{'id': AxID}`` for a response channel that declares an ID, else {}.
+
+    AXI5-Lite carries AWID/BID and ARID/RID (IHI 0022L Table B2.2, code YS),
+    and a Subordinate must reflect the request's ID on its response (A5.1.1).
+    A slave BFM that answered with ID 0 would pass every single-ID test and
+    misroute every response the moment a Manager used two IDs.
+    """
+    if 'id' not in response_channel.field_config.field_names():
+        return {}
+    return {'id': getattr(request_packet, 'id', 0)}
+
+
 # EXOKAY (0b01) reports a SUCCESSFUL exclusive access. Treating it as an error
 # is why exclusive access could not be used: an exclusive transaction that
 # worked raised RuntimeError. Only SLVERR and DECERR are failures.
@@ -98,7 +111,7 @@ RESP_NAMES = {0: 'OKAY', 1: 'EXOKAY', 2: 'SLVERR', 3: 'DECERR'}
 # unrelated kwarg like `retry=True` passes through untouched. Policing every
 # name that merely starts with 'w', 'b' or 'r' would reject those.
 _OPTIONAL_FIELD_NAMES = (
-    'user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'poison', 'lock',
+    'id', 'user', 'trace', 'poison',
     'prot', 'strb', 'addr', 'data', 'resp',
 )
 
@@ -196,7 +209,7 @@ class AXIL4MasterRead:
         # populated by AXIL5 from its optional-signal-group kwargs.
         self._field_config_options = self._build_field_config_options(kwargs)
         # Last response packet seen, so a caller can read the AXI5-Lite
-        # response-channel sideband (BUSER/BTRACE/BLOOP, RUSER/RTRACE/RLOOP/
+        # response-channel sideband (BID/BUSER/BTRACE, RID/RUSER/RTRACE/
         # RPOISON). None until the first transaction completes.
         self.last_b_packet = None
         self.last_r_packet = None
@@ -295,8 +308,8 @@ class AXIL4MasterRead:
             # Wire-named form wins; bare `prot` kept for existing callers.
             prot=transaction_kwargs.get('arprot',
                                         transaction_kwargs.get('prot', 0)),
-            # AXI5-Lite optional groups, named as on the wire (aruser, artrace,
-            # arloop, armpam, armecid, arnsaid, arlock). No-op for AXI4-Lite.
+            # AXI5-Lite ID and optional groups, named as on the wire (arid,
+            # aruser, artrace). No-op for AXI4-Lite.
             **channel_field_kwargs(self.ar_channel, 'ar', transaction_kwargs,
                                    already={'addr', 'prot'})
         )
@@ -341,7 +354,7 @@ class AXIL4MasterRead:
         packet = slot[0]
         data_value = getattr(packet, 'data', 0)
 
-        # Keep the whole R packet: on AXI5-Lite it carries RUSER/RTRACE/RLOOP
+        # Keep the whole R packet: on AXI5-Lite it carries RID/RUSER/RTRACE
         # and RPOISON, none of which survive returning just the data word.
         self.last_r_packet = packet
 
@@ -448,7 +461,7 @@ class AXIL4MasterWrite:
         # populated by AXIL5 from its optional-signal-group kwargs.
         self._field_config_options = self._build_field_config_options(kwargs)
         # Last response packet seen, so a caller can read the AXI5-Lite
-        # response-channel sideband (BUSER/BTRACE/BLOOP, RUSER/RTRACE/RLOOP/
+        # response-channel sideband (BID/BUSER/BTRACE, RID/RUSER/RTRACE/
         # RPOISON). None until the first transaction completes.
         self.last_b_packet = None
         self.last_r_packet = None
@@ -577,8 +590,8 @@ class AXIL4MasterWrite:
             # Wire-named form wins; bare `prot` kept for existing callers.
             prot=transaction_kwargs.get('awprot',
                                         transaction_kwargs.get('prot', 0)),
-            # AXI5-Lite optional groups, named as on the wire (awuser, awtrace,
-            # awloop, awmpam, awmecid, awnsaid, awlock). No-op for AXI4-Lite.
+            # AXI5-Lite ID and optional groups, named as on the wire (awid,
+            # awuser, awtrace). No-op for AXI4-Lite.
             **channel_field_kwargs(self.aw_channel, 'aw', transaction_kwargs,
                                    already={'addr', 'prot'})
         )
@@ -644,7 +657,7 @@ class AXIL4MasterWrite:
         b_response = slot[0]
         resp_code = getattr(b_response, 'resp', 0)
 
-        # Keep the whole B packet: on AXI5-Lite it carries BUSER/BTRACE/BLOOP,
+        # Keep the whole B packet: on AXI5-Lite it carries BID/BUSER/BTRACE,
         # which a caller has no other way to see (write_transaction returns
         # only the response code, and changing that would break every caller).
         self.last_b_packet = b_response
@@ -752,7 +765,7 @@ class AXIL4SlaveRead:
         # populated by AXIL5 from its optional-signal-group kwargs.
         self._field_config_options = self._build_field_config_options(kwargs)
         # Last response packet seen, so a caller can read the AXI5-Lite
-        # response-channel sideband (BUSER/BTRACE/BLOOP, RUSER/RTRACE/RLOOP/
+        # response-channel sideband (BID/BUSER/BTRACE, RID/RUSER/RTRACE/
         # RPOISON). None until the first transaction completes.
         self.last_b_packet = None
         self.last_r_packet = None
@@ -887,8 +900,10 @@ class AXIL4SlaveRead:
             # Create and send R response using generic field names (SIMPLIFIED)
             r_packet = self.r_channel.create_packet(
                 data=data,
-                resp=resp
-                # SIMPLIFIED: No user field
+                resp=resp,
+                # AXI5-Lite: RID reflects ARID (IHI 0022L A5.1.1). Empty --
+                # a no-op -- when the R channel declares no ID (AXI4-Lite).
+                **reflected_id(self.r_channel, ar_packet)
             )
 
             await self.r_channel.send(r_packet)
@@ -964,7 +979,7 @@ class AXIL4SlaveWrite:
         # populated by AXIL5 from its optional-signal-group kwargs.
         self._field_config_options = self._build_field_config_options(kwargs)
         # Last response packet seen, so a caller can read the AXI5-Lite
-        # response-channel sideband (BUSER/BTRACE/BLOOP, RUSER/RTRACE/RLOOP/
+        # response-channel sideband (BID/BUSER/BTRACE, RID/RUSER/RTRACE/
         # RPOISON). None until the first transaction completes.
         self.last_b_packet = None
         self.last_r_packet = None
@@ -1149,8 +1164,9 @@ class AXIL4SlaveWrite:
                     resp = forced
 
             b_packet = self.b_channel.create_packet(
-                resp=resp
-                # SIMPLIFIED: No user field
+                resp=resp,
+                # AXI5-Lite: BID reflects AWID (IHI 0022L A5.1.1).
+                **reflected_id(self.b_channel, aw_packet)
             )
             await self.b_channel.send(b_packet)
 

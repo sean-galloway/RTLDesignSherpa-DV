@@ -24,22 +24,26 @@ because AXI4-Lite has none.
 
 The added rules, and why each one is a rule:
 
-* **Sideband stability.** AWUSER/AWMPAM/AWNSAID and friends are qualified by
+* **Sideband stability.** AWID/AWUSER/AWTRACE and friends are qualified by
   AWVALID exactly as AWADDR is, so they must hold from VALID assertion until
-  the handshake completes. A DUT that lets MPAM wobble mid-handshake presents
-  two different partition IDs for one transaction and the completer may latch
-  either. AXI4-Lite already checks this for ADDR and DATA; the optional groups
-  need the same treatment, and nothing was giving it to them.
-* **LOOP echo.** A completer must return BLOOP/RLOOP equal to the AWLOOP/ARLOOP
-  it was given -- that is the entire purpose of the signal. An unechoed LOOP
-  silently breaks a requester's ability to correlate responses.
+  the handshake completes. A DUT that lets AWID wobble mid-handshake presents
+  two different IDs for one transaction and the completer may latch either.
+  AXI4-Lite already checks this for ADDR and DATA; the AXI5-Lite signals need
+  the same treatment.
+* **ID reflection.** A Subordinate returns BID/RID equal to the AWID/ARID of
+  the request it answers (IHI 0022L A5.1.1: "the Manager requires BID and RID
+  to be reflected from AWID and ARID"). Responses to different IDs may be
+  reordered, so the check is against the set of IDs outstanding, not the last
+  one issued.
 * **POISON without data.** WPOISON qualifies write data; RPOISON qualifies read
   data. Poison asserted on a beat whose strobes are all zero marks bytes that
   were never written.
+* **No EXOKAY.** AXI5-Lite does not support exclusive accesses (B2.1.5) and has
+  no AxLOCK (Table B2.2), so an EXOKAY response can never be legitimate.
 """
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from CocoTBFramework.components.axil4.axil4_compliance_checker import (
     AXIL4ComplianceChecker,
@@ -56,7 +60,7 @@ class AXIL5ViolationType(Enum):
     coverage they do not have.
     """
     SIDEBAND_UNSTABLE = "sideband_unstable"
-    LOOP_NOT_ECHOED = "loop_not_echoed"
+    ID_NOT_REFLECTED = "id_not_reflected"
     POISON_WITHOUT_DATA = "poison_without_data"
     EXCLUSIVE_RESPONSE_UNEXPECTED = "exclusive_response_unexpected"
 
@@ -75,7 +79,7 @@ class AXIL5ComplianceChecker(AXIL4ComplianceChecker):
     """
 
     #: Address-channel groups that must hold steady while VALID is asserted.
-    STABLE_ADDR_SIDEBAND = ('user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'lock')
+    STABLE_ADDR_SIDEBAND = ('id', 'user', 'trace')
     #: Data-channel groups with the same requirement.
     STABLE_DATA_SIDEBAND = ('user', 'poison')
 
@@ -85,7 +89,7 @@ class AXIL5ComplianceChecker(AXIL4ComplianceChecker):
         # without is not a violation, it is absent -- so every added check
         # below is skipped rather than failed when the signal is not there.
         self._sideband_present: Dict[str, bool] = {}
-        self._loop_issued: Dict[str, Any] = {}
+        self._ids_outstanding: Dict[str, List[Any]] = {'aw': [], 'ar': []}
 
     # -- helpers ---------------------------------------------------------
 
@@ -125,23 +129,31 @@ class AXIL5ComplianceChecker(AXIL4ComplianceChecker):
         )
         return False
 
-    def note_loop_issued(self, channel: str, value: Any) -> None:
-        """Record the LOOP value sent on AW or AR, for the echo check."""
-        self._loop_issued[channel] = value
+    def note_id_issued(self, channel: str, value: Any) -> None:
+        """Record an AWID/ARID accepted on ``channel`` ('aw' or 'ar')."""
+        self._ids_outstanding[channel].append(value)
 
-    def check_loop_echo(self, response_channel: str, value: Any) -> bool:
-        """B/R LOOP must equal the AW/AR LOOP it answers."""
+    def check_id_reflected(self, response_channel: str, value: Any) -> bool:
+        """B/R ID must equal the AW/AR ID of an outstanding request.
+
+        Responses to DIFFERENT IDs may return in any order, so the response
+        matches any outstanding request carrying that ID; the oldest such
+        request is retired.
+        """
         issued_from = 'aw' if response_channel == 'b' else 'ar'
-        if not self.has_sideband(response_channel, 'loop'):
+        if not self.has_sideband(response_channel, 'id'):
             return True
-        expected = self._loop_issued.get(issued_from)
-        if expected is None or expected == value:
+        pending = self._ids_outstanding[issued_from]
+        if not pending:
+            return True
+        if value in pending:
+            pending.remove(value)
             return True
         self.record_violation(
-            AXIL5ViolationType.LOOP_NOT_ECHOED, response_channel,
-            f"{response_channel}loop returned {value}, expected {expected} "
-            f"echoed from {issued_from}loop; the requester cannot correlate "
-            f"this response",
+            AXIL5ViolationType.ID_NOT_REFLECTED, response_channel,
+            f"{response_channel}id returned {value}, but no {issued_from}id "
+            f"with that value is outstanding (outstanding: {pending}); the "
+            f"Manager cannot match this response to its request",
         )
         return False
 
@@ -163,15 +175,16 @@ class AXIL5ComplianceChecker(AXIL4ComplianceChecker):
         return True
 
     def check_exclusive_response(self, resp: int) -> bool:
-        """EXOKAY (0b01) is legal on AXI5-Lite only if LOCK is implemented."""
+        """EXOKAY (0b01) is never legal on AXI5-Lite.
+
+        Exclusive accesses are not supported (IHI 0022L B2.1.5) and AxLOCK is
+        not present (Table B2.2), so no request can have asked for one.
+        """
         if resp != 1:
-            return True
-        if self.has_sideband('aw', 'lock') or self.has_sideband('ar', 'lock'):
             return True
         self.record_violation(
             AXIL5ViolationType.EXCLUSIVE_RESPONSE_UNEXPECTED, 'b',
-            "EXOKAY returned by a DUT built without AxLOCK; exclusive access "
-            "is not implemented here, so no response can legitimately be "
-            "EXOKAY",
+            "EXOKAY returned on an AXI5-Lite interface; AXI5-Lite has no "
+            "exclusive access, so no response can legitimately be EXOKAY",
         )
         return False

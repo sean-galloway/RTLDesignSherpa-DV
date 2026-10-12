@@ -76,11 +76,16 @@ def test_axis5_packet_calculate_parity_is_odd():
 def test_axis5_check_parity_pass_and_fail():
     pkt = AXIS5Packet(data_width=32, enable_wakeup=True, enable_parity=True)
     pkt.data = 0x12345678
-    pkt.parity = pkt.calculate_parity()
+    pkt.fill_check_fields()
     assert pkt.check_parity() is True
 
-    # Corrupt one parity bit -> must fail
+    # Corrupt one TDATACHK bit -> must fail
     pkt.parity = pkt.calculate_parity() ^ 0x1
+    assert pkt.check_parity() is False
+
+    # Corrupt TLASTCHK only -> must fail too (every check field is checked)
+    pkt.fill_check_fields()
+    pkt.set_field_value('lastchk', pkt.get_field_value('lastchk') ^ 1)
     assert pkt.check_parity() is False
 
 
@@ -118,7 +123,8 @@ def test_axis5_copy_preserves_fields_and_parity_check():
     pkt.data = 0x12345678
     pkt.last = 1
     pkt.wakeup = 1
-    pkt.parity = pkt.calculate_parity() ^ 0x3  # corrupted parity
+    pkt.fill_check_fields()
+    pkt.parity = pkt.calculate_parity() ^ 0x3  # corrupted TDATACHK
 
     copied = pkt.copy()
 
@@ -134,7 +140,7 @@ def test_axis5_copy_preserves_fields_and_parity_check():
 def test_axis5_copy_of_good_packet_passes_parity():
     pkt = AXIS5Packet(data_width=32, enable_wakeup=True, enable_parity=True)
     pkt.data = 0xCAFEF00D
-    pkt.parity = pkt.calculate_parity()
+    pkt.fill_check_fields()
 
     assert pkt.copy().check_parity() is True
 
@@ -242,3 +248,49 @@ def test_axis_components_default_to_axis_packet_class():
 def test_axis5_components_default_to_axis5_packet_class():
     assert AXIS5Monitor._default_packet_class is AXIS5Packet
     assert AXIS5Slave._default_packet_class is AXIS5Packet
+
+
+# ----------------------------------------------------------------------
+# IHI 0051B ch. 5 check signals: names, widths, odd parity, short last piece
+# ----------------------------------------------------------------------
+
+
+def test_axis5_check_fields_use_spec_names_and_widths():
+    from CocoTBFramework.components.axis5.axis5_field_configs import AXIS5FieldConfigs
+    cfg = AXIS5FieldConfigs.create_t_field_config(
+        data_width=72, id_width=11, dest_width=4, user_width=20,
+        enable_wakeup=True, enable_parity=True)
+    # Table 5-1: TDATA/8, ceil(TDATA/64), 1, ceil(TID/8), ceil(TDEST/8), ceil(TUSER/8)
+    assert cfg['datachk'].bits == 9
+    assert cfg['strbchk'].bits == 2
+    assert cfg['lastchk'].bits == 1
+    assert cfg['idchk'].bits == 2
+    assert cfg['destchk'].bits == 1
+    assert cfg['userchk'].bits == 3
+    assert 'parity' not in cfg
+
+
+def test_odd_parity_chk_short_last_piece():
+    from CocoTBFramework.components.axis5.axis5_check import odd_parity_chk
+    # 11-bit TID: bit0 covers [7:0], bit1 covers [10:8] (§5.3)
+    value = 0b101_00000001
+    chk = odd_parity_chk(value, 11)
+    assert chk & 1 == 0           # 1 one  + 0 -> odd
+    assert (chk >> 1) & 1 == 1    # 2 ones + 1 -> odd
+    # single bit: the check is the inversion
+    assert odd_parity_chk(0, 1) == 1
+    assert odd_parity_chk(1, 1) == 0
+
+
+def test_payload_check_values_every_piece_odd():
+    from CocoTBFramework.components.axis5.axis5_check import payload_check_values
+    widths = {'data': 72, 'strb': 9, 'last': 1, 'id': 11, 'dest': 4, 'user': 20}
+    values = {'data': 0x1234_5678_9ABC_DEF0_11, 'strb': 0x1FF, 'last': 1,
+              'id': 0x5A5, 'dest': 0x3, 'user': 0xF0F0F}
+    chks = payload_check_values(values, widths)
+    for name, width in widths.items():
+        v, c = values[name], chks[f'{name}chk']
+        for n in range((width + 7) // 8):
+            piece_w = min(8, width - 8 * n)
+            ones = bin((v >> (8 * n)) & ((1 << piece_w) - 1)).count('1') + ((c >> n) & 1)
+            assert ones % 2 == 1, (name, n)

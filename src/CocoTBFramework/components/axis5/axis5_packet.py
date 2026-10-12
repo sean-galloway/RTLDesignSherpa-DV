@@ -18,7 +18,8 @@ AXIS5 Packet - Stream protocol packet with AMBA5 extensions
 
 This module provides packet classes for AXI5-Stream protocol with:
 - TWAKEUP: Wake-up signaling
-- TPARITY: Data parity protection
+- Interface parity (IHI 0051B ch. 5): TDATACHK, TSTRBCHK, TLASTCHK, TIDCHK,
+  TDESTCHK, TUSERCHK as packet fields (odd parity, one bit per 8 bits)
 """
 
 import random
@@ -26,11 +27,13 @@ import random
 from ..axis4.axis_packet import AXISPacket
 from ..shared.field_config import FieldConfig, FieldDefinition
 from ..shared.flex_randomizer import FlexRandomizer
+from .axis5_check import (PAYLOAD_CHECK_FIELDS, chk_width, odd_parity_chk,
+                          payload_check_values)
 
 
 def calculate_odd_parity(data_value: int, num_bytes: int) -> int:
     """
-    Calculate AMBA AXI5-Stream TPARITY (odd parity, one bit per byte).
+    Calculate AXI5-Stream TDATACHK (IHI 0051B ch. 5: odd parity, one bit per byte).
 
     Each parity bit is set so that the corresponding data byte plus its
     parity bit contain an odd number of ones: parity = NOT XOR(byte bits).
@@ -42,12 +45,7 @@ def calculate_odd_parity(data_value: int, num_bytes: int) -> int:
     Returns:
         Parity value with bit i protecting byte i
     """
-    parity = 0
-    for i in range(num_bytes):
-        byte_val = (data_value >> (i * 8)) & 0xFF
-        bit_parity = (bin(byte_val).count('1') & 1) ^ 1
-        parity |= (bit_parity << i)
-    return parity
+    return odd_parity_chk(data_value, num_bytes * 8)
 
 
 class AXIS5Packet(AXISPacket):
@@ -56,8 +54,9 @@ class AXIS5Packet(AXISPacket):
 
     Extends AXISPacket with AMBA5-specific fields:
     - wakeup: Wake-up signaling
-    - parity: Data parity bits
-    - parity_error: Parity error indicator
+    - datachk/strbchk/lastchk/idchk/destchk/userchk: the IHI 0051B Table 5-1
+      payload check signals (drive/sample {prefix}tdatachk etc.)
+    - parity_error: Parity error indicator (no pin)
     """
 
     def __init__(self, field_config=None, skip_compare_fields=None,
@@ -113,8 +112,6 @@ class AXIS5Packet(AXISPacket):
             FieldConfig object with AXIS5 fields
         """
         strb_width = data_width // 8
-        parity_width = strb_width  # 1 parity bit per byte
-
         config = FieldConfig()
 
         # Core AXIS fields
@@ -184,14 +181,21 @@ class AXIS5Packet(AXISPacket):
             ))
 
         if enable_parity:
-            config.add_field(FieldDefinition(
-                name="parity",
-                bits=parity_width,
-                default=0,
-                format="bin",
-                display_width=parity_width,
-                description="Data Parity"
-            ))
+            # IHI 0051B Table 5-1 payload check signals, one bit per 8 bits
+            for name, width in (('data', data_width), ('strb', strb_width),
+                                ('last', 1), ('id', id_width),
+                                ('dest', dest_width), ('user', user_width)):
+                if width <= 0:
+                    continue  # signal absent -> check omitted (§5.3)
+                cw = chk_width(width)
+                config.add_field(FieldDefinition(
+                    name=f"{name}chk",
+                    bits=cw,
+                    default=0,
+                    format="bin",
+                    display_width=cw,
+                    description=f"T{name.upper()}CHK (odd parity)"
+                ))
 
             config.add_field(FieldDefinition(
                 name="parity_error",
@@ -217,13 +221,13 @@ class AXIS5Packet(AXISPacket):
 
     @property
     def parity(self):
-        """Get parity signal."""
-        return self.get_field_value('parity', 0)
+        """TDATACHK (alias kept for the older TPARITY-named API)."""
+        return self.get_field_value('datachk', 0)
 
     @parity.setter
     def parity(self, value):
-        """Set parity signal."""
-        self.set_field_value('parity', value)
+        """Set TDATACHK."""
+        self.set_field_value('datachk', value)
 
     @property
     def parity_error(self):
@@ -236,30 +240,50 @@ class AXIS5Packet(AXISPacket):
         self.set_field_value('parity_error', value)
 
     # AXIS5-specific methods
-    def calculate_parity(self) -> int:
-        """
-        Calculate TPARITY for the data field.
+    def check_widths(self) -> dict:
+        """Width in bits of each protected payload field present in the config."""
+        widths = {}
+        for name in PAYLOAD_CHECK_FIELDS:
+            if self.field_config.has_field(f'{name}chk') and self.field_config.has_field(name):
+                widths[name] = self.field_config.get_field(name).bits
+        return widths
 
-        Per the AMBA AXI5-Stream specification, TPARITY uses odd parity:
-        each parity bit is set so that its data byte plus the parity bit
-        contain an odd number of ones.
+    def calculate_check_fields(self) -> dict:
+        """
+        Odd-parity check values for every payload field (IHI 0051B ch. 5).
 
         Returns:
-            Calculated parity value (1 bit per byte, odd parity)
+            {'datachk': ..., 'strbchk': ..., 'lastchk': ..., ...}
+        """
+        values = {name: self.get_field_value(name, 0) for name in PAYLOAD_CHECK_FIELDS}
+        return payload_check_values(values, self.check_widths())
+
+    def fill_check_fields(self):
+        """Set every *chk field to the correct odd parity of its payload field."""
+        for name, value in self.calculate_check_fields().items():
+            self.set_field_value(name, value)
+
+    def calculate_parity(self) -> int:
+        """
+        TDATACHK for the data field: odd parity, one bit per data byte.
+
+        Returns:
+            Calculated TDATACHK value
         """
         return calculate_odd_parity(self.data, getattr(self, 'parity_width', 4))
 
     def check_parity(self) -> bool:
         """
-        Check if the parity field matches the calculated odd parity.
+        Check every *chk field against the odd parity of its payload field.
 
         Returns:
-            True if parity is correct, False otherwise
+            True if all check fields are correct, False otherwise
         """
         if not getattr(self, 'enable_parity', False):
             return True
-        calculated = self.calculate_parity()
-        return self.parity == calculated
+        expected = self.calculate_check_fields()
+        return all(self.get_field_value(name, 0) == value
+                   for name, value in expected.items())
 
     def copy(self):
         """
@@ -333,7 +357,8 @@ class AXIS5Packet(AXISPacket):
             result.append(f"  Wakeup:   {self.wakeup}")
 
         if getattr(self, 'enable_parity', False):
-            result.append(f"  Parity:   0b{self.parity:b}")
+            for name in self.calculate_check_fields():
+                result.append(f"  {name:<9} 0b{self.get_field_value(name, 0):b}")
             result.append(f"  ParityOK: {self.check_parity()}")
 
         return "\n".join(result)
@@ -429,8 +454,8 @@ class AXIS5Transaction:
             packet.wakeup = values.get('wakeup', 0)
 
         if self.enable_parity:
-            # Auto-calculate parity
-            packet.parity = packet.calculate_parity()
+            # Auto-calculate the check signals
+            packet.fill_check_fields()
 
         self.packet = packet
         return packet.copy()
@@ -470,6 +495,6 @@ class AXIS5Transaction:
             packet.wakeup = wakeup
 
         if self.enable_parity:
-            packet.parity = packet.calculate_parity()
+            packet.fill_check_fields()
 
         return packet

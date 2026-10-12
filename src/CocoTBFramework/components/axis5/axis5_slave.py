@@ -18,7 +18,7 @@ AXIS5 Slave - Stream protocol slave with AMBA5 extensions
 
 This module provides AXIS5 Slave functionality with:
 - TWAKEUP: Wake-up signaling detection
-- TPARITY: Data parity checking
+- Interface parity (IHI 0051B ch. 5): T*CHK checking, TREADYCHK driving
 """
 
 import cocotb
@@ -28,6 +28,7 @@ from cocotb.utils import get_sim_time
 from ..axis4.axis_slave import AXISSlave
 from .axis5_field_configs import AXIS5FieldConfigs
 from .axis5_packet import AXIS5Packet
+from .axis5_check import start_inverse_driver
 
 
 class AXIS5Slave(AXISSlave):
@@ -36,7 +37,7 @@ class AXIS5Slave(AXISSlave):
 
     Extends AXISSlave with AMBA5-specific features:
     - Wake-up signaling detection (TWAKEUP)
-    - Parity checking (TPARITY, odd parity per byte)
+    - Check-signal checking (payload T*CHK, odd parity) and TREADYCHK driving
     - Power management coordination
 
     Packets are captured by the GAXI receive pipeline (inherited via
@@ -76,7 +77,7 @@ class AXIS5Slave(AXISSlave):
             pipeline_debug: Enable pipeline debugging
             signal_map: Optional manual signal mapping
             enable_wakeup: Enable TWAKEUP detection
-            enable_parity: Enable TPARITY checking
+            enable_parity: Check T*CHK and drive TREADYCHK (IHI 0051B ch. 5)
             **kwargs: Additional configuration
         """
         # Store AXIS5 configuration before super().__init__
@@ -100,6 +101,10 @@ class AXIS5Slave(AXISSlave):
             super_debug=super_debug, pipeline_debug=pipeline_debug,
             signal_map=signal_map, **kwargs
         )
+        # The GAXI base keeps neither the prefix nor the DUT by these names; the
+        # AXIS5 sideband lookups (TWAKEUP, *CHK) below need both by name.
+        self.prefix = prefix
+        self.dut = dut
 
         # AXIS5 state
         self._wakeup_detected = False
@@ -136,18 +141,13 @@ class AXIS5Slave(AXISSlave):
                     self.wakeup_signal = getattr(self.dut, name)
                     break
 
-        # Try to find TPARITY signal
-        self.parity_signal = None
+        # Interface parity: TREADYCHK is the inversion of TREADY, driven every
+        # cycle out of reset (Check Enable = ARESETn).
+        self._chk_tasks = []
         if self.enable_parity:
-            parity_names = [
-                f"{self.prefix}tparity",
-                f"{self.prefix}parity",
-                f"{self.prefix}TPARITY",
-            ]
-            for name in parity_names:
-                if hasattr(self.dut, name):
-                    self.parity_signal = getattr(self.dut, name)
-                    break
+            task = start_inverse_driver(self.dut, self.clock, self.prefix, 'ready', self.log)
+            if task is not None:
+                self._chk_tasks.append(task)
 
     async def _monitor_wakeup(self):
         """Monitor for TWAKEUP signaling."""
@@ -181,7 +181,7 @@ class AXIS5Slave(AXISSlave):
         """
         AXIS5 packet hook, fed by the GAXI receive pipeline.
 
-        Adds TPARITY verification before the standard AXIS frame tracking.
+        Adds payload T*CHK verification before the standard AXIS frame tracking.
 
         Args:
             packet: Packet captured by the GAXI receive pipeline
@@ -226,7 +226,7 @@ class AXIS5Slave(AXISSlave):
 
     def _check_parity(self, packet):
         """
-        Check TPARITY (odd parity per byte) for a received packet.
+        Check every payload T*CHK field (odd parity) of a received packet.
 
         The GAXI pipeline now hands back real AXIS5Packet instances (see
         :meth:`_build_packet`), so the packet checks its own parity.
@@ -234,7 +234,7 @@ class AXIS5Slave(AXISSlave):
         Args:
             packet: AXIS5Packet captured by the GAXI receive pipeline
         """
-        if not isinstance(packet, AXIS5Packet) or 'parity' not in packet.fields:
+        if not isinstance(packet, AXIS5Packet) or 'datachk' not in packet.fields:
             return
 
         if packet.check_parity():
@@ -245,8 +245,8 @@ class AXIS5Slave(AXISSlave):
 
             if self.log:
                 self.log.warning(f"AXIS5Slave '{self.title}': "
-                               f"Parity error detected - expected=0x{packet.calculate_parity():X}, "
-                               f"received=0x{packet.parity:X}")
+                               f"Parity error detected - expected={packet.calculate_check_fields()}, "
+                               f"received={ {k: packet.get_field_value(k, 0) for k in packet.calculate_check_fields()} }")
 
     def is_wakeup_active(self):
         """Check if wakeup is currently detected."""

@@ -53,6 +53,7 @@ from .ace_factories import (
     create_axi4ace_master_interface,
     create_axi4ace_master_rd,
     create_axi4ace_master_wr,
+    create_axi4ace_slave_rd,
     create_axi4ace_snoop_interface,
     create_axi4ace_snoop_master,
     create_axi4ace_snoop_slave,
@@ -70,6 +71,7 @@ from .ace_field_configs import (
 from .ace_interfaces import (
     AXI4ACEMasterRead,
     AXI4ACEMasterWrite,
+    AXI4ACESlaveRead,
     AXI4ACESnoopMaster,
     AXI4ACESnoopSlave,
     SnoopResult,
@@ -104,6 +106,7 @@ __all__ = [
     # Interfaces
     "AXI4ACEMasterRead",
     "AXI4ACEMasterWrite",
+    "AXI4ACESlaveRead",
     "AXI4ACESnoopSlave",
     "AXI4ACESnoopMaster",
     "SnoopResult",
@@ -111,6 +114,7 @@ __all__ = [
     # Factories
     "create_axi4ace_master_rd",
     "create_axi4ace_master_wr",
+    "create_axi4ace_slave_rd",
     "create_axi4ace_snoop_slave",
     "create_axi4ace_snoop_master",
     "create_axi4ace_master_interface",

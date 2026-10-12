@@ -19,12 +19,13 @@ AXIS5 Field Configurations - Stream protocol field definitions with AMBA5 extens
 This module provides field configurations for AXI5-Stream protocol channels.
 AXI5-Stream extends AXI4-Stream with:
 - TWAKEUP: Wake-up signaling for power management
-- TPARITY: Data parity protection
+- Interface parity (IHI 0051B ch. 5): the T*CHK check signals
 
 Based on the AMBA5 AXI-Stream specification.
 """
 
 from ..shared.field_config import FieldConfig, FieldDefinition
+from .axis5_check import chk_width
 
 
 class AXIS5FieldConfigs:
@@ -33,7 +34,7 @@ class AXIS5FieldConfigs:
 
     AXI5-Stream protocol extends AXI4-Stream with:
     - TWAKEUP: Wake-up signaling for power management
-    - TPARITY: Data parity protection (1 bit per byte)
+    - T*CHK: odd-parity check signals, one bit per 8 bits (IHI 0051B Table 5-1)
     """
 
     @staticmethod
@@ -50,13 +51,12 @@ class AXIS5FieldConfigs:
             dest_width: Width of TDEST field (1-16 bits)
             user_width: Width of TUSER field (1-32 bits)
             enable_wakeup: Enable TWAKEUP field
-            enable_parity: Enable TPARITY field
+            enable_parity: Enable the T*CHK check-signal fields
 
         Returns:
             FieldConfig object for AXIS5 T channel
         """
         strb_width = data_width // 8
-        parity_width = strb_width  # 1 parity bit per byte
         config = FieldConfig()
 
         # Core AXIS fields
@@ -124,13 +124,20 @@ class AXIS5FieldConfigs:
             ))
 
         if enable_parity:
-            config.add_field(FieldDefinition(
-                name="parity",
-                bits=parity_width,
-                default=0,
-                format="bin",
-                description="Data Parity (1 bit per byte)"
-            ))
+            # IHI 0051B Table 5-1 payload check signals, one bit per 8 bits.
+            # Field "datachk" drives/samples "{prefix}tdatachk", and so on.
+            for name, width in (('data', data_width), ('strb', strb_width),
+                                ('last', 1), ('id', id_width),
+                                ('dest', dest_width), ('user', user_width)):
+                if width <= 0:
+                    continue  # signal absent -> check omitted (§5.3)
+                config.add_field(FieldDefinition(
+                    name=f"{name}chk",
+                    bits=chk_width(width),
+                    default=0,
+                    format="bin",
+                    description=f"T{name.upper()}CHK (odd parity)"
+                ))
 
             config.add_field(FieldDefinition(
                 name="parity_error",
@@ -153,7 +160,7 @@ class AXIS5FieldConfigs:
         Args:
             data_width: Width of data field
             enable_wakeup: Enable TWAKEUP field
-            enable_parity: Enable TPARITY field
+            enable_parity: Enable the T*CHK check-signal fields
 
         Returns:
             FieldConfig with typical AXIS5 parameters
@@ -177,7 +184,7 @@ class AXIS5FieldConfigs:
         Args:
             data_width: Width of data field
             enable_wakeup: Enable TWAKEUP field
-            enable_parity: Enable TPARITY field
+            enable_parity: Enable the T*CHK check-signal fields
 
         Returns:
             FieldConfig with minimal AXIS5 parameters

@@ -13,9 +13,11 @@
 
 These are the AXI4-Lite interfaces with an AXI5-Lite field-config helper
 swapped in. That is the whole difference, and it is deliberate: AXI5-Lite adds
-optional signal groups to AXI4-Lite without changing a single channel's
-handshake, ordering or response semantics, so the transaction logic is not
-merely similar, it is the same logic. Copying it would produce two
+the transaction ID and optional signal groups to AXI4-Lite without changing a
+single channel's handshake or response semantics, so the transaction logic is
+not merely similar, it is the same logic. The one ID-specific behaviour -- a
+slave reflecting AxID on BID/RID -- lives in the shared AXIL4 slave and is a
+no-op when no ``id`` field is declared. Copying it would produce two
 implementations of one protocol with nothing comparing them -- the failure
 mode this framework has already paid for more than once.
 
@@ -33,9 +35,9 @@ Usage mirrors AXIL4 exactly, plus the feature switches::
         dut, clock, prefix="s_axil_",
         data_width=64, addr_width=32,
         multi_sig=True,
+        id_width=4,          # AWID/BID present, 4 bits
         user_width=4,        # AWUSER/WUSER/BUSER present, 4 bits
         trace=True,          # AWTRACE/BTRACE present
-        mpam_width=11,       # AWMPAM present
     )
 
 With no feature switches an AXIL5 component drives and checks exactly the

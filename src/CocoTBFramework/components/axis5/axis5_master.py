@@ -18,7 +18,7 @@ AXIS5 Master - Stream protocol master with AMBA5 extensions
 
 This module provides AXIS5 Master functionality with:
 - TWAKEUP: Wake-up signaling before data transfer
-- TPARITY: Data parity protection
+- Interface parity (IHI 0051B ch. 5): T*CHK check signals, odd parity
 """
 
 from cocotb.triggers import RisingEdge
@@ -26,6 +26,7 @@ from cocotb.triggers import RisingEdge
 from ..axis4.axis_master import AXISMaster
 from .axis5_field_configs import AXIS5FieldConfigs
 from .axis5_packet import AXIS5Packet
+from .axis5_check import start_inverse_driver
 
 
 class AXIS5Master(AXISMaster):
@@ -34,7 +35,7 @@ class AXIS5Master(AXISMaster):
 
     Extends AXISMaster with AMBA5-specific features:
     - Wake-up signaling (TWAKEUP)
-    - Parity generation (TPARITY)
+    - Check-signal generation: payload T*CHK fields, TVALIDCHK, TWAKEUPCHK
     - Power management coordination
     """
 
@@ -66,7 +67,7 @@ class AXIS5Master(AXISMaster):
             pipeline_debug: Enable pipeline debugging
             signal_map: Optional manual signal mapping
             enable_wakeup: Enable TWAKEUP signaling
-            enable_parity: Enable TPARITY generation
+            enable_parity: Drive the IHI 0051B ch. 5 check signals
             wakeup_cycles: Number of cycles for wakeup signaling
             **kwargs: Additional configuration
         """
@@ -92,6 +93,10 @@ class AXIS5Master(AXISMaster):
             super_debug=super_debug, pipeline_debug=pipeline_debug,
             signal_map=signal_map, **kwargs
         )
+        # The GAXI base keeps neither the prefix nor the DUT by these names; the
+        # AXIS5 sideband lookups (TWAKEUP, *CHK) below need both by name.
+        self.prefix = prefix
+        self.dut = dut
 
         # AXIS5 state
         self._wakeup_active = False
@@ -124,18 +129,15 @@ class AXIS5Master(AXISMaster):
                     self.wakeup_signal = getattr(self.dut, name)
                     break
 
-        # Try to find TPARITY signal
-        self.parity_signal = None
+        # Interface parity: TVALIDCHK and TWAKEUPCHK are single-bit inversions
+        # checked every cycle out of reset (Check Enable = ARESETn), so they
+        # are driven by a per-cycle mirror, not with the beat.
+        self._chk_tasks = []
         if self.enable_parity:
-            parity_names = [
-                f"{self.prefix}tparity",
-                f"{self.prefix}parity",
-                f"{self.prefix}TPARITY",
-            ]
-            for name in parity_names:
-                if hasattr(self.dut, name):
-                    self.parity_signal = getattr(self.dut, name)
-                    break
+            for sig in ('valid', 'wakeup'):
+                task = start_inverse_driver(self.dut, self.clock, self.prefix, sig, self.log)
+                if task is not None:
+                    self._chk_tasks.append(task)
 
     async def send_packet(self, packet):
         """
@@ -152,19 +154,17 @@ class AXIS5Master(AXISMaster):
             await self._assert_wakeup()
             self._wakeup_pending = False
 
-        # Calculate and set parity if enabled (odd parity per byte)
+        # Fill the payload check signals (odd parity, IHI 0051B ch. 5)
         if self.enable_parity and isinstance(packet, AXIS5Packet):
-            parity = packet.calculate_parity()
+            packet.fill_check_fields()
 
-            # Corrupt parity if error injection is enabled (flip bit 0)
+            # Corrupt TDATACHK bit 0 if error injection is enabled
             if self._inject_parity_error:
-                parity ^= 0x1
+                packet.parity = packet.parity ^ 0x1
                 self.parity_errors_generated += 1
                 if self.log:
                     self.log.info(f"AXIS5Master '{self.title}': "
-                                 f"Injecting parity error (parity=0x{parity:X})")
-
-            packet.parity = parity
+                                 f"Injecting parity error (TDATACHK=0x{packet.parity:X})")
 
         # Use parent send_packet
         result = await super().send_packet(packet)
@@ -300,7 +300,7 @@ class AXIS5Master(AXISMaster):
         Enable/disable parity error injection for testing.
 
         While enabled, every packet sent through ``send_packet`` has its
-        TPARITY corrupted (bit 0 flipped after odd-parity calculation) and
+        TDATACHK corrupted (bit 0 flipped after odd-parity calculation) and
         ``parity_errors_generated`` is incremented per corrupted packet.
         Only effective when ``enable_parity`` is True.
 

@@ -18,20 +18,60 @@
 This module extends the AXI4 field configurations with the ACE-specific
 signals:
 
-- ARSNOOP[3:0] on the AR channel
-- AWSNOOP[2:0] on the AW channel
+- ARSNOOP[3:0], ARDOMAIN[1:0], ARBAR[1:0] on the AR channel (IHI 0022H D2.1.1)
+- AWSNOOP[2:0], AWDOMAIN[1:0], AWBAR[1:0] on the AW channel (IHI 0022H D2.1.2)
+- RRESP[3:0] on the R channel: [1:0] the AXI4 response, [2] PassDirty,
+  [3] IsShared (IHI 0022H D2.1.3, Table D3-14)
 - ACADDR, ACSNOOP[3:0], ACPROT[2:0] on the snoop address channel
 - CRRESP[4:0] on the snoop response channel
 - CDDATA, CDLAST on the snoop data channel
 
-The snoop fields are appended after the AXI4 user field so that the packed
-payload order matches the RTL in ``rtl/amba/ace`` (snoop is packed last).
+The ACE address fields are appended after the AXI4 user field in the order
+snoop, domain, bar, so that the packed payload order matches the RTL in
+``rtl/amba/ace``.
 """
 
 from typing import Dict, List
 
 from ..axi4.axi4_field_configs import AXI4FieldConfigHelper
 from ..shared.field_config import FieldConfig, FieldDefinition
+
+
+# RRESP is 4 bits on an ACE interface: [1:0] OKAY/EXOKAY/SLVERR/DECERR,
+# [2] PassDirty, [3] IsShared (IHI 0022H Table D3-14).
+ACE_RRESP_WIDTH = 4
+RRESP_PASS_DIRTY_BIT = 2
+RRESP_IS_SHARED_BIT = 3
+
+# AxDOMAIN encodings (IHI 0022H Table D3-2) and AxBAR encodings (Table D3-5)
+DOMAIN_NON_SHAREABLE = 0b00
+DOMAIN_INNER_SHAREABLE = 0b01
+DOMAIN_OUTER_SHAREABLE = 0b10
+DOMAIN_SYSTEM = 0b11
+BAR_NORMAL_RESPECT = 0b00
+BAR_MEMORY_BARRIER = 0b01
+BAR_NORMAL_IGNORE = 0b10
+BAR_SYNC_BARRIER = 0b11
+
+
+def _add_domain_bar(config: FieldConfig, chan: str) -> None:
+    """Append AxDOMAIN[1:0] and AxBAR[1:0] (IHI 0022H D2.1.1 / D2.1.2)."""
+    config.add_field(FieldDefinition(
+        name="domain",
+        bits=2,
+        default=0,
+        format="bin",
+        description=f"ACE Shareability Domain ({chan}DOMAIN)",
+        encoding={0: "NonShareable", 1: "InnerShareable", 2: "OuterShareable", 3: "System"},
+    ))
+    config.add_field(FieldDefinition(
+        name="bar",
+        bits=2,
+        default=0,
+        format="bin",
+        description=f"ACE Barrier ({chan}BAR)",
+        encoding={0: "NormalRespect", 1: "MemoryBarrier", 2: "NormalIgnore", 3: "SyncBarrier"},
+    ))
 
 
 class AXI4ACEFieldConfigHelper:
@@ -46,8 +86,8 @@ class AXI4ACEFieldConfigHelper:
         """
         Create field configuration for ACE Read Address (AR) channel.
 
-        Extends the AXI4 AR config with ARSNOOP[3:0] appended after the
-        user field to match the RTL payload order.
+        Extends the AXI4 AR config with ARSNOOP[3:0], ARDOMAIN[1:0] and
+        ARBAR[1:0] appended after the user field to match the RTL payload order.
 
         Args:
             id_width: Width of ARID field
@@ -67,6 +107,7 @@ class AXI4ACEFieldConfigHelper:
             format="hex",
             description="ACE Read Snoop Type (ARSNOOP)"
         ))
+        _add_domain_bar(config, "AR")
         return config
 
     @staticmethod
@@ -78,8 +119,8 @@ class AXI4ACEFieldConfigHelper:
         """
         Create field configuration for ACE Write Address (AW) channel.
 
-        Extends the AXI4 AW config with AWSNOOP[2:0] appended after the
-        user field to match the RTL payload order.
+        Extends the AXI4 AW config with AWSNOOP[2:0], AWDOMAIN[1:0] and
+        AWBAR[1:0] appended after the user field to match the RTL payload order.
 
         Args:
             id_width: Width of AWID field
@@ -99,6 +140,7 @@ class AXI4ACEFieldConfigHelper:
             format="hex",
             description="ACE Write Snoop Type (AWSNOOP)"
         ))
+        _add_domain_bar(config, "AW")
         return config
 
     @staticmethod
@@ -236,8 +278,9 @@ class AXI4ACEFieldConfigHelper:
         """
         Create field configuration for the read data (R) channel.
 
-        ACE does not change the R channel — this delegates to the AXI4
-        config so callers can use one helper for the whole family.
+        ACE widens RRESP to four bits (IHI 0022H D2.1.3, Table D3-14):
+        RRESP[1:0] is the AXI4 response, RRESP[2] PassDirty, RRESP[3]
+        IsShared. Everything else is the AXI4 R config.
 
         Args:
             id_width: Width of RID field
@@ -247,7 +290,9 @@ class AXI4ACEFieldConfigHelper:
         Returns:
             FieldConfig object for R channel
         """
-        return AXI4FieldConfigHelper.create_r_field_config(id_width, data_width, user_width)
+        config = AXI4FieldConfigHelper.create_r_field_config(id_width, data_width, user_width)
+        config.update_field_width("resp", ACE_RRESP_WIDTH)
+        return config
 
     @staticmethod
     def create_all_field_configs(
@@ -286,13 +331,14 @@ class AXI4ACEFieldConfigHelper:
         }
 
         # AXI4 channels that are unchanged by ACE except for the protocol binding
+        # (R is not one of them: ACE widens RRESP, see create_r_field_config)
         creators['W'] = lambda: AXI4FieldConfigHelper.create_w_field_config(
             data_width, user_width
         )
         creators['B'] = lambda: AXI4FieldConfigHelper.create_b_field_config(
             id_width, user_width
         )
-        creators['R'] = lambda: AXI4FieldConfigHelper.create_r_field_config(
+        creators['R'] = lambda: AXI4ACEFieldConfigHelper.create_r_field_config(
             id_width, data_width, user_width
         )
 

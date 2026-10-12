@@ -612,19 +612,23 @@ AXI3_OPTIONAL_DATA_FIELDS = ('user',)
 # though AMBA5 removed the signal: that entry is what lets an AXI4-shaped BFM
 # bind against an AXI5 port instead of dying on a port that cannot exist.
 AXI5_OPTIONAL_AX_COMMON = AXI4_OPTIONAL_AX_FIELDS + (
-    'nsaid', 'trace', 'mpam', 'mecid', 'unique', 'tagop',
+    'nsaid', 'trace', 'mpam', 'mecid', 'idunq', 'tagop',
 )
 # The AXI5 address channels are NOT symmetric, so they do not share a set:
 # atomics and write tagging exist only on AW, read-data chunking only on AR.
 # One shared tuple put 'chunken' on AW and 'atop' on AR, which the stale-name
 # check in tests/unit/test_signal_mapping_optional_fields.py caught immediately.
-AXI5_OPTIONAL_AW_FIELDS = AXI5_OPTIONAL_AX_COMMON + ('atop', 'tag')
+# IHI 0022L names the unique-ID indicator AxIDUNQ/BIDUNQ/RIDUNQ (A5.2) and the
+# MTE set AWTAGOP, ARTAGOP, WTAG, RTAG, WTAGUPDATE, BTAGMATCH[1:0] (Table
+# A12.9). There is no AWTAG, BTAG or RTAGMATCH, so none is a field here.
+AXI5_OPTIONAL_AW_FIELDS = AXI5_OPTIONAL_AX_COMMON + ('atop',)
 AXI5_OPTIONAL_AR_FIELDS = AXI5_OPTIONAL_AX_COMMON + ('chunken',)
 AXI5_OPTIONAL_W_FIELDS = ('user', 'poison', 'tag', 'tagupdate')
-AXI5_OPTIONAL_B_FIELDS = ('user', 'trace', 'tag', 'tagmatch')
-# chunk* default 0 = no chunk in progress; tagmatch 0 = no MTE match. Both are
-# the correct reading for a DUT that implements neither feature.
-AXI5_OPTIONAL_R_FIELDS = ('user', 'poison', 'tag', 'trace', 'tagmatch',
+# tagmatch 0b00 = "None: not a match transaction" (Table A12.14) -- the right
+# reading for a DUT without MTE; idunq 0 = not unique-in-flight.
+AXI5_OPTIONAL_B_FIELDS = ('user', 'trace', 'idunq', 'tagmatch')
+# chunk* default 0 = no chunk in progress. Correct for a DUT without chunking.
+AXI5_OPTIONAL_R_FIELDS = ('user', 'poison', 'tag', 'trace', 'idunq',
                           'chunknum', 'chunkstrb', 'chunkv')
 
 # AXI4-ACE. The ACE snoop channels carry only a subset of AXI4 qualifiers.
@@ -647,12 +651,18 @@ ACE_OPTIONAL_CD_FIELDS = ()
 AXIL4_OPTIONAL_AX_FIELDS = ('prot',)
 AXIL4_OPTIONAL_DATA_FIELDS = ()
 
-# AXI5-Lite keeps that and adds the optional signal groups, every one of which
-# defaults to 0 meaning "this optional feature is not in use": LOCK 0 = normal
-# (non-exclusive) access, POISON 0 = data not poisoned, TRACE/LOOP/MPAM/MECID/
-# NSAID 0 = not in use. All satisfy the rule.
+# AXI5-Lite keeps that and adds the optional signal groups IHI 0022L Table B2.2
+# allows on it (code O), every one of which defaults to 0 meaning "this
+# optional feature is not in use": POISON 0 = data not poisoned, USER/TRACE 0 =
+# not in use. All satisfy the rule. AxLOCK, AxMPAM, AxMECID, AxNSAID and xLOOP
+# are "N" (not present) on AXI5-Lite and are not listed.
+#
+# The ID (AWID/BID, ARID/RID) is deliberately NOT optional here even though an
+# all-zero ID is its spec default: it is mandatory on a Subordinate (code YS),
+# so a BFM built with id_width against a DUT without ID ports must fail to
+# bind rather than silently read 0 and pass every reflection check.
 AXIL5_OPTIONAL_AX_COMMON = AXIL4_OPTIONAL_AX_FIELDS + (
-    'user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'lock',
+    'user', 'trace',
 )
 # Unlike AXI5 the two Lite address channels ARE symmetric: Lite has no atomics
 # and no read-data chunking, so nothing distinguishes AW from AR. They still
@@ -660,8 +670,8 @@ AXIL5_OPTIONAL_AX_COMMON = AXIL4_OPTIONAL_AX_FIELDS + (
 AXIL5_OPTIONAL_AW_FIELDS = AXIL5_OPTIONAL_AX_COMMON
 AXIL5_OPTIONAL_AR_FIELDS = AXIL5_OPTIONAL_AX_COMMON
 AXIL5_OPTIONAL_W_FIELDS = ('user', 'poison')
-AXIL5_OPTIONAL_B_FIELDS = ('user', 'trace', 'loop')
-AXIL5_OPTIONAL_R_FIELDS = ('user', 'trace', 'loop', 'poison')
+AXIL5_OPTIONAL_B_FIELDS = ('user', 'trace')
+AXIL5_OPTIONAL_R_FIELDS = ('user', 'trace', 'poison')
 
 
 PROTOCOL_SIGNAL_CONFIGS = {

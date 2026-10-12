@@ -18,7 +18,7 @@ AXIS5 Components Package - AXI5-Stream Protocol Implementation
 
 This package provides AXI5-Stream protocol support with AMBA5 extensions:
 - TWAKEUP: Wake-up signaling for power management
-- TPARITY: Optional parity for TDATA integrity
+- Interface parity (IHI 0051B ch. 5): optional T*CHK check signals, odd parity
 
 Components:
 - AXIS5Packet: Stream data packet with AXIS5 extensions
@@ -54,6 +54,9 @@ from .axis5_master import AXIS5Master
 from .axis5_monitor import AXIS5Monitor
 from .axis5_packet import AXIS5Packet, AXIS5Transaction
 from .axis5_slave import AXIS5Slave
+from .axis5_check import (PAYLOAD_CHECK_FIELDS, chk_width, odd_parity_chk,
+                          is_odd_parity, payload_check_values,
+                          drive_inverse_every_cycle, start_inverse_driver)
 
 # Version information
 __version__ = "1.0.0"
@@ -80,6 +83,15 @@ __all__ = [
     'create_axis5_slave_interface',
     'create_simple_axis5_master',
     'create_simple_axis5_slave',
+
+    # Interface parity (IHI 0051B ch. 5)
+    'PAYLOAD_CHECK_FIELDS',
+    'chk_width',
+    'odd_parity_chk',
+    'is_odd_parity',
+    'payload_check_values',
+    'drive_inverse_every_cycle',
+    'start_inverse_driver',
 
     # Utilities
     'get_axis5_signal_map',

@@ -11,11 +11,12 @@
 
 """AXI5-Lite (AXIL5) field configurations.
 
-AXI5-Lite is AXI4-Lite plus a set of OPTIONAL signal groups. The channel
+AXI5-Lite is AXI4-Lite plus the transaction ID and a set of OPTIONAL signal
+groups (IHI 0022 Issue L, section B2.1.5 and Table B2.2). The channel
 structure is unchanged -- five channels, single beat, same required fields
 (``addr``/``prot``, ``data``/``strb``, ``resp``) -- so this helper extends
-:class:`AXIL4FieldConfigHelper` rather than restating it. With every group
-disabled the configs are field-for-field identical to AXI4-Lite, which is
+:class:`AXIL4FieldConfigHelper` rather than restating it. With no ID and every
+group disabled the configs are field-for-field identical to AXI4-Lite, which is
 asserted in ``tests/unit/test_axil5_extends_axil4.py``; that equality is what
 keeps the two from drifting into separate protocols.
 
@@ -25,43 +26,32 @@ the DUT is a fatal bind error (see the strict rule in
 ``shared/signal_mapping_helper.py``), and a field present but not declared is
 never driven or checked at all.
 
-Widths are caller-supplied because AXI5-Lite fixes almost none of them -- MPAM,
-MECID, NSAID, LOOP and USER are all implementation-defined. Where the spec does
-fix a width (``TRACE`` is a single bit) the helper does too.
+Signals modelled here, with their Table B2.2 AXI5-Lite presence code:
 
-Groups modelled here:
-
+``id_width``
+    AWID / BID (ID_W_WIDTH) and ARID / RID (ID_R_WIDTH), code YS: optional on
+    a Manager, mandatory on a Subordinate. A Subordinate reflects AxID on the
+    matching response (Issue L A5.1.1). One width serves both directions here,
+    as it does in the RTL.
 ``user_width``
-    AWUSER / WUSER / BUSER / ARUSER / RUSER. User-defined sideband.
+    AWUSER / WUSER / BUSER / ARUSER / RUSER, code O.
 ``trace``
-    AWTRACE / ARTRACE / BTRACE / RTRACE, 1 bit, propagated with the
-    transaction. Trace rides the address and response channels only -- by the
-    time write data flows the transaction is already identified.
-``loop_width``
-    AWLOOP / ARLOOP / BLOOP / RLOOP. Loopback identifiers a completer returns
-    unmodified on the matching response.
-``mpam_width``
-    AWMPAM / ARMPAM. Memory System Resource Partitioning and Monitoring.
-``mecid_width``
-    AWMECID / ARMECID. Memory Encryption Context identifier.
-``nsaid_width``
-    AWNSAID / ARNSAID. Non-secure Access Identifier.
+    AWTRACE / ARTRACE / BTRACE / RTRACE, 1 bit, code O.
 ``poison``
-    WPOISON / RPOISON. One bit per 64 data bits, so the width is derived from
-    the data width rather than passed in.
-``exclusive``
-    AWLOCK / ARLOCK, 1 bit. AXI4-Lite has no exclusive access; AXI5-Lite adds
-    it as an optional property.
+    WPOISON / RPOISON, code O. One bit per 64 data bits, minimum one, so the
+    width is derived from the data width rather than passed in.
 
-NOT modelled, deliberately: bursts (``len``/``size``/``burst``), cache and QoS
-attributes, atomics, memory tagging, read-data chunking and coherency. Those
-are AXI5-full features that a single-beat Lite interface does not carry, and a
-BFM that offers them would let a testbench drive traffic no AXI5-Lite DUT can
-legally see.
+NOT modelled, because Table B2.2 marks them "N" (not present) on AXI5-Lite:
+AxLOCK (exclusive accesses are not supported, B2.1.5), AxMPAM, AxMECID,
+AxNSAID, AxLOOP/xLOOP, bursts (``len``/``size``/``burst``), cache, QoS,
+REGION, atomics, memory tagging and read-data chunking. A BFM that offered
+them would let a testbench drive signals no AXI5-Lite interface can carry.
+(AxSIZE, AxSUBSYSID, xIDUNQ and WTRACE are "O" and simply not implemented.)
 
-Every field added here defaults to 0 meaning "this optional feature is not in
-use", which is what makes them all legal entries in the ``optional_fields``
-sets -- see the zero-default rule in ``shared/signal_mapping_helper.py``.
+Every field added here defaults to 0 meaning "not in use" (an ID of all
+zeros is the spec default), which is what makes them all legal entries in the
+``optional_fields`` sets -- see the zero-default rule in
+``shared/signal_mapping_helper.py``.
 """
 
 from typing import Dict, List
@@ -72,8 +62,16 @@ from ..shared.field_config import FieldConfig, FieldDefinition
 # Widths the AXI5-Lite spec fixes. Everything else is implementation-defined
 # and therefore a caller argument.
 TRACE_BITS = 1
-LOCK_BITS = 1
+ID_MAX_BITS = 32              # Table A5.2: ID_W_WIDTH / ID_R_WIDTH are 0..32
 POISON_BITS_PER = 64          # one poison bit per 64 data bits
+
+
+def _add_id(config: FieldConfig, id_width: int, description: str) -> None:
+    """Append the ``id`` field when the caller gave the interface an ID."""
+    if id_width > ID_MAX_BITS:
+        raise ValueError(f"id_width={id_width} exceeds the AXI5 maximum of "
+                         f"{ID_MAX_BITS} (IHI 0022L Table A5.2)")
+    _add_optional(config, "id", id_width, "hex", description)
 
 
 def _add_optional(config: FieldConfig, name: str, bits: int, fmt: str,
@@ -97,30 +95,20 @@ class AXIL5FieldConfigHelper(AXIL4FieldConfigHelper):
     # ---- address channels (AW / AR) -------------------------------------
     @staticmethod
     def _add_addr_options(config: FieldConfig, direction: str, *,
-                          user_width: int = 0, trace: bool = False,
-                          loop_width: int = 0, mpam_width: int = 0,
-                          mecid_width: int = 0, nsaid_width: int = 0,
-                          exclusive: bool = False, **_ignored) -> FieldConfig:
-        """Append the AW/AR optional groups. ``direction`` is 'Write'/'Read'.
+                          id_width: int = 0, user_width: int = 0,
+                          trace: bool = False, **_ignored) -> FieldConfig:
+        """Append the AW/AR ID and optional groups. ``direction`` is
+        'Write'/'Read'.
 
         Switches belonging to other channels (``poison``) are accepted and
         ignored, because ``create_all_field_configs`` hands the full option set
         to every channel so one call configures a whole interface.
         """
+        _add_id(config, id_width, f"{direction} Transaction ID")
         _add_optional(config, "user", user_width, "hex",
                       f"{direction} Address User")
         _add_optional(config, "trace", TRACE_BITS if trace else 0, "bin",
                       f"{direction} Trace")
-        _add_optional(config, "loop", loop_width, "hex",
-                      f"{direction} Loopback ID")
-        _add_optional(config, "mpam", mpam_width, "hex",
-                      f"{direction} MPAM")
-        _add_optional(config, "mecid", mecid_width, "hex",
-                      f"{direction} Memory Encryption Context ID")
-        _add_optional(config, "nsaid", nsaid_width, "hex",
-                      f"{direction} Non-secure Access ID")
-        _add_optional(config, "lock", LOCK_BITS if exclusive else 0, "bin",
-                      f"{direction} Exclusive Access")
         return config
 
     @staticmethod
@@ -143,9 +131,9 @@ class AXIL5FieldConfigHelper(AXIL4FieldConfigHelper):
                               poison: bool = False, **_ignored) -> FieldConfig:
         """AXI5-Lite W: WDATA/WSTRB plus WUSER and WPOISON when enabled.
 
-        The W channel carries no trace, loop or MPAM: those ride the address
-        channel and are already associated with the transaction by the time
-        data flows.
+        The W channel carries no ID (AXI5 has no WID) and no trace here: those
+        ride the address channel and are already associated with the
+        transaction by the time data flows.
         """
         config = AXIL4FieldConfigHelper.create_w_field_config(data_width)
         _add_optional(config, "user", user_width, "hex", "Write Data User")
@@ -156,29 +144,28 @@ class AXIL5FieldConfigHelper(AXIL4FieldConfigHelper):
         return config
 
     @staticmethod
-    def create_r_field_config(data_width: int = 32, *, user_width: int = 0,
-                              trace: bool = False, loop_width: int = 0,
+    def create_r_field_config(data_width: int = 32, *, id_width: int = 0,
+                              user_width: int = 0, trace: bool = False,
                               poison: bool = False, **_ignored) -> FieldConfig:
-        """AXI5-Lite R: RDATA/RRESP plus RUSER, RTRACE, RLOOP, RPOISON."""
+        """AXI5-Lite R: RDATA/RRESP plus RID, RUSER, RTRACE, RPOISON."""
         config = AXIL4FieldConfigHelper.create_r_field_config(data_width)
+        _add_id(config, id_width, "Read Data ID")
         _add_optional(config, "user", user_width, "hex", "Read Data User")
         _add_optional(config, "trace", TRACE_BITS if trace else 0, "bin",
                       "Read Trace")
-        _add_optional(config, "loop", loop_width, "hex", "Read Loopback ID")
         poison_bits = max(1, data_width // POISON_BITS_PER) if poison else 0
         _add_optional(config, "poison", poison_bits, "bin", "Read Data Poison")
         return config
 
     @staticmethod
-    def create_b_field_config(*, user_width: int = 0, trace: bool = False,
-                              loop_width: int = 0, **_ignored) -> FieldConfig:
-        """AXI5-Lite B: BRESP plus BUSER, BTRACE, BLOOP when enabled."""
+    def create_b_field_config(*, id_width: int = 0, user_width: int = 0,
+                              trace: bool = False, **_ignored) -> FieldConfig:
+        """AXI5-Lite B: BRESP plus BID, BUSER, BTRACE when enabled."""
         config = AXIL4FieldConfigHelper.create_b_field_config()
+        _add_id(config, id_width, "Write Response ID")
         _add_optional(config, "user", user_width, "hex", "Write Response User")
         _add_optional(config, "trace", TRACE_BITS if trace else 0, "bin",
                       "Write Response Trace")
-        _add_optional(config, "loop", loop_width, "hex",
-                      "Write Response Loopback ID")
         return config
 
     @staticmethod
@@ -213,8 +200,7 @@ class AXIL5FieldConfigHelper(AXIL4FieldConfigHelper):
 #: normal interface argument. Keeping the list here means a new group is added
 #: in one place rather than in four constructors.
 AXIL5_FEATURE_KWARGS = (
-    'user_width', 'trace', 'loop_width', 'mpam_width', 'mecid_width',
-    'nsaid_width', 'poison', 'exclusive',
+    'id_width', 'user_width', 'trace', 'poison',
 )
 
 

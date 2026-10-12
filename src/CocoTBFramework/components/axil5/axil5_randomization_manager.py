@@ -51,9 +51,8 @@ class AXIL5RandomizationManager(AXIL4RandomizationManager):
 
     #: Group -> the constraint attribute holding its firing rate.
     GROUP_RATES = {
-        'user': 'user_rate', 'trace': 'trace_rate', 'loop': 'loop_rate',
-        'mpam': 'mpam_rate', 'mecid': 'mecid_rate', 'nsaid': 'nsaid_rate',
-        'poison': 'poison_rate', 'lock': 'exclusive_access_rate',
+        'id': 'id_rate', 'user': 'user_rate', 'trace': 'trace_rate',
+        'poison': 'poison_rate',
     }
 
     def should_exercise(self, group: str) -> bool:
@@ -88,11 +87,12 @@ class AXIL5RandomizationManager(AXIL4RandomizationManager):
         same asymmetry the RTL's ENABLE_* parameters create.
         """
         valid = {
-            'aw': ('user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'lock'),
-            'ar': ('user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'lock'),
+            'aw': ('id', 'user', 'trace'),
+            'ar': ('id', 'user', 'trace'),
             'w':  ('user', 'poison'),
-            'b':  ('user', 'trace', 'loop'),
-            'r':  ('user', 'trace', 'loop', 'poison'),
+            # BID/RID are reflected from AxID by the Subordinate, never drawn.
+            'b':  ('user', 'trace'),
+            'r':  ('user', 'trace', 'poison'),
         }.get(channel)
         if valid is None:
             raise ValueError(f"unknown channel {channel!r}")

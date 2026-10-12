@@ -21,7 +21,7 @@ with APIs similar to AXIS4 factories for consistency.
 
 AXIS5 extends AXIS4 with:
 - TWAKEUP: Wake-up signaling
-- TPARITY: Data parity protection
+- Interface parity (IHI 0051B ch. 5): T*CHK check signals, odd parity
 """
 
 from typing import Any, Dict
@@ -48,7 +48,7 @@ def create_axis5_master(dut, clock, prefix="", data_width=32, id_width=8,
         dest_width: Width of TDEST field
         user_width: Width of TUSER field
         enable_wakeup: Enable TWAKEUP signaling
-        enable_parity: Enable TPARITY generation
+        enable_parity: Drive the T*CHK check signals
         wakeup_cycles: Number of cycles for wakeup signaling
         log: Logger instance
         **kwargs: Additional configuration
@@ -103,7 +103,7 @@ def create_axis5_slave(dut, clock, prefix="", data_width=32, id_width=8,
         dest_width: Width of TDEST field
         user_width: Width of TUSER field
         enable_wakeup: Enable TWAKEUP detection
-        enable_parity: Enable TPARITY checking
+        enable_parity: Check T*CHK, drive TREADYCHK
         log: Logger instance
         **kwargs: Additional configuration
 
@@ -158,7 +158,7 @@ def create_axis5_monitor(dut, clock, prefix="", data_width=32, id_width=8,
         user_width: Width of TUSER field
         is_slave: True if monitoring slave side, False for master side
         enable_wakeup: Enable TWAKEUP observation
-        enable_parity: Enable TPARITY verification
+        enable_parity: Verify the payload T*CHK fields
         log: Logger instance
         **kwargs: Additional configuration
 
@@ -213,7 +213,7 @@ def create_axis5_master_interface(dut, clock, prefix="", data_width=32,
         dest_width: Width of TDEST field
         user_width: Width of TUSER field
         enable_wakeup: Enable TWAKEUP signaling
-        enable_parity: Enable TPARITY generation
+        enable_parity: Drive the T*CHK check signals
         log: Logger instance
         **kwargs: Additional configuration
 
@@ -244,7 +244,7 @@ def create_axis5_slave_interface(dut, clock, prefix="", data_width=32,
         dest_width: Width of TDEST field
         user_width: Width of TUSER field
         enable_wakeup: Enable TWAKEUP detection
-        enable_parity: Enable TPARITY checking
+        enable_parity: Check T*CHK, drive TREADYCHK
         log: Logger instance
         **kwargs: Additional configuration
 
@@ -277,7 +277,7 @@ def create_axis5_testbench(dut, clock, master_prefix="m_axis5_",
         dest_width: Width of TDEST field
         user_width: Width of TUSER field
         enable_wakeup: Enable TWAKEUP signaling/detection
-        enable_parity: Enable TPARITY generation/checking
+        enable_parity: Enable the T*CHK check signals
         log: Logger instance
         **kwargs: Additional configuration
 
@@ -348,7 +348,7 @@ def create_simple_axis5_master(dut, clock, prefix="", data_width=32,
         prefix: Signal prefix
         data_width: Width of TDATA field
         enable_wakeup: Enable TWAKEUP signaling
-        enable_parity: Enable TPARITY generation
+        enable_parity: Drive the T*CHK check signals
         log: Logger instance
         **kwargs: Additional configuration
 
@@ -388,7 +388,7 @@ def create_simple_axis5_slave(dut, clock, prefix="", data_width=32,
         prefix: Signal prefix
         data_width: Width of TDATA field
         enable_wakeup: Enable TWAKEUP detection
-        enable_parity: Enable TPARITY checking
+        enable_parity: Check T*CHK, drive TREADYCHK
         log: Logger instance
         **kwargs: Additional configuration
 
@@ -439,7 +439,16 @@ def get_axis5_signal_map(prefix="", direction="master"):
         'user': f'{prefix}tuser',
         # AXIS5 extensions
         'wakeup': f'{prefix}twakeup',
-        'parity': f'{prefix}tparity'
+        # IHI 0051B Table 5-1 check signals
+        'datachk': f'{prefix}tdatachk',
+        'strbchk': f'{prefix}tstrbchk',
+        'lastchk': f'{prefix}tlastchk',
+        'idchk': f'{prefix}tidchk',
+        'destchk': f'{prefix}tdestchk',
+        'userchk': f'{prefix}tuserchk',
+        'validchk': f'{prefix}tvalidchk',
+        'readychk': f'{prefix}treadychk',
+        'wakeupchk': f'{prefix}twakeupchk',
     }
 
     return base_map

@@ -33,7 +33,7 @@ from CocoTBFramework.components.shared.amba_timing_profiles import (
 from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
 
 # All five channels. AXI5-Lite has the same channel set as AXI4 -- it drops
-# bursts and IDs, not channels -- so nothing here is read- or write-only.
+# bursts, not channels -- so nothing here is read- or write-only.
 _TIMING_PROFILES: Dict[str, Dict[str, Any]] = {
     'axil5_normal': {
         'aw_valid_delay': ([(0, 3), (4, 8)], [0.7, 0.3]),
@@ -98,7 +98,8 @@ _TIMING_PROFILES: Dict[str, Dict[str, Any]] = {
     # AXI5-Lite feature profiles. AXI5 has 'atomic', 'mte' and 'chunked'
     # alongside 'secure'; Lite has none of those three -- no atomics, no
     # memory tagging, no read-data chunking -- so only the secure profile
-    # carries over, exercising the NSAID/MPAM/MECID qualifiers that DO exist.
+    # carries over, paired with the SECURE randomization mode's AxPROT sweep.
+    # (NSAID/MPAM/MECID are "not present" on AXI5-Lite, IHI 0022L Table B2.2.)
     'axil5_secure': {
         'aw_valid_delay': ([(0, 2), (5, 12)], [0.6, 0.4]),
         'aw_ready_delay': ([(0, 2), (4, 10)], [0.7, 0.3]),
@@ -166,9 +167,6 @@ def get_timing_for_axil5_feature(feature: str) -> Dict[str, Any]:
     """
     feature_mapping = {
         'secure': 'axil5_secure',
-        'nsaid': 'axil5_secure',
-        'mpam': 'axil5_secure',
-        'mecid': 'axil5_secure',
     }
     return create_axil5_timing_from_profile(
         feature_mapping.get(feature, DEFAULT_PROFILE)

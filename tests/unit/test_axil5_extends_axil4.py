@@ -158,7 +158,7 @@ def test_feature_kwargs_all_reach_a_channel():
     """
     base = {ch: set(_names(cfg)) for ch, cfg in
             AXIL5FieldConfigHelper.create_all_field_configs(64, 64).items()}
-    VALUES = {'trace': True, 'poison': True, 'exclusive': True}
+    VALUES = {'trace': True, 'poison': True}
     inert = []
     for kw in AXIL5_FEATURE_KWARGS:
         opts = {kw: VALUES.get(kw, 4)}
@@ -171,26 +171,45 @@ def test_feature_kwargs_all_reach_a_channel():
 def test_optional_groups_land_on_the_right_channels():
     """Each group appears only where AXI5-Lite defines it.
 
-    Write data carries no trace, loop or MPAM -- those ride the address and
-    response channels. A BFM driving them on W would be inventing signals the
+    Write data carries no ID or trace -- those ride the address and response
+    channels (AXI5 has no WID). A BFM driving them on W would be inventing signals the
     DUT has no port for, which under the strict bind rule is a fatal error
     rather than a quiet one.
     """
     cfgs = AXIL5FieldConfigHelper.create_all_field_configs(
-        64, 64, user_width=4, trace=True, loop_width=3, mpam_width=11,
-        mecid_width=16, nsaid_width=4, poison=True, exclusive=True)
+        64, 64, id_width=4, user_width=4, trace=True, poison=True)
     got = {ch: set(_names(cfgs[ch])) for ch in CHANNELS}
 
     expected = {
-        'AW': {'addr', 'prot', 'user', 'trace', 'loop', 'mpam', 'mecid',
-               'nsaid', 'lock'},
-        'AR': {'addr', 'prot', 'user', 'trace', 'loop', 'mpam', 'mecid',
-               'nsaid', 'lock'},
+        'AW': {'addr', 'prot', 'id', 'user', 'trace'},
+        'AR': {'addr', 'prot', 'id', 'user', 'trace'},
         'W':  {'data', 'strb', 'user', 'poison'},
-        'R':  {'data', 'resp', 'user', 'trace', 'loop', 'poison'},
-        'B':  {'resp', 'user', 'trace', 'loop'},
+        'R':  {'data', 'resp', 'id', 'user', 'trace', 'poison'},
+        'B':  {'resp', 'id', 'user', 'trace'},
     }
     assert got == expected
+
+
+@pytest.mark.parametrize("kw", ['loop_width', 'mpam_width', 'mecid_width',
+                                'nsaid_width', 'exclusive'])
+def test_signals_not_present_on_axil5_are_not_offered(kw):
+    """IHI 0022L Table B2.2 marks AxLOOP/xLOOP, AxMPAM, AxMECID, AxNSAID and
+    AxLOCK "N" (not present) on AXI5-Lite. The switches must be gone, not
+    merely default-off: a switch that still added a field would let a
+    testbench drive a signal no AXI5-Lite interface can carry."""
+    assert kw not in AXIL5_FEATURE_KWARGS
+    base = AXIL5FieldConfigHelper.create_all_field_configs(64, 64)
+    cfgs = AXIL5FieldConfigHelper.create_all_field_configs(64, 64, **{kw: 4})
+    for ch in CHANNELS:
+        assert _names(cfgs[ch]) == _names(base[ch]), (
+            f"{kw} still adds a field on {ch}")
+
+
+def test_id_width_is_capped_at_the_spec_maximum():
+    """ID_W_WIDTH / ID_R_WIDTH are 0..32 (IHI 0022L Table A5.2)."""
+    AXIL5FieldConfigHelper.create_all_field_configs(32, 32, id_width=32)
+    with pytest.raises(ValueError):
+        AXIL5FieldConfigHelper.create_all_field_configs(32, 32, id_width=33)
 
 
 @pytest.mark.parametrize("channel", CHANNELS)
@@ -206,8 +225,7 @@ def test_every_optional_group_field_defaults_to_zero(channel):
     base = set(_names(
         AXIL4FieldConfigHelper.create_all_field_configs(64, 64)[channel]))
     cfg = AXIL5FieldConfigHelper.create_all_field_configs(
-        64, 64, user_width=4, trace=True, loop_width=3, mpam_width=11,
-        mecid_width=16, nsaid_width=4, poison=True, exclusive=True)[channel]
+        64, 64, id_width=4, user_width=4, trace=True, poison=True)[channel]
     for name in set(_names(cfg)) - base:
         assert cfg.get_field(name).default == 0, (
             f"{channel}.{name} defaults to {cfg.get_field(name).default}, not "
@@ -403,12 +421,12 @@ def test_optional_field_values_reach_the_packet():
         channel_field_kwargs,
     )
 
-    aw = _MockChannel('addr', 'prot', 'user', 'trace', 'loop', 'mpam')
+    aw = _MockChannel('addr', 'prot', 'id', 'user', 'trace')
     got = channel_field_kwargs(
         aw, 'aw',
-        {'awuser': 5, 'awtrace': 1, 'awloop': 3, 'awmpam': 7, 'unrelated': 9},
+        {'awid': 3, 'awuser': 5, 'awtrace': 1, 'unrelated': 9},
         already={'addr', 'prot'})
-    assert got == {'user': 5, 'trace': 1, 'loop': 3, 'mpam': 7}
+    assert got == {'id': 3, 'user': 5, 'trace': 1}
 
 
 def test_undeclared_field_kwarg_raises_instead_of_being_dropped():
@@ -471,3 +489,18 @@ def test_unrelated_kwargs_are_not_policed():
         {'aw': plain_aw},
         {'retry': True, 'burst_type': 1, 'writeback': 0, 'rate': 5},
         consumed={'awprot'})
+
+
+def test_slave_reflects_the_request_id_on_the_response():
+    """A Subordinate returns BID/RID equal to the request's AWID/ARID
+    (IHI 0022L A5.1.1). The shared AXI-Lite slave builds its response through
+    ``reflected_id``; with no ID declared (AXI4-Lite) it must add nothing."""
+    from CocoTBFramework.components.axil4.axil4_interfaces import reflected_id
+
+    class _Req:
+        id = 0xA
+
+    with_id = _MockChannel('resp', 'id')
+    without_id = _MockChannel('resp')
+    assert reflected_id(with_id, _Req()) == {'id': 0xA}
+    assert reflected_id(without_id, _Req()) == {}

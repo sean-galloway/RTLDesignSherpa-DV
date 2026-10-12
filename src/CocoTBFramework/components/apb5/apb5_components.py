@@ -77,13 +77,22 @@ _APB5_EXTENSION_OPTIONAL_SIGNALS = (
     "PRUSER",
     "PBUSER",
     "PWAKEUP",
-    # Parity signals (optional)
-    "PWDATAPARITY",
-    "PADDRPARITY",
-    "PCTRLPARITY",
-    "PRDATAPARITY",
-    "PREADYPARITY",
-    "PSLVERRPARITY",
+    # Interface parity check signals (optional), IHI 0024E ch. 5 Table 5-1.
+    # Bound when present so they can be observed; not driven by the BFMs.
+    "PADDRCHK",
+    "PCTRLCHK",
+    "PSELCHK",
+    "PENABLECHK",
+    "PWDATACHK",
+    "PSTRBCHK",
+    "PAUSERCHK",
+    "PWUSERCHK",
+    "PRDATACHK",
+    "PREADYCHK",
+    "PSLVERRCHK",
+    "PWAKEUPCHK",
+    "PRUSERCHK",
+    "PBUSERCHK",
 )
 apb5_optional_signals = list(BASE_APB_OPTIONAL_SIGNALS) + list(
     _APB5_EXTENSION_OPTIONAL_SIGNALS

@@ -113,7 +113,7 @@ class AXI5ConstraintSet:
     # AXI5-specific: Poison
     poison_rate: float = 0.0
 
-    # AXI5-specific: Unique access
+    # AXI5-specific: unique-ID indicator (AxIDUNQ) assertion rate
     unique_rate: float = 0.0
 
     # Performance constraints
@@ -347,6 +347,9 @@ class AXI5RandomizationConfig:
             return self._randomize_address_field(field_name, constraints)
         elif 'data' in field_lower:
             return self._randomize_data_field(field_name, constraints)
+        elif 'idunq' in field_lower:
+            # AxIDUNQ/BIDUNQ/RIDUNQ (IHI 0022L A5.2): a 1-bit indicator, not an ID.
+            return self._randomize_unique_field(field_name, constraints)
         elif 'id' in field_lower and 'nsaid' not in field_lower and 'mecid' not in field_lower:
             return self._randomize_id_field(field_name, constraints)
         elif 'len' in field_lower:

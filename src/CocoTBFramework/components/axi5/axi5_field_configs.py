@@ -27,9 +27,10 @@ Key Design Principles:
 
 AXI5 Changes from AXI4:
 - Removed: ARREGION, AWREGION
-- Added: NSAID, TRACE, MPAM, MECID, UNIQUE, ATOP (write only), TAGOP, TAG
+- Added: NSAID, TRACE, MPAM, MECID, IDUNQ (AW/AR/B/R), ATOP (write only), TAGOP (AW/AR)
 - Added: CHUNKEN (AR only), CHUNKV, CHUNKNUM, CHUNKSTRB (R only)
-- Added: POISON (W/R), TAGUPDATE (W), TAGMATCH (B/R)
+- Added: POISON (W/R), TAG (W/R), TAGUPDATE (W), TAGMATCH[1:0] (B only)
+  (IHI 0022L: there is no AWTAG, BTAG or RTAGMATCH; AxUNIQUE is an ACE signal)
 """
 
 from typing import Dict, List, Tuple
@@ -210,11 +211,11 @@ class AXI5FieldConfigHelper:
         ))
 
         config.add_field(FieldDefinition(
-            name="unique",
+            name="idunq",
             bits=1,
             default=0,
             format="bin",
-            description="Unique/Exclusive Access"
+            description="Unique ID indicator (AxIDUNQ, IHI 0022L A5.2)"
         ))
 
         config.add_field(FieldDefinition(
@@ -226,13 +227,7 @@ class AXI5FieldConfigHelper:
             encoding={0: "Invalid", 1: "Transfer", 2: "Update", 3: "Match"}
         ))
 
-        config.add_field(FieldDefinition(
-            name="tag",
-            bits=total_tag_width,
-            default=0,
-            format="hex",
-            description="Memory Tags"
-        ))
+        # No AWTAG: tags travel on WTAG (IHI 0022L Table A12.9).
 
         return config
 
@@ -380,19 +375,21 @@ class AXI5FieldConfigHelper:
         ))
 
         config.add_field(FieldDefinition(
-            name="tag",
-            bits=total_tag_width,
-            default=0,
-            format="hex",
-            description="Memory Tags"
-        ))
-
-        config.add_field(FieldDefinition(
-            name="tagmatch",
+            name="idunq",
             bits=1,
             default=0,
             format="bin",
-            description="Tag Match Result"
+            description="Unique ID indicator (BIDUNQ, IHI 0022L A5.2)"
+        ))
+
+        # No BTAG (not an AXI5 signal). BTAGMATCH is 2 bits, Table A12.14.
+        config.add_field(FieldDefinition(
+            name="tagmatch",
+            bits=2,
+            default=0,
+            format="bin",
+            description="Tag match result (BTAGMATCH)",
+            encoding={0: "None", 1: "Separate", 2: "Fail", 3: "Pass"}
         ))
 
         return config
@@ -544,11 +541,11 @@ class AXI5FieldConfigHelper:
         ))
 
         config.add_field(FieldDefinition(
-            name="unique",
+            name="idunq",
             bits=1,
             default=0,
             format="bin",
-            description="Unique/Exclusive Access"
+            description="Unique ID indicator (AxIDUNQ, IHI 0022L A5.2)"
         ))
 
         config.add_field(FieldDefinition(
@@ -682,19 +679,20 @@ class AXI5FieldConfigHelper:
         ))
 
         config.add_field(FieldDefinition(
+            name="idunq",
+            bits=1,
+            default=0,
+            format="bin",
+            description="Unique ID indicator (RIDUNQ, IHI 0022L A5.2)"
+        ))
+
+        # No RTAGMATCH (not an AXI5 signal; L Table A12.9).
+        config.add_field(FieldDefinition(
             name="tag",
             bits=total_tag_width,
             default=0,
             format="hex",
             description="Memory Tags"
-        ))
-
-        config.add_field(FieldDefinition(
-            name="tagmatch",
-            bits=1,
-            default=0,
-            format="bin",
-            description="Tag Match Result"
         ))
 
         return config

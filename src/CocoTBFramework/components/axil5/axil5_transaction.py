@@ -12,9 +12,9 @@
 """AXI5-Lite transaction record and tracker.
 
 ``AXIL4Transaction`` with the AXI5-Lite sideband recorded alongside it. The
-transaction MODEL is unchanged -- single beat, no RLAST, no bus ID -- because
-AXI5-Lite adds optional signals to AXI4-Lite without changing a channel's
-handshake, ordering or completion semantics. So these subclass rather than
+transaction MODEL is unchanged -- single beat, no RLAST -- because AXI5-Lite
+adds the ID and optional signals to AXI4-Lite without changing a channel's
+handshake or completion semantics. So these subclass rather than
 restate, the same way the interfaces do.
 
 Inherited from AXI4-Lite unchanged:
@@ -26,10 +26,10 @@ Inherited from AXI4-Lite unchanged:
 * **There is no RLAST.** AXI4 completes a read when a beat arrives with RLAST
   set. Lite has no such signal, so a read completes on its single R beat.
   Waiting for an RLAST that can never arrive would hang.
-* **There is no ID.** ``transaction_id`` is a tracker-local handle for
-  correlating packets, NOT an AxID off the bus -- Lite has none. The name is
-  kept because the AXI4/AXI5 trackers use it and moving between them should
-  not mean relearning the vocabulary.
+* **``transaction_id`` is not the bus ID.** It is a tracker-local handle for
+  correlating packets. AXI5-Lite DOES carry AWID/BID and ARID/RID (IHI 0022L
+  Table B2.2, code YS); when present they are recorded in ``addr_sideband`` /
+  ``resp_sideband`` under ``id``, not used as the tracker key.
 
 """
 from typing import Any
@@ -49,11 +49,11 @@ class AXIL5Transaction(AXIL4Transaction):
     """
 
     #: Optional-group fields that may ride an address packet.
-    ADDR_SIDEBAND = ('user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'lock')
+    ADDR_SIDEBAND = ('id', 'user', 'trace')
     #: ...a data packet.
     DATA_SIDEBAND = ('user', 'poison')
     #: ...a response packet.
-    RESP_SIDEBAND = ('user', 'trace', 'loop', 'poison')
+    RESP_SIDEBAND = ('id', 'user', 'trace', 'poison')
 
     def __init__(self, transaction_id: int, transaction_type: str):
         super().__init__(transaction_id, transaction_type)
@@ -66,7 +66,7 @@ class AXIL5Transaction(AXIL4Transaction):
         """Pull {field: value} for whichever optional signals this packet has.
 
         Absent is recorded as absent. Writing 0 for a missing group would make
-        "the DUT was built without MPAM" indistinguishable from "MPAM is 0",
+        "the DUT was built without USER" indistinguishable from "USER is 0",
         and those mean different things to anyone reading the record.
         """
         got = {}
@@ -102,8 +102,9 @@ class AXIL5Transaction(AXIL4Transaction):
 
     @property
     def response_code(self) -> str:
-        """AXI5-Lite DOES have exclusive access, so 0b01 is a legal EXOKAY here
-        where it is out of spec on AXI4-Lite."""
+        """Decode the response. AXI5-Lite does not support exclusive access
+        (IHI 0022L B2.1.5), so EXOKAY is out of spec here as it is on
+        AXI4-Lite; it is still decoded so a record shows what arrived."""
         names = {0: 'OKAY', 1: 'EXOKAY', 2: 'SLVERR', 3: 'DECERR'}
         return names.get(self.error_response or 0, 'UNKNOWN')
 

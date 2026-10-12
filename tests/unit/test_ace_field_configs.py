@@ -13,10 +13,13 @@ def test_ar_config_appends_arsnoop_after_user(user_width):
     names = list(cfg.field_names())
     assert "snoop" in names
     # Default MSB-first ordering: last-added field is first in field_names().
-    assert names[0] == "snoop"
+    # ARSNOOP, ARDOMAIN, ARBAR are appended in that order (IHI 0022H D2.1.1).
+    assert names[:3] == ["bar", "domain", "snoop"]
     snoop = cfg.get_field("snoop")
     assert snoop.bits == 4
     assert snoop.default == 0
+    assert cfg.get_field("domain").bits == 2
+    assert cfg.get_field("bar").bits == 2
 
 
 @pytest.mark.parametrize("user_width", [0, 1, 4])
@@ -24,10 +27,13 @@ def test_aw_config_appends_awsnoop_after_user(user_width):
     cfg = AXI4ACEFieldConfigHelper.create_aw_field_config(user_width=user_width)
     names = list(cfg.field_names())
     assert "snoop" in names
-    assert names[0] == "snoop"
+    # AWSNOOP, AWDOMAIN, AWBAR are appended in that order (IHI 0022H D2.1.2).
+    assert names[:3] == ["bar", "domain", "snoop"]
     snoop = cfg.get_field("snoop")
     assert snoop.bits == 3
     assert snoop.default == 0
+    assert cfg.get_field("domain").bits == 2
+    assert cfg.get_field("bar").bits == 2
 
 
 def test_ac_field_config():
@@ -62,14 +68,21 @@ def test_create_all_field_configs_includes_ace_channels():
 
 
 def test_ar_aw_snoop_field_packing_order_matches_rtl():
-    """Snoop is the last field added, so in default MSB-first mode it sits at
-    the top of the packed payload, matching ``rtl/amba/ace`` where ARSNOOP /
-    AWSNOOP are packed last.
+    """The ACE address fields are the last ones added (snoop, domain, bar), so
+    in default MSB-first mode bar sits at the top of the packed payload with
+    domain and snoop directly below, the order ``rtl/amba/ace`` appends them.
     """
-    ar_cfg = AXI4ACEFieldConfigHelper.create_ar_field_config()
-    snoop = ar_cfg.get_field("snoop")
-    assert snoop.bit_position[0] == ar_cfg.get_total_bits() - 1
+    for cfg in (AXI4ACEFieldConfigHelper.create_ar_field_config(),
+                AXI4ACEFieldConfigHelper.create_aw_field_config()):
+        top = cfg.get_total_bits() - 1
+        assert cfg.get_field("bar").bit_position[0] == top
+        assert cfg.get_field("domain").bit_position[0] == top - 2
+        assert cfg.get_field("snoop").bit_position[0] == top - 4
 
-    aw_cfg = AXI4ACEFieldConfigHelper.create_aw_field_config()
-    snoop = aw_cfg.get_field("snoop")
-    assert snoop.bit_position[0] == aw_cfg.get_total_bits() - 1
+
+def test_r_config_carries_four_bit_rresp():
+    """ACE RRESP is 4 bits: [1:0] response, [2] PassDirty, [3] IsShared
+    (IHI 0022H D2.1.3, Table D3-14). The AXI4 R config has 2."""
+    cfg = AXI4ACEFieldConfigHelper.create_r_field_config()
+    assert cfg.get_field("resp").bits == 4
+    assert AXI4ACEFieldConfigHelper.create_all_field_configs(channels=["R"])["R"].get_field("resp").bits == 4

@@ -302,6 +302,7 @@ def _axis5_beat(mon, data, last=1, corrupt_parity=False):
     pkt.data = data
     pkt.strb = (1 << mon.field_config["strb"].bits) - 1
     pkt.last = last
+    pkt.fill_check_fields()   # every IHI 0051B T*CHK field, odd parity
     pkt.parity = pkt.calculate_parity() ^ (0b1 if corrupt_parity else 0)
     return pkt
 
@@ -346,13 +347,14 @@ def test_axis5_slave_parity_check_good_and_corrupted():
 
     good = slave._build_packet()
     good.data = 0xCAFEBABE
-    good.parity = good.calculate_parity()
+    good.fill_check_fields()
     slave._check_parity(good)
     assert slave.parity_checks_passed == 1
     assert slave.parity_errors_detected == 0
 
     bad = slave._build_packet()
     bad.data = 0xCAFEBABE
+    bad.fill_check_fields()
     bad.parity = bad.calculate_parity() ^ 0b1
     slave._check_parity(bad)
     assert slave.parity_errors_detected == 1

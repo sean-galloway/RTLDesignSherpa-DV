@@ -20,7 +20,7 @@ the second is the one with teeth:
   AXI4 and AXI5 each had ten dedicated channel entries; and
 * ``gaxi_master`` / ``gaxi_slave`` declare no ``optional_fields`` at all, so
   NOTHING was allowed to bind to nothing. An AXI5-Lite BFM configured with
-  ``mpam_width=11`` against RTL built with ``ENABLE_MPAM=0`` died at signal
+  ``user_width=4`` against RTL built with ``ENABLE_USER=0`` died at signal
   resolution rather than reading the spec default of 0.
 
 These tests pin the wiring itself, not the table -- the contract on WHICH
@@ -97,7 +97,11 @@ def test_lite_optional_fields_differ_between_the_generations():
     a4 = set(PROTOCOL_SIGNAL_CONFIGS['axil4_aw_master']['optional_fields'])
     a5 = set(PROTOCOL_SIGNAL_CONFIGS['axil5_aw_master']['optional_fields'])
     assert a4 < a5, "axil5 AW must allow strictly more than axil4 AW"
-    assert {'user', 'trace', 'loop', 'mpam', 'mecid', 'nsaid', 'lock'} <= a5
+    assert {'user', 'trace'} <= a5
+    # Not present on AXI5-Lite (IHI 0022L Table B2.2), so never optional.
+    assert not {'loop', 'mpam', 'mecid', 'nsaid', 'lock'} & a5
+    # Mandatory on a Subordinate (code YS): a missing ID port must not bind.
+    assert 'id' not in a5
 
 
 def test_generic_gaxi_entries_still_declare_nothing_optional():

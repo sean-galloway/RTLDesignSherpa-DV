@@ -91,7 +91,7 @@ def test_axil5_adds_secure_and_only_secure():
     assert extra == {'axil5_secure'}
 
 
-@pytest.mark.parametrize("feature", ['secure', 'nsaid', 'mpam', 'mecid'])
+@pytest.mark.parametrize("feature", ['secure'])
 def test_axil5_feature_mapping_hits_the_secure_profile(feature):
     assert get_timing_for_axil5_feature(feature)['profile_name'] == 'axil5_secure'
 

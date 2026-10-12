@@ -20,11 +20,11 @@ constraint has no AXI4-Lite counterpart rather than a different value:
   than pinned to 1/INCR. A constraint that can only take one value is not a
   constraint, and leaving it in invites a caller to set it and wonder why
   nothing changes.
-* **No ID constraints.** Lite has no AxID. ``id_min``/``id_max`` are gone for
-  the same reason.
-* **No exclusive or locked access.** AXI4-Lite has neither, so those rates are
-  absent. (AXI5-Lite adds LOCK; ``axil5_randomization_config`` puts the
-  exclusive rate back.)
+* **No ID constraints.** AXI4-Lite has no AxID. ``id_min``/``id_max`` are gone
+  for the same reason. (AXI5-Lite does carry AWID/ARID; see
+  ``axil5_randomization_config``.)
+* **No exclusive or locked access.** Neither AXI4-Lite nor AXI5-Lite has it
+  (AXI5-Lite: IHI 0022L B2.1.5), so those rates are absent.
 
 What remains is what AXI4-Lite actually parameterises: where the address
 lands, how it is aligned, what the data and strobe patterns look like, how

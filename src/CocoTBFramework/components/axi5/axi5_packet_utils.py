@@ -74,7 +74,7 @@ def create_simple_read_packet(address: int, id_val: int = 0, burst_len: int = 1,
     packet.trace = kwargs.get('trace', 0)
     packet.mpam = kwargs.get('mpam', 0)
     packet.mecid = kwargs.get('mecid', 0)
-    packet.unique = kwargs.get('unique', 0)
+    packet.idunq = kwargs.get('idunq', 0)
     packet.chunken = kwargs.get('chunken', 0)
     packet.tagop = kwargs.get('tagop', 0)
 
@@ -96,7 +96,7 @@ def create_simple_write_address_packet(address: int, id_val: int = 0, burst_len:
         burst_len: Burst length (1-256)
         size: Transfer size (log2 of bytes per beat)
         burst_type: Burst type (0=FIXED, 1=INCR, 2=WRAP)
-        **kwargs: Additional fields (atop, nsaid, trace, mpam, mecid, tagop, tag, etc.)
+        **kwargs: Additional fields (atop, nsaid, trace, mpam, mecid, idunq, tagop, etc.)
 
     Returns:
         AXI5Packet configured for AW channel
@@ -126,9 +126,8 @@ def create_simple_write_address_packet(address: int, id_val: int = 0, burst_len:
     packet.trace = kwargs.get('trace', 0)
     packet.mpam = kwargs.get('mpam', 0)
     packet.mecid = kwargs.get('mecid', 0)
-    packet.unique = kwargs.get('unique', 0)
+    packet.idunq = kwargs.get('idunq', 0)
     packet.tagop = kwargs.get('tagop', 0)
-    packet.tag = kwargs.get('tag', 0)
 
     # Set user field if present
     if hasattr(packet, 'user'):
@@ -192,7 +191,7 @@ def create_simple_read_response_packet(data: int, resp: int = 0, last: bool = Tr
         last: Whether this is the last beat in the burst
         id_val: Transaction ID (must match AR ID)
         data_width: Data width
-        **kwargs: Additional fields (trace, poison, chunkv, chunknum, chunkstrb, tag, tagmatch)
+        **kwargs: Additional fields (trace, poison, chunkv, chunknum, chunkstrb, idunq, tag)
 
     Returns:
         AXI5Packet configured for R channel
@@ -215,8 +214,8 @@ def create_simple_read_response_packet(data: int, resp: int = 0, last: bool = Tr
     packet.chunkv = kwargs.get('chunkv', 0)
     packet.chunknum = kwargs.get('chunknum', 0)
     packet.chunkstrb = kwargs.get('chunkstrb', 0)
+    packet.idunq = kwargs.get('idunq', 0)
     packet.tag = kwargs.get('tag', 0)
-    packet.tagmatch = kwargs.get('tagmatch', 0)
 
     # Set user field if present
     if hasattr(packet, 'user'):
@@ -232,7 +231,7 @@ def create_simple_write_response_packet(resp: int = 0, id_val: int = 0, **kwargs
     Args:
         resp: Response code (0=OKAY, 1=EXOKAY, 2=SLVERR, 3=DECERR)
         id_val: Transaction ID (must match AW ID)
-        **kwargs: Additional fields (trace, tag, tagmatch)
+        **kwargs: Additional fields (trace, idunq, tagmatch -- BTAGMATCH[1:0])
 
     Returns:
         AXI5Packet configured for B channel
@@ -249,7 +248,7 @@ def create_simple_write_response_packet(resp: int = 0, id_val: int = 0, **kwargs
 
     # AXI5-specific fields
     packet.trace = kwargs.get('trace', 0)
-    packet.tag = kwargs.get('tag', 0)
+    packet.idunq = kwargs.get('idunq', 0)
     packet.tagmatch = kwargs.get('tagmatch', 0)
 
     # Set user field if present
@@ -368,8 +367,8 @@ def create_burst_read_response_packets(id_val: int, data_list: List[int],
             id_val=id_val,
             trace=kwargs.get('trace', 0),
             poison=kwargs.get('poison', 0),
-            tag=kwargs.get('tag', 0),
-            tagmatch=kwargs.get('tagmatch', 0)
+            idunq=kwargs.get('idunq', 0),
+            tag=kwargs.get('tag', 0)
         )
         r_packets.append(r_packet)
 
@@ -439,10 +438,9 @@ def create_tagged_write_packets(id_val: int, addr: int, data_list: List[int],
         address=addr,
         id_val=id_val,
         burst_len=burst_len,
-        tag=tag,
         tagop=tagop,
         **kwargs
-    )
+    )  # the tag itself rides WTAG; there is no AWTAG (IHI 0022L Table A12.9)
 
     # Calculate number of tags
     num_tags = max(1, data_width // 128)
@@ -607,7 +605,7 @@ if __name__ == "__main__":
     print(f"  chunkv={r_packet.chunkv}, chunknum={r_packet.chunknum}")
 
     # Test B packet creation
-    b_packet = create_simple_write_response_packet(resp=0, id_val=3, tagmatch=1)
+    b_packet = create_simple_write_response_packet(resp=0, id_val=3, tagmatch=3)
     print(f"\nB Packet: id={b_packet.id}, resp={b_packet.resp}, tagmatch={b_packet.tagmatch}")
 
     # Test atomic packets
@@ -617,7 +615,7 @@ if __name__ == "__main__":
     # Test tagged packets
     aw_tagged, w_list = create_tagged_write_packets(2, 0x4000, [0x11111111, 0x22222222],
                                                     tag=0xA, tagop=2)
-    print(f"\nTagged Write - AW: addr=0x{aw_tagged.addr:X}, tag={aw_tagged.tag}, tagop={aw_tagged.tagop}")
+    print(f"\nTagged Write - AW: addr=0x{aw_tagged.addr:X}, tagop={aw_tagged.tagop}, wtag={w_list[0].tag}")
     print(f"Tagged Write - W packets: {len(w_list)} beats")
 
     # Test secure packets

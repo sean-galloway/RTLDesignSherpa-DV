@@ -19,7 +19,8 @@ AXI5 Interface Classes - Master and Slave Read/Write implementations.
 This module provides interface classes for AXI5 protocol operations with support
 for all AXI5-specific features including:
 - Atomic operations (ATOP)
-- Memory Tagging Extension (MTE) - TAG, TAGOP, TAGUPDATE, TAGMATCH
+- Memory Tagging Extension (MTE) - AxTAGOP, WTAG/RTAG, WTAGUPDATE, BTAGMATCH[1:0]
+- Unique ID indicator - AxIDUNQ, BIDUNQ, RIDUNQ (IHI 0022L A5.2)
 - Memory Partitioning and Monitoring (MPAM)
 - Memory Encryption Context (MECID)
 - Chunked transfers
@@ -213,6 +214,8 @@ class AXI5MasterRead:
             'id': getattr(packet, 'id', 0),
             'trace': getattr(packet, 'trace', 0),
             'poison': getattr(packet, 'poison', 0),
+            # RIDUNQ: for an atomic it must equal the AW's AWIDUNQ (A5.2).
+            'idunq': getattr(packet, 'idunq', 0),
         }
         if not response['last'] and self.log:
             self.log.warning(f"AXI5 atomic read-return for id={txn_id} arrived "
@@ -244,7 +247,7 @@ class AXI5MasterRead:
                 - trace: Enable tracing
                 - mpam: Memory partitioning info
                 - mecid: Memory encryption context
-                - unique: Unique/exclusive access
+                - idunq: Unique ID indicator (ARIDUNQ/AWIDUNQ, IHI 0022L A5.2)
                 - chunken: Enable chunking
                 - tagop: Tag operation type
 
@@ -270,7 +273,7 @@ class AXI5MasterRead:
             trace=transaction_kwargs.get('trace', 0),
             mpam=transaction_kwargs.get('mpam', 0),
             mecid=transaction_kwargs.get('mecid', 0),
-            unique=transaction_kwargs.get('unique', 0),
+            idunq=transaction_kwargs.get('idunq', 0),
             chunken=transaction_kwargs.get('chunken', 0),
             tagop=transaction_kwargs.get('tagop', 0),
         )
@@ -311,7 +314,7 @@ class AXI5MasterRead:
                 'chunknum': getattr(packet, 'chunknum', 0),
                 'chunkstrb': getattr(packet, 'chunkstrb', 0),
                 'tag': getattr(packet, 'tag', 0),
-                'tagmatch': getattr(packet, 'tagmatch', 0),
+                'idunq': getattr(packet, 'idunq', 0),
                 'wire_index': i,     # the transfer's position on the wire
             }
             responses.append(response)
@@ -508,7 +511,7 @@ class AXI5MasterWrite:
                 - trace: Enable tracing
                 - mpam: Memory partitioning info
                 - mecid: Memory encryption context
-                - unique: Unique/exclusive access
+                - idunq: Unique ID indicator (ARIDUNQ/AWIDUNQ, IHI 0022L A5.2)
                 - tagop: Tag operation type
                 - tag: Memory tags (AW and W)
                 - poison: Poison indicator (W)
@@ -552,9 +555,8 @@ class AXI5MasterWrite:
                 trace=transaction_kwargs.get('trace', 0),
                 mpam=transaction_kwargs.get('mpam', 0),
                 mecid=transaction_kwargs.get('mecid', 0),
-                unique=transaction_kwargs.get('unique', 0),
+                idunq=transaction_kwargs.get('idunq', 0),
                 tagop=transaction_kwargs.get('tagop', 0),
-                tag=transaction_kwargs.get('tag', 0),
             )
 
             # Take this transaction's place in the W order and send its AW.
@@ -630,7 +632,8 @@ class AXI5MasterWrite:
                 'id': getattr(b_response, 'id', 0),
                 # AXI5-specific fields
                 'trace': getattr(b_response, 'trace', 0),
-                'tag': getattr(b_response, 'tag', 0),
+                'idunq': getattr(b_response, 'idunq', 0),
+                # BTAGMATCH[1:0] (Table A12.14): 0 None, 1 Separate, 2 Fail, 3 Pass
                 'tagmatch': getattr(b_response, 'tagmatch', 0),
             }
 
@@ -912,7 +915,8 @@ class AXI5SlaveRead:
             await RisingEdge(self.clock)
         await self._generate_read_response(ar_packet)
 
-    def send_read_return(self, txn_id: int, data: int, resp: int = 0, trace: int = 0):
+    def send_read_return(self, txn_id: int, data: int, resp: int = 0, trace: int = 0,
+                         idunq: int = 0):
         """Queue the single R beat a read-return atomic answers with.
 
         Called by the paired AXI5SlaveWrite (see its `read_return_channel`)
@@ -930,8 +934,8 @@ class AXI5SlaveRead:
             chunkv=0,
             chunknum=0,
             chunkstrb=0,
+            idunq=idunq,
             tag=0,
-            tagmatch=0,
         )
         self.r_channel.transmit_queue.append(r_packet)
         if not self.r_channel.transmit_coroutine:
@@ -953,6 +957,8 @@ class AXI5SlaveRead:
 
             # Extract AXI5-specific AR fields for response generation
             ar_trace = getattr(ar_packet, 'trace', 0)
+            # RIDUNQ follows ARIDUNQ on every beat (IHI 0022L A5.2).
+            ar_idunq = getattr(ar_packet, 'idunq', 0)
             ar_tagop = getattr(ar_packet, 'tagop', 0)
             ar_chunken = getattr(ar_packet, 'chunken', 0)
 
@@ -1016,8 +1022,8 @@ class AXI5SlaveRead:
                     chunkv=0,
                     chunknum=0,
                     chunkstrb=0,
+                    idunq=ar_idunq,
                     tag=rtag,
-                    tagmatch=0 if ar_tagop == 0 else 1,  # the tag op was honoured
                 )
                 r_packets.append(r_packet)
 
@@ -1557,6 +1563,9 @@ class AXI5SlaveWrite:
             bytes_per_beat = 1 << size_encoding
             aw_trace = getattr(aw_packet, 'trace', 0)
             aw_tagop = getattr(aw_packet, 'tagop', 0)
+            # BIDUNQ follows AWIDUNQ in a single-transfer response; RIDUNQ of a
+            # read-return atomic follows AWIDUNQ too (IHI 0022L A5.2).
+            aw_idunq = getattr(aw_packet, 'idunq', 0)
 
             # Write data to memory if available
             resp = 0
@@ -1633,7 +1642,8 @@ class AXI5SlaveWrite:
                             f"wired; its R beat will never be sent")
                 else:
                     self.read_return_channel.send_read_return(
-                        transaction_id, rr_data, resp=resp, trace=aw_trace)
+                        transaction_id, rr_data, resp=resp, trace=aw_trace,
+                        idunq=aw_idunq)
 
             # Add response delay
             if self.response_delay_cycles > 0:
@@ -1643,17 +1653,21 @@ class AXI5SlaveWrite:
             if transaction_id not in self.pending_transactions:
                 return
 
-            # BTAGMATCH: 1 when a Match operation compared every granule
-            # and all agreed; 0 for a failed Match and for every other
-            # tag operation (the result is only defined for Match).
-            tagmatch = 1 if (aw_tagop == TAGOP_MATCH and resp == 0 and tag_ok) else 0
+            # BTAGMATCH[1:0], IHI 0022L Table A12.14, as a COMBINED response
+            # (BCOMP is not modelled): 0b11 Pass when a Match operation
+            # compared every granule and all agreed, 0b10 Fail otherwise,
+            # and 0b00 None for every non-Match write.
+            if aw_tagop == TAGOP_MATCH:
+                tagmatch = 0b11 if (resp == 0 and tag_ok) else 0b10
+            else:
+                tagmatch = 0b00
 
             # Send B response with AXI5 fields
             b_packet = self.b_channel.create_packet(
                 id=transaction_id,
                 resp=resp,
                 trace=aw_trace,
-                tag=0,
+                idunq=aw_idunq,
                 tagmatch=tagmatch,
             )
 

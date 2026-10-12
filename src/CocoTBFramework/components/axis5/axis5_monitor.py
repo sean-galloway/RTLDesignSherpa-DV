@@ -18,7 +18,7 @@ AXIS5 Monitor - Stream protocol monitor with AMBA5 extensions
 
 This module provides AXIS5 Monitor functionality with:
 - TWAKEUP: Wake-up signaling observation
-- TPARITY: Data parity verification
+- Interface parity (IHI 0051B ch. 5): T*CHK verification
 """
 
 import cocotb
@@ -36,7 +36,7 @@ class AXIS5Monitor(AXISMonitor):
 
     Extends AXISMonitor with AMBA5-specific features:
     - Wake-up signaling observation (TWAKEUP)
-    - Parity verification (TPARITY)
+    - Check-signal verification (payload T*CHK, odd parity)
     - Extended protocol violation checking
 
     Packets are captured by the GAXI receive pipeline (inherited via
@@ -71,7 +71,7 @@ class AXIS5Monitor(AXISMonitor):
             super_debug: Enable detailed debugging
             signal_map: Optional manual signal mapping
             enable_wakeup: Enable TWAKEUP observation
-            enable_parity: Enable TPARITY verification
+            enable_parity: Verify the payload T*CHK fields (IHI 0051B ch. 5)
             **kwargs: Additional configuration
         """
         # Store AXIS5 configuration before super().__init__
@@ -103,6 +103,10 @@ class AXIS5Monitor(AXISMonitor):
             multi_sig=multi_sig, log=log, super_debug=super_debug,
             signal_map=signal_map, **kwargs
         )
+        # The GAXI base keeps neither the prefix nor the DUT by these names; the
+        # AXIS5 sideband lookups (TWAKEUP, *CHK) below need both by name.
+        self.prefix = prefix
+        self.dut = dut
 
         # Resolve AXIS5-specific signals
         self._resolve_axis5_signals()
@@ -157,7 +161,7 @@ class AXIS5Monitor(AXISMonitor):
         """
         AXIS5 packet hook, fed by the GAXI receive pipeline.
 
-        Adds TPARITY verification and AXIS5 protocol checks before the standard
+        Adds payload T*CHK verification and AXIS5 protocol checks before the standard
         AXIS frame tracking.
 
         Args:
@@ -187,18 +191,7 @@ class AXIS5Monitor(AXISMonitor):
                     self.wakeup_signal = getattr(self.dut, name)
                     break
 
-        # Try to find TPARITY signal
-        self.parity_signal = None
-        if self.enable_parity:
-            parity_names = [
-                f"{self.prefix}tparity",
-                f"{self.prefix}parity",
-                f"{self.prefix}TPARITY",
-            ]
-            for name in parity_names:
-                if hasattr(self.dut, name):
-                    self.parity_signal = getattr(self.dut, name)
-                    break
+        # Payload check signals ride the packet as *chk fields; nothing to resolve.
 
     async def _monitor_wakeup(self):
         """Monitor for TWAKEUP signaling and check protocol compliance."""
@@ -272,7 +265,7 @@ class AXIS5Monitor(AXISMonitor):
 
             if self.log:
                 self.log.warning(f"AXIS5Monitor '{self.title}': "
-                               f"Parity error observed - expected=0x{packet.calculate_parity():X}, "
+                               f"Parity error observed - expected={packet.calculate_check_fields()}, "
                                f"actual=0x{packet.parity:X}, data=0x{packet.data:X}")
 
     def _check_axis5_protocol_violations(self, packet):
@@ -287,15 +280,14 @@ class AXIS5Monitor(AXISMonitor):
         # Check wakeup was asserted before first transfer in a power-down scenario
         # (This is a simplified check - full implementation would track power states)
 
-        # Check parity signal width matches data width
+        # Check the TDATACHK field width matches TDATA_WIDTH/8 (IHI 0051B Table 5-1)
         if self.enable_parity:
-            data_bytes = (self._axis5_data_width() + 7) // 8
-            expected_parity_bits = data_bytes
-            if 'parity' in self.field_config:
-                actual_parity_bits = self.field_config['parity'].bits
-                if actual_parity_bits != expected_parity_bits:
-                    violations.append(f"Parity width mismatch: expected {expected_parity_bits}, "
-                                    f"got {actual_parity_bits}")
+            expected_bits = (self._axis5_data_width() + 7) // 8
+            if 'datachk' in self.field_config:
+                actual_bits = self.field_config['datachk'].bits
+                if actual_bits != expected_bits:
+                    violations.append(f"TDATACHK width mismatch: expected {expected_bits}, "
+                                    f"got {actual_bits}")
 
         # Log violations
         if violations:

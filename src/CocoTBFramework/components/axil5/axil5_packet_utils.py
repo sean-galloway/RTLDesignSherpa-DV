@@ -17,7 +17,7 @@
 
 Mirrors ``axil4_packet_utils``, built on ``AXIL5Packet`` so every helper can
 carry the AXI5-Lite optional groups. Pass a group's width (or ``trace=True``,
-``exclusive=True``) to any constructor and the field appears; omit them all and
+``poison=True``) to any constructor and the field appears; omit them all and
 the packet is bit-for-bit an AXI4-Lite one.
 AXIL5 (AXI5-Lite) Packet Utilities
 
@@ -43,8 +43,7 @@ from CocoTBFramework.components.axil5.axil5_packet import AXIL5Packet
 #: ``user_width=4``, quietly build an AXI4-Lite field config, and drop it --
 #: the option appearing to work while doing nothing.
 _OPTION_KEYS = frozenset({
-    'user_width', 'trace', 'loop_width', 'mpam_width', 'mecid_width',
-    'nsaid_width', 'poison', 'exclusive',
+    'id_width', 'user_width', 'trace', 'poison',
 })
 
 

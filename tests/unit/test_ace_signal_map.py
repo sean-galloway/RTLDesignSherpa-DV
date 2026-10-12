@@ -43,10 +43,12 @@ ACE_PROTOCOLS = [
 ]
 
 CHANNEL_FIELDS = {
+    # ACE adds AxSNOOP, AxDOMAIN and AxBAR to both address channels
+    # (IHI 0022H D2.1.1 / D2.1.2).
     "ar": ["id", "addr", "len", "size", "burst", "lock", "cache",
-           "prot", "qos", "region", "user", "snoop"],
+           "prot", "qos", "region", "user", "snoop", "domain", "bar"],
     "aw": ["id", "addr", "len", "size", "burst", "lock", "cache",
-           "prot", "qos", "region", "user", "snoop"],
+           "prot", "qos", "region", "user", "snoop", "domain", "bar"],
     "w":  ["data", "strb", "last", "user"],
     "r":  ["id", "data", "resp", "last", "user"],
     "b":  ["id", "resp", "user"],

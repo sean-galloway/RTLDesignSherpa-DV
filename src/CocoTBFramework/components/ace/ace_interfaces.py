@@ -19,6 +19,8 @@ This module provides the four ACE BFM classes:
 
 - ``AXI4ACEMasterRead``: coherent read master with ARSNOOP and RACK
 - ``AXI4ACEMasterWrite``: coherent write master with AWSNOOP and WACK
+- ``AXI4ACESlaveRead``: read responder with the 4-bit ACE RRESP, so a test
+  can return IsShared / PassDirty (RRESP[3:2]) to a DUT master
 - ``AXI4ACESnoopSlave``: cache-side snoop responder (AC in, CR/CD out)
 - ``AXI4ACESnoopMaster``: CCU-side snoop initiator (AC out, CR/CD in)
 
@@ -38,11 +40,17 @@ from cocotb.triggers import Event, RisingEdge
 from CocoTBFramework.components.axi4.axi4_interfaces import (
     AXI4MasterRead,
     AXI4MasterWrite,
+    AXI4SlaveRead,
 )
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 
-from .ace_field_configs import AXI4ACEFieldConfigHelper
+from .ace_field_configs import (
+    AXI4ACEFieldConfigHelper,
+    DOMAIN_NON_SHAREABLE,
+    DOMAIN_OUTER_SHAREABLE,
+    BAR_NORMAL_RESPECT,
+)
 from .ace_packet import SnoopPacket
 from .ace_transaction import (
     CRRESP,
@@ -59,6 +67,18 @@ class SnoopResult:
     crresp: CRRESP
     data: List[int]
     latency: int  # cycles from AC issue to CR handshake
+
+
+def _default_domain(snoop: int) -> int:
+    """AxDOMAIN a BFM drives when the caller gives none.
+
+    AxSNOOP all-zero with a Non-shareable domain is ReadNoSnoop/WriteNoSnoop;
+    every other ARSNOOP/AWSNOOP value is a coherent, maintenance or memory-
+    update type, all of which Tables D3-7 / D3-8 (IHI 0022H) permit in the
+    Outer Shareable domain. A caller wanting ReadOnce/WriteUnique (snoop 0 in
+    a shareable domain) passes ``domain=`` explicitly.
+    """
+    return DOMAIN_NON_SHAREABLE if int(snoop) == 0 else DOMAIN_OUTER_SHAREABLE
 
 
 class AXI4ACEMasterRead(AXI4MasterRead):
@@ -118,6 +138,7 @@ class AXI4ACEMasterRead(AXI4MasterRead):
 
         self._response_by_id = collections.defaultdict(collections.deque)
         self.r_channel.add_callback(self._on_r_response)
+        self.last_rresp: List[int] = []
 
         # Inherit compliance-reporting API from AXI4MasterRead; no AXI4 checker
         # is instantiated because this is an ACE interface.
@@ -159,6 +180,8 @@ class AXI4ACEMasterRead(AXI4MasterRead):
             qos=transaction_kwargs.get("qos", 0),
             region=transaction_kwargs.get("region", 0),
             snoop=int(snoop_type),
+            domain=transaction_kwargs.get("domain", _default_domain(snoop_type)),
+            bar=transaction_kwargs.get("bar", BAR_NORMAL_RESPECT),
         )
         if "user" in transaction_kwargs and hasattr(ar_packet, "user"):
             ar_packet.user = transaction_kwargs["user"]
@@ -180,15 +203,23 @@ class AXI4ACEMasterRead(AXI4MasterRead):
                 )
 
         read_data = []
+        resps = []
         for _ in range(burst_len):
             packet = id_queue.popleft()
             data_value = getattr(packet, "data", 0)
             read_data.append(data_value)
-            if hasattr(packet, "resp") and packet.resp != 0:
+            resp = int(getattr(packet, "resp", 0))
+            resps.append(resp)
+            # Only RRESP[1:0] is an error code. RRESP[3:2] is IsShared /
+            # PassDirty (IHI 0022H Table D3-14) -- coherence state, not a fault.
+            if resp & 0x3:
                 resp_names = {0: "OKAY", 1: "EXOKAY", 2: "SLVERR", 3: "DECERR"}
-                resp_name = resp_names.get(packet.resp, "UNKNOWN")
-                raise RuntimeError(f"AXI4-ACE read error: {resp_name} (0x{packet.resp:X})")
+                resp_name = resp_names.get(resp & 0x3, "UNKNOWN")
+                raise RuntimeError(f"AXI4-ACE read error: {resp_name} (0x{resp:X})")
 
+        # Per-beat full 4-bit RRESP of the last transaction, for tests that
+        # check IsShared / PassDirty.
+        self.last_rresp = resps
         return read_data
 
     async def _rack_pulser(self):
@@ -218,6 +249,55 @@ class AXI4ACEMasterRead(AXI4MasterRead):
         except Exception as e:
             if self.log:
                 self.log.debug(f"AXI4ACEMasterRead RACK pulser stopped: {e}")
+
+
+class AXI4ACESlaveRead(AXI4SlaveRead):
+    """ACE read responder: an ``AXI4SlaveRead`` whose R channel carries the
+    4-bit ACE RRESP (IHI 0022H D2.1.3).
+
+    ``coherence_resp`` is an optional callable ``(address) -> int`` giving
+    the RRESP[3:2] pair {IsShared, PassDirty} for a transaction's beats; it is
+    placed above RRESP[1:0], which comes from ``resp_override`` when one is
+    given and is OKAY otherwise (a non-zero pair replaces the natural
+    response, so do not combine it with out-of-range error testing). Every
+    beat of a burst gets the same value, as Table D3-14 requires. The ACE R
+    channel is bound with the AXI4 R signal patterns: only the RRESP width
+    differs.
+    """
+
+    def __init__(self, dut, clock, prefix="", log=None, ifc_name="", **kwargs):
+        self.coherence_resp = kwargs.pop("coherence_resp", None)
+        user_override = kwargs.get("resp_override")
+        if self.coherence_resp is not None:
+            coherence = self.coherence_resp
+
+            def _with_coherence(addr, _base=user_override, _coh=coherence):
+                low = _base(addr) if _base is not None else None
+                upper = int(_coh(addr)) & 0x3
+                if upper == 0:
+                    return low  # None keeps the natural response
+                return (upper << 2) | ((low or 0) & 0x3)
+
+            kwargs["resp_override"] = _with_coherence
+        super().__init__(dut, clock, prefix=prefix, log=log, ifc_name=ifc_name, **kwargs)
+        # Rebuild the R driver with the ACE R config (4-bit resp). The AXI4
+        # base built a 2-bit one; GAXIMaster drives nothing until send(), so
+        # replacing it before the first transaction leaves no second driver.
+        self.r_channel = GAXIMaster(
+            dut=dut,
+            title=f"R_Master{self.ifc_name}",
+            prefix=prefix,
+            clock=clock,
+            field_config=AXI4ACEFieldConfigHelper.create_r_field_config(
+                self.id_width, self.data_width, self.user_width
+            ),
+            pkt_prefix="r",
+            multi_sig=self.multi_sig,
+            protocol_type="axi4_r_master",
+            log=log,
+            super_debug=True,
+            optional_fields=getattr(self, "optional_fields", None),
+        )
 
 
 class AXI4ACEMasterWrite(AXI4MasterWrite):
@@ -354,6 +434,8 @@ class AXI4ACEMasterWrite(AXI4MasterWrite):
                 qos=transaction_kwargs.get("qos", 0),
                 region=transaction_kwargs.get("region", 0),
                 snoop=int(snoop_type),
+                domain=transaction_kwargs.get("domain", _default_domain(snoop_type)),
+                bar=transaction_kwargs.get("bar", BAR_NORMAL_RESPECT),
             )
             if "user" in transaction_kwargs and hasattr(aw_packet, "user"):
                 aw_packet.user = transaction_kwargs["user"]

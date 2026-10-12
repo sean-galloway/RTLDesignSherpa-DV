@@ -123,7 +123,7 @@ class AXI5Packet(Packet):
             AXI5Packet configured for B channel
 
         Example:
-            packet = AXI5Packet.create_b_packet(id=1, resp=0, tagmatch=1)
+            packet = AXI5Packet.create_b_packet(id=1, resp=0, tagmatch=3)
         """
         field_config = AXI5FieldConfigHelper.create_b_field_config(
             id_width, user_width, data_width=data_width
@@ -394,9 +394,9 @@ class AXI5Packet(Packet):
         if hasattr(self, 'trace'):
             features['trace'] = getattr(self, 'trace', 0)
 
-        # Unique access
-        if hasattr(self, 'unique'):
-            features['unique'] = getattr(self, 'unique', 0)
+        # Unique ID indicator (AxIDUNQ/BIDUNQ/RIDUNQ, IHI 0022L A5.2)
+        if hasattr(self, 'idunq'):
+            features['idunq'] = getattr(self, 'idunq', 0)
 
         # Chunking
         if hasattr(self, 'chunken'):

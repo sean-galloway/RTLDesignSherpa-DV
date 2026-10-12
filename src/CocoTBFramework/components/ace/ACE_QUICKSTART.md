@@ -13,16 +13,23 @@ Interfaces, Packet, Compliance) and the rendered `CocoTB_ACE.pdf` book.
 The `ace` family extends the `axi4` BFMs with ACE capabilities:
 
 - `AXI4ACEMasterRead` / `AXI4ACEMasterWrite` — AXI4 masters with
-  `arsnoop[3:0]` / `awsnoop[2:0]` on the address channels and automatic
-  RACK/WACK generation.
+  `arsnoop[3:0]` / `awsnoop[2:0]`, `ardomain[1:0]` / `awdomain[1:0]` and
+  `arbar[1:0]` / `awbar[1:0]` on the address channels (IHI 0022H D2.1.1-2),
+  the 4-bit `rresp` on R (D2.1.3), and automatic RACK/WACK generation.
+- `AXI4ACESlaveRead` (`create_axi4ace_slave_rd`) — an `AXI4SlaveRead`
+  responder with the 4-bit RRESP; `coherence_resp=lambda addr: 0b10` returns
+  IsShared=1, PassDirty=0 on every beat of that transaction.
 - `AXI4ACESnoopMaster` / `AXI4ACESnoopSlave` — the three ACE snoop channels
   (AC: snoop address, CR: snoop response, CD: snoop data) as a CCU-side
   initiator and a cache-side responder.
 
-**Scope (family "D2" subset):** the front-side read/write channels carry the
-snoop fields only. There is no `ardomain/arbar/awdomain/awbar`, and ACE-Lite
-masters are not modeled. If a design needs those, extend
-`AXI4ACEFieldConfigHelper` before constructing the interfaces.
+**Scope:** the front-side read/write channels carry every ACE address
+signal of IHI 0022H D2.1 except the optional `awunique` (WriteEvict only).
+When a test gives no `domain=`, the BFM drives Non-shareable for an all-zero
+AxSNOOP and Outer Shareable otherwise; `bar=` defaults to 0b00 (normal access,
+respecting barriers). `read_transaction` raises only on RRESP[1:0] errors and
+leaves each beat's full 4-bit RRESP in `last_rresp`. ACE-Lite masters are not
+modeled.
 
 Validated on cocotb 1.9.2 and cocotb 2.x.
 

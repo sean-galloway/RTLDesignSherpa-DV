@@ -20,6 +20,7 @@ from typing import Any, Dict, Tuple
 from .ace_interfaces import (
     AXI4ACEMasterRead,
     AXI4ACEMasterWrite,
+    AXI4ACESlaveRead,
     AXI4ACESnoopMaster,
     AXI4ACESnoopSlave,
 )
@@ -53,6 +54,33 @@ def create_axi4ace_master_rd(
         "AR": master_read.ar_channel,
         "R": master_read.r_channel,
         "interface": master_read,
+    }
+
+
+def create_axi4ace_slave_rd(
+    dut,
+    clock,
+    prefix: str = "",
+    log=None,
+    ifc_name: str = "",
+    **kwargs,
+) -> Dict[str, Any]:
+    """
+    Create an ACE read responder (the subordinate side of AR/R).
+
+    Same kwargs as ``create_axi4_slave_rd`` plus ``coherence_resp``: an
+    optional callable ``(address) -> int`` giving RRESP[3:2] = {IsShared,
+    PassDirty} for that transaction (IHI 0022H Table D3-14).
+
+    Returns:
+        Dictionary containing the AR/R channel components and the interface
+    """
+    slave_read = AXI4ACESlaveRead(dut, clock, prefix, log=log, ifc_name=ifc_name, **kwargs)
+
+    return {
+        "AR": slave_read.ar_channel,
+        "R": slave_read.r_channel,
+        "interface": slave_read,
     }
 
 

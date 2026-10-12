@@ -16,14 +16,16 @@
 constrains is inherited; what is added is how often each optional group is
 exercised and with what values.
 
-Two things AXI5-Lite has that AXI4-Lite does not, and which therefore come
-back here after being deliberately dropped from the AXIL4 constraint set:
+What AXI5-Lite adds over AXI4-Lite, per IHI 0022 Issue L Table B2.2:
 
-* **Exclusive access.** AXI5-Lite adds AxLOCK, so ``exclusive_access_rate``
-  is meaningful again.
-* **A SECURE protocol mode.** NSAID, MPAM and MECID exist to be varied.
-  AXI5's enum also lists modes for atomics and cache coherence; Lite has
-  neither, so those stay absent.
+* **The transaction ID.** AWID/BID and ARID/RID are present on AXI5-Lite
+  (code YS), so ``id_rate`` / ``id_values`` vary them.
+* **A SECURE protocol mode** that sweeps AxPROT. AXI5's enum also lists modes
+  for atomics and cache coherence; Lite has neither, so those stay absent.
+
+Deliberately NOT here: exclusive access, MPAM, MECID, NSAID and LOOP. Table
+B2.2 marks AxLOCK, AxMPAM, AxMECID, AxNSAID and xLOOP "N" (not present) for
+AXI5-Lite, and B2.1.5 states exclusive accesses are not supported.
 """
 from dataclasses import dataclass
 from enum import Enum
@@ -52,7 +54,6 @@ class AXIL5RandomizationProfile(Enum):
 class AXIL5ProtocolMode(Enum):
     """AXI5-Lite operating modes."""
     STANDARD = "standard"
-    EXCLUSIVE_ACCESS = "exclusive_access"
     SECURE = "secure"
     LOW_POWER = "low_power"
     HIGH_PERFORMANCE = "high_performance"
@@ -67,23 +68,14 @@ class AXIL5ConstraintSet(AXIL4ConstraintSet):
     set with nothing configured produces AXI4-Lite-shaped traffic -- the same
     all-groups-off equivalence the RTL and the field configs hold to.
     """
-    # Exclusive access -- AxLOCK. Absent from AXIL4ConstraintSet because
-    # AXI4-Lite has no exclusive access at all.
-    exclusive_access_rate: float = 0.0
-
-    # Optional-group exercise rates
+    # ID and optional-group exercise rates
+    id_rate: float = 0.0
     user_rate: float = 0.0
     trace_rate: float = 0.0
-    loop_rate: float = 0.0
-    mpam_rate: float = 0.0
-    mecid_rate: float = 0.0
-    nsaid_rate: float = 0.0
     poison_rate: float = 0.0
 
     # Value pools, used when a group fires
-    mpam_values: Optional[List[int]] = None
-    mecid_values: Optional[List[int]] = None
-    nsaid_values: Optional[List[int]] = None
+    id_values: Optional[List[int]] = None
 
     def any_group_enabled(self) -> bool:
         """True when at least one optional group will ever be exercised.
@@ -92,9 +84,8 @@ class AXIL5ConstraintSet(AXIL4ConstraintSet):
         AXI4-Lite traffic, and a test believing it is exercising AXI5-Lite
         would be passing for the wrong reason.
         """
-        return any((self.user_rate, self.trace_rate, self.loop_rate,
-                    self.mpam_rate, self.mecid_rate, self.nsaid_rate,
-                    self.poison_rate, self.exclusive_access_rate))
+        return any((self.id_rate, self.user_rate, self.trace_rate,
+                    self.poison_rate))
 
 
 class AXIL5RandomizationConfig(AXIL4RandomizationConfig):
@@ -112,22 +103,17 @@ class AXIL5RandomizationConfig(AXIL4RandomizationConfig):
         c = super()._constraints_for(base_profile)
 
         if profile is P.SECURE:
-            c.nsaid_rate = 0.8
-            c.mpam_rate = 0.5
-            c.mecid_rate = 0.5
             c.trace_rate = 0.2
             c.prot_values = [0, 1, 2, 3]
         elif profile is P.STRESS:
             # Everything on, so the groups are exercised alongside the
             # back-pressure and error injection STRESS already brings.
-            for name in ('user_rate', 'trace_rate', 'loop_rate', 'mpam_rate',
-                         'mecid_rate', 'nsaid_rate', 'poison_rate',
-                         'exclusive_access_rate'):
+            for name in ('id_rate', 'user_rate', 'trace_rate', 'poison_rate'):
                 setattr(c, name, 0.3)
         elif profile is P.COMPLIANCE:
             # Groups present but never poisoned: a poisoned beat is a legal
             # transfer of bad data, and mixing it into a compliance run makes
             # a protocol failure hard to tell from an intentional poison.
-            c.user_rate = c.trace_rate = c.loop_rate = 0.5
+            c.id_rate = c.user_rate = c.trace_rate = 0.5
             c.poison_rate = 0.0
         return c

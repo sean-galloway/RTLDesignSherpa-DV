@@ -26,7 +26,7 @@ from cocotb.triggers import RisingEdge
 from cocotb.utils import get_sim_time
 
 from ..axis4.axis_monitor import AXISMonitor
-from .axis5_field_configs import AXIS5FieldConfigs
+from .axis5_field_configs import AXIS5FieldConfigs, with_pinless_optional_fields
 from .axis5_packet import AXIS5Packet
 
 
@@ -94,6 +94,10 @@ class AXIS5Monitor(AXISMonitor):
                 enable_wakeup=enable_wakeup,
                 enable_parity=enable_parity
             )
+
+        # parity_error is a pin-less status field: declare it optional so the
+        # multi-signal resolver does not demand a {prefix}tparity_error pin.
+        kwargs = with_pinless_optional_fields(field_config, kwargs)
 
         # Initialize parent
         super().__init__(

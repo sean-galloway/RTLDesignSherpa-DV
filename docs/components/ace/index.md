@@ -43,7 +43,7 @@ This family implements the cache-ip ACE-shaped port contract: the six transactio
 - **ACEPacket** - Packet class extending AXI4Packet with AC/CR/CD factory methods
 - **SnoopPacket** - Convenience container for a complete snoop transaction result
 - **AXI4ACEFieldConfigHelper** - Channel field configurations for ACE
-- **ACETransactionType** - Front-side ARSNOOP/AWSNOOP encodings
+- **ARSnoop / AWSnoop** - Front-side ARSNOOP / AWSNOOP encodings (IHI 0022H.c Tables D3-7, D3-8); `ACETransactionType` is the deprecated combined form
 - **SnoopType** - ACSNOOP encodings for the snoop address channel
 - **CRRESP** - Bitfield helper for the snoop response
 - **CacheState** - Gem5-style MESI states for the default responder

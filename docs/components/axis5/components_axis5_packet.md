@@ -58,7 +58,7 @@ Builds a field configuration for AXIS5 packets.
 | `user` | user_width | User signal | user_width > 0 |
 | `wakeup` | 1 | Wake-up signal | enable_wakeup |
 | `parity` | data_width/8 | Data parity (1 bit per byte) | enable_parity |
-| `parity_error` | 1 | Parity error indicator | enable_parity |
+| `parity_error` | 1 | Parity error indicator (BFM status, no pin; the AXIS5 master/slave/monitor declare it in `optional_fields` themselves) | enable_parity |
 
 ### Properties
 

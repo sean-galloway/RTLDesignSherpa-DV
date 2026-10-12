@@ -23,6 +23,7 @@ Similar API to AXI4Slave but adapted for stream protocol.
 from cocotb.triggers import RisingEdge
 
 from ..gaxi.gaxi_slave import GAXISlave
+from ..shared.flex_randomizer import FlexRandomizer
 from .axis_field_configs import AXISFieldConfigs
 from .axis_packet import AXISPacket
 
@@ -38,9 +39,26 @@ class AXISSlave(GAXISlave):
 
     The GAXI receive pipeline is the sole driver of the ready signal
     (including randomized ready delays via the slave randomizer). AXIS-level
-    frame tracking is layered on via the standard cocotb callback mechanism:
-    every packet captured by the GAXI pipeline is also fed to
-    :meth:`_axis_packet_callback` for TLAST-delimited frame accounting.
+    frame tracking is layered on by overriding :meth:`_recv`: every packet the
+    GAXI pipeline completes is first fed to :meth:`_axis_packet_callback` for
+    TLAST-delimited frame accounting, then delivered the standard cocotb way.
+
+    Delivery contract (the same as every cocotb Monitor and GAXI component):
+
+    - With no user callbacks, each received packet is appended to ``_recvQ``
+      (consume it with ``slave._recvQ.popleft()``).
+    - With user callbacks (``add_callback``), each callback gets the packet
+      and ``_recvQ`` is not filled.
+    - The AXIS frame tracker is NOT a callback and never suppresses
+      ``_recvQ``; ``packets_received`` / ``frames_received`` count in both
+      cases.
+
+    .. note::
+
+        The frame tracker used to be registered with ``add_callback``. cocotb's
+        ``Monitor._recv()`` stops appending to ``_recvQ`` as soon as any
+        callback exists, so ``_recvQ`` stayed empty for every AXIS slave.
+        :class:`AXISMonitor` avoids the same trap by hooking ``_finish_packet``.
 
     AXIS-specific features added by this subclass:
     - Frame boundary detection via TLAST
@@ -119,9 +137,8 @@ class AXISSlave(GAXISlave):
         self.total_data_bytes = 0
         self.errors = 0
 
-        # Layer AXIS frame tracking on top of the GAXI receive pipeline:
-        # every packet the pipeline captures is fed to the callback below.
-        self.add_callback(self._axis_packet_callback)
+        # AXIS frame tracking is layered on in _recv(), not via add_callback:
+        # a registered callback would stop cocotb from filling _recvQ.
 
         if self.log:
             self.log.info(f"AXISSlave '{self.title}' initialized: "
@@ -131,6 +148,22 @@ class AXISSlave(GAXISlave):
     def _packet_byte_count(packet):
         """Number of valid bytes in a captured beat, based on TSTRB bits."""
         return bin(packet.fields.get('strb', 0)).count('1')
+
+    def _recv(self, transaction):
+        """
+        Deliver a packet completed by the GAXI receive pipeline.
+
+        Runs the AXIS frame tracker (and any subclass checks layered on
+        :meth:`_axis_packet_callback`, e.g. AXIS5 parity) on the finished
+        packet first, so a consumer sees any status it sets, then hands the
+        packet to cocotb's ``Monitor._recv`` for callback / ``_recvQ``
+        delivery.
+
+        Args:
+            transaction: Packet completed by the GAXI receive pipeline
+        """
+        self._axis_packet_callback(transaction)
+        super()._recv(transaction)
 
     def _axis_packet_callback(self, packet):
         """
@@ -207,21 +240,36 @@ class AXISSlave(GAXISlave):
 
     def apply_backpressure(self, probability=0.2, min_cycles=1, max_cycles=5):
         """
-        Apply random backpressure by controlling ready signal.
+        Apply random backpressure through the slave's ready-delay randomizer.
+
+        Installs a new :class:`FlexRandomizer` whose ``ready_delay`` is 0 with
+        probability ``1 - probability`` and uniform in
+        ``[min_cycles, max_cycles]`` otherwise. Any other constraints the
+        current randomizer carries are kept. The previous randomizer object
+        is replaced, not modified, so one shared between components is not
+        changed under them.
 
         Args:
-            probability: Probability of applying backpressure (0.0 to 1.0)
-            min_cycles: Minimum cycles to hold ready low
-            max_cycles: Maximum cycles to hold ready low
+            probability: Probability of stalling a beat (0.0 to 1.0)
+            min_cycles: Minimum cycles to hold ready low (>= 1)
+            max_cycles: Maximum cycles to hold ready low (>= min_cycles)
+
+        Raises:
+            ValueError: If an argument is out of range
         """
-        # This would be implemented with a background coroutine
-        # For now, use randomizer for ready timing
-        if self.randomizer:
-            constraints = {
-                'ready_delay': ([(0, 0), (min_cycles, max_cycles)],
-                              [1.0-probability, probability])
-            }
-            self.randomizer.update_constraints(constraints)
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError(f"probability must be in [0.0, 1.0], got {probability}")
+        if min_cycles < 1 or max_cycles < min_cycles:
+            raise ValueError(
+                f"need 1 <= min_cycles <= max_cycles, got {min_cycles}..{max_cycles}")
+
+        current = getattr(self.randomizer, 'constraints', None) or {}
+        constraints = {
+            **current,
+            'ready_delay': ([(0, 0), (min_cycles, max_cycles)],
+                            [1.0 - probability, probability]),
+        }
+        self.set_randomizer(FlexRandomizer(constraints))
 
     def get_current_frame_info(self):
         """

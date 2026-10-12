@@ -17,23 +17,48 @@ from CocoTBFramework.components.ace.ace_transaction import (
 # Transaction / snoop enum membership
 # ---------------------------------------------------------------------------
 
-def test_research_subset_transaction_types():
-    assert ACETransactionType.READ_SHARED.value == 0x1
-    assert ACETransactionType.READ_UNIQUE.value == 0x7
-    assert ACETransactionType.CLEAN_UNIQUE.value == 0xB
-    assert ACETransactionType.MAKE_UNIQUE.value == 0xC
-    assert ACETransactionType.WRITE_BACK.value == 0x3
-    assert ACETransactionType.EVICT.value == 0x5
+def test_arsnoop_encodings_match_table_d3_7():
+    """IHI 0022H.c Table D3-7: every ARSNOOP[3:0] value."""
+    from CocoTBFramework.components.ace.ace_transaction import ARSnoop
+    expected = {
+        "READ_ONCE": 0b0000, "READ_SHARED": 0b0001, "READ_CLEAN": 0b0010,
+        "READ_NOT_SHARED_DIRTY": 0b0011, "READ_UNIQUE": 0b0111,
+        "CLEAN_UNIQUE": 0b1011, "MAKE_UNIQUE": 0b1100,
+        "CLEAN_SHARED": 0b1000, "CLEAN_INVALID": 0b1001,
+        "MAKE_INVALID": 0b1101, "DVM_COMPLETE": 0b1110, "DVM_MESSAGE": 0b1111,
+    }
+    assert {m.name: m.value for m in ARSnoop} == expected
 
 
-def test_full_ace_transaction_types_present():
-    names = {t.name for t in ACETransactionType}
-    assert {"READ_ONCE", "READ_CLEAN", "READ_NOT_SHARED_DIRTY"}.issubset(names)
-    # Write-side types collide with read-side values in the shared encoding
-    # space, so they are exposed as aliases accessible by attribute.
-    assert hasattr(ACETransactionType, "WRITE_UNIQUE")
-    assert hasattr(ACETransactionType, "WRITE_LINE_UNIQUE")
-    assert hasattr(ACETransactionType, "WRITE_CLEAN")
+def test_awsnoop_encodings_match_table_d3_8():
+    """IHI 0022H.c Table D3-8: every AWSNOOP[2:0] value."""
+    from CocoTBFramework.components.ace.ace_transaction import AWSnoop
+    expected = {
+        "WRITE_UNIQUE": 0b000, "WRITE_LINE_UNIQUE": 0b001, "WRITE_CLEAN": 0b010,
+        "WRITE_BACK": 0b011, "EVICT": 0b100, "WRITE_EVICT": 0b101,
+    }
+    assert {m.name: m.value for m in AWSnoop} == expected
+
+
+def test_compat_names_resolve_to_correct_channel():
+    """The deprecated combined namespace keeps every old name, unaliased."""
+    from CocoTBFramework.components.ace.ace_transaction import ARSnoop, AWSnoop
+    assert ACETransactionType.READ_NOT_SHARED_DIRTY is ARSnoop.READ_NOT_SHARED_DIRTY
+    assert int(ACETransactionType.READ_NOT_SHARED_DIRTY) == 0b0011
+    assert ACETransactionType.WRITE_BACK is AWSnoop.WRITE_BACK
+    assert ACETransactionType.WRITE_BACK.name == "WRITE_BACK"
+    assert int(ACETransactionType.EVICT) == 0b100
+    # Write names no longer alias read members
+    assert ACETransactionType.WRITE_UNIQUE.name == "WRITE_UNIQUE"
+    assert ACETransactionType.WRITE_LINE_UNIQUE.name == "WRITE_LINE_UNIQUE"
+    assert ACETransactionType.WRITE_CLEAN.name == "WRITE_CLEAN"
+    for name in ("READ_SHARED", "READ_UNIQUE", "CLEAN_UNIQUE", "MAKE_UNIQUE",
+                 "READ_ONCE", "READ_CLEAN"):
+        assert getattr(ACETransactionType, name) is ARSnoop[name]
+    names = [t.name for t in ACETransactionType]
+    assert len(names) == len(set(names)) == len(ACETransactionType) == 12
+    with pytest.raises(TypeError):
+        ACETransactionType(3)
 
 
 def test_snoop_type_membership():

@@ -64,7 +64,7 @@ Execute a complete coherent read transaction: send the AR request and wait for a
 |------|------|-------------|---------|
 | `address` | `int` | Read address | (required) |
 | `burst_len` | `int` | Number of data beats to read (1-256) | `1` |
-| `snoop_type` | `ACETransactionType` | Coherent transaction type for ARSNOOP | `ACETransactionType.READ_SHARED` |
+| `snoop_type` | `ARSnoop` | Coherent transaction type for ARSNOOP (IHI 0022H.c Table D3-7) | `ARSnoop.READ_SHARED` |
 | `id` | `int` | Transaction ID | `0` |
 | `size` | `int` | Transfer size encoding (log2 of bytes per beat) | full-bus size |
 | `burst_type` | `int` | Burst type (0=FIXED, 1=INCR, 2=WRAP) | `1` |
@@ -142,7 +142,7 @@ Execute a complete coherent write transaction: send the AW address, W data beats
 | `address` | `int` | Write address | (required) |
 | `data` | `int` or `List[int]` | Write data (single value or list for burst) | (required) |
 | `burst_len` | `int` or `None` | Number of data beats (inferred from data list if `None`) | `None` |
-| `snoop_type` | `ACETransactionType` | Coherent transaction type for AWSNOOP | `ACETransactionType.WRITE_UNIQUE` |
+| `snoop_type` | `AWSnoop` | Coherent transaction type for AWSNOOP (IHI 0022H.c Table D3-8) | `AWSnoop.WRITE_UNIQUE` |
 | `id` | `int` | Transaction ID | `0` |
 | `size` | `int` | Transfer size encoding | full-bus size |
 | `burst_type` | `int` | Burst type (0=FIXED, 1=INCR, 2=WRAP) | `1` |
@@ -326,7 +326,7 @@ Create a complete set of ACE components for a testbench by probing the DUT. Only
 
 ```python
 from CocoTBFramework.components.ace.ace_interfaces import AXI4ACEMasterRead
-from CocoTBFramework.components.ace.ace_transaction import ACETransactionType
+from CocoTBFramework.components.ace.ace_transaction import ARSnoop
 
 @cocotb.test()
 async def test_ace_read(dut):
@@ -343,7 +343,7 @@ async def test_ace_read(dut):
     data = await master_read.read_transaction(
         address=0x1000,
         burst_len=1,
-        snoop_type=ACETransactionType.READ_SHARED,
+        snoop_type=ARSnoop.READ_SHARED,
         id=1,
     )
     assert data[0] == expected_value
@@ -353,7 +353,7 @@ async def test_ace_read(dut):
 
 ```python
 from CocoTBFramework.components.ace.ace_interfaces import AXI4ACEMasterWrite
-from CocoTBFramework.components.ace.ace_transaction import ACETransactionType
+from CocoTBFramework.components.ace.ace_transaction import AWSnoop
 
 @cocotb.test()
 async def test_ace_write(dut):
@@ -369,7 +369,7 @@ async def test_ace_write(dut):
     result = await master_write.write_transaction(
         address=0x1000,
         data=[0xDEADBEEF, 0xCAFEBABE],
-        snoop_type=ACETransactionType.WRITE_UNIQUE,
+        snoop_type=AWSnoop.WRITE_UNIQUE,
         id=1,
     )
     assert result['success']

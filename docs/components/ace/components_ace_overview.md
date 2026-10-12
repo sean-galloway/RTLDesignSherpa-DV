@@ -205,20 +205,43 @@ configs = AXI4ACEFieldConfigHelper.create_all_field_configs(
 
 ## Transaction Types and CRRESP
 
-### ACETransactionType
+### ARSnoop and AWSnoop
 
-Used for `ARSNOOP` and `AWSNOOP` on front-side read/write transactions.
+The read and write snoop encodings overlap numerically (`0b0011` is ReadNotSharedDirty on AR and WriteBack on AW), so they are two enums. Pass an `ARSnoop` member as `snoop_type` on reads and an `AWSnoop` member on writes.
 
-| Member | Value | Meaning |
-|--------|-------|---------|
-| `READ_SHARED` | `0x1` | Fetch a line to read; other caches may keep Shared copies |
-| `READ_UNIQUE` | `0x7` | Fetch a line to write; all other copies must be invalidated |
-| `CLEAN_UNIQUE` | `0xB` | Requester already holds the line; make this copy Unique (no data) |
-| `MAKE_UNIQUE` | `0xC` | Like CleanUnique but requester will overwrite the whole line |
-| `WRITE_BACK` | `0x3` | Retire a dirty line to memory; manager must merge data into DRAM |
-| `EVICT` | `0x5` | Retire a clean line; hint, no data and no DRAM write needed |
+`ARSnoop` -- `ARSNOOP[3:0]`, Arm IHI 0022H.c Table D3-7:
 
-The six values above are the onyx D2 research subset. The enum also carries the remaining full-ACE read-side and write-side encodings for completeness.
+| Member | Value | Transaction |
+|--------|-------|-------------|
+| `READ_ONCE` | `0b0000` | ReadOnce (ReadNoSnoop when ARDOMAIN is Non-shareable/System; Barrier when ARBAR[0]=1) |
+| `READ_SHARED` | `0b0001` | ReadShared |
+| `READ_CLEAN` | `0b0010` | ReadClean |
+| `READ_NOT_SHARED_DIRTY` | `0b0011` | ReadNotSharedDirty |
+| `READ_UNIQUE` | `0b0111` | ReadUnique |
+| `CLEAN_SHARED` | `0b1000` | CleanShared |
+| `CLEAN_INVALID` | `0b1001` | CleanInvalid |
+| `CLEAN_UNIQUE` | `0b1011` | CleanUnique |
+| `MAKE_UNIQUE` | `0b1100` | MakeUnique |
+| `MAKE_INVALID` | `0b1101` | MakeInvalid |
+| `DVM_COMPLETE` | `0b1110` | DVM Complete |
+| `DVM_MESSAGE` | `0b1111` | DVM Message |
+
+`AWSnoop` -- `AWSNOOP[2:0]`, Arm IHI 0022H.c Table D3-8:
+
+| Member | Value | Transaction |
+|--------|-------|-------------|
+| `WRITE_UNIQUE` | `0b000` | WriteUnique (WriteNoSnoop when AWDOMAIN is Non-shareable/System; Barrier when AWBAR[0]=1) |
+| `WRITE_LINE_UNIQUE` | `0b001` | WriteLineUnique |
+| `WRITE_CLEAN` | `0b010` | WriteClean |
+| `WRITE_BACK` | `0b011` | WriteBack |
+| `EVICT` | `0b100` | Evict |
+| `WRITE_EVICT` | `0b101` | WriteEvict |
+
+All other encodings are Reserved.
+
+### ACETransactionType (deprecated)
+
+The old combined type. It was one IntEnum holding both encodings, so the write-side names aliased read-side members, and two values were wrong (ReadNotSharedDirty was `0x4`, Evict was `0x5`). It is now a compatibility namespace: every old name resolves to the correct `ARSnoop` or `AWSnoop` member (`ACETransactionType.WRITE_BACK is AWSnoop.WRITE_BACK`), iteration yields the twelve old names, and `ACETransactionType(value)` raises `TypeError` because a bare value does not say which channel it is for. New code should use `ARSnoop` / `AWSnoop`.
 
 ### SnoopType
 
@@ -363,7 +386,7 @@ Drive a coherent read and observe the auto-pulsed RACK. This snippet mirrors the
 import cocotb
 from cocotb.triggers import RisingEdge, Event, with_timeout
 from CocoTBFramework.components.ace import AXI4ACEMasterRead
-from CocoTBFramework.components.ace.ace_transaction import ACETransactionType
+from CocoTBFramework.components.ace.ace_transaction import ARSnoop
 
 @cocotb.test()
 async def test_ace_read_with_rack(dut):
@@ -383,7 +406,7 @@ async def test_ace_read_with_rack(dut):
     data = await ace_master.read_transaction(
         address=0x4000,
         burst_len=1,
-        snoop_type=ACETransactionType.READ_SHARED,
+        snoop_type=ARSnoop.READ_SHARED,
         id=0xAB,
     )
 

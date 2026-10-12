@@ -39,7 +39,7 @@ Validated on cocotb 1.9.2 and cocotb 2.x.
 
 ```python
 from CocoTBFramework.components.ace.ace_interfaces import AXI4ACEMasterRead
-from CocoTBFramework.components.ace.ace_transaction import ACETransactionType
+from CocoTBFramework.components.ace.ace_transaction import ARSnoop
 from CocoTBFramework.components.axi4.axi4_interfaces import AXI4SlaveRead
 
 ace_master = AXI4ACEMasterRead(
@@ -57,12 +57,16 @@ responder = AXI4SlaveRead(
     id_width=8, addr_width=32, data_width=32,
 )
 
-# Every ACETransactionType member is accepted for snoop_type; the field is
-# transported on AR's arsnoop[3:0].
+# snoop_type takes an ARSnoop member on reads (IHI 0022H.c Table D3-7) and an
+# AWSnoop member on writes (Table D3-8); the field is transported on AR's
+# arsnoop[3:0] / AW's awsnoop[2:0]. The two encodings overlap (0b0011 is
+# ReadNotSharedDirty on AR, WriteBack on AW), so they are separate enums.
+# The old combined ACETransactionType still resolves every name it had, to
+# the right one of the two, but is deprecated.
 data = await ace_master.read_transaction(
     address=0x1000,
     burst_len=4,
-    snoop_type=ACETransactionType.READ_SHARED,
+    snoop_type=ARSnoop.READ_SHARED,
     id=0xAB,
 )
 ```

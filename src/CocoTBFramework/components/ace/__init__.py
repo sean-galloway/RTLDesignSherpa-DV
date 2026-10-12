@@ -92,6 +92,8 @@ from .ace_packet import (
 from .ace_transaction import (
     CRRESP,
     ACETransactionType,
+    ARSnoop,
+    AWSnoop,
     CacheState,
     CRRESPBit,
     SnoopType,
@@ -132,6 +134,8 @@ __all__ = [
 
     # Transactions
     "ACETransactionType",
+    "ARSnoop",
+    "AWSnoop",
     "SnoopType",
     "CRRESP",
     "CRRESPBit",

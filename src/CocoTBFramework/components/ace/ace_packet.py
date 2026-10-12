@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..axi4.axi4_packet import AXI4Packet
 from .ace_field_configs import AXI4ACEFieldConfigHelper
-from .ace_transaction import CRRESP, ACETransactionType, SnoopType
+from .ace_transaction import CRRESP, ARSnoop, AWSnoop, SnoopType
 
 
 class ACEPacket(AXI4Packet):
@@ -182,7 +182,7 @@ class SnoopPacket:
 def create_simple_read_packet(
     id_val: int,
     addr: int,
-    snoop_type: ACETransactionType = ACETransactionType.READ_SHARED,
+    snoop_type: ARSnoop = ARSnoop.READ_SHARED,
     id_width: int = 8,
     addr_width: int = 32,
 ) -> ACEPacket:
@@ -203,7 +203,7 @@ def create_simple_write_packet(
     id_val: int,
     addr: int,
     data: int,
-    snoop_type: ACETransactionType = ACETransactionType.WRITE_UNIQUE,
+    snoop_type: AWSnoop = AWSnoop.WRITE_UNIQUE,
     id_width: int = 8,
     addr_width: int = 32,
     data_width: int = 32,

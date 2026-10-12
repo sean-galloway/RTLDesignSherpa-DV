@@ -28,6 +28,36 @@ from ..shared.field_config import FieldConfig, FieldDefinition
 from .axis5_check import chk_width
 
 
+# Packet fields that carry BFM status, not a bus signal. They live in the
+# field config so the packet can hold and print them, but no pin exists for
+# them, so the multi-signal resolver must not require one.
+AXIS5_PINLESS_FIELDS = ('parity_error',)
+
+
+def with_pinless_optional_fields(field_config, kwargs):
+    """
+    Return a copy of ``kwargs`` whose ``optional_fields`` also names every
+    pin-less status field present in ``field_config``.
+
+    Without this, a multi-signal AXIS5 BFM with parity enabled failed
+    construction because the resolver found no ``{prefix}tparity_error`` pin.
+    Caller-supplied ``optional_fields`` are kept (union, not replacement).
+
+    Args:
+        field_config: The BFM's FieldConfig
+        kwargs: The BFM's remaining constructor kwargs (not modified)
+
+    Returns:
+        New kwargs dict
+    """
+    pinless = [n for n in AXIS5_PINLESS_FIELDS if n in field_config]
+    if not pinless:
+        return dict(kwargs)
+    optional = tuple(kwargs.get('optional_fields') or ())
+    return {**kwargs,
+            'optional_fields': optional + tuple(n for n in pinless if n not in optional)}
+
+
 class AXIS5FieldConfigs:
     """
     Factory class for creating AXIS5 field configurations.

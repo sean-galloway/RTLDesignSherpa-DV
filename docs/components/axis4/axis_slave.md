@@ -47,11 +47,17 @@ class AXISSlave(GAXISlave):
 
 The inherited `GAXISlave` receive pipeline performs all handshake detection, data capture, memory-model writes, and — importantly — **all TREADY driving**, including randomized ready delays taken from the slave randomizer. `AXISSlave` does not run a competing monitor loop or drive TREADY itself, so there is no contention over the ready signal. One driver, one owner.
 
-AXIS-level frame tracking is layered on through the standard cocotb callback mechanism: every packet the GAXI pipeline captures is also passed to `_axis_packet_callback`, which maintains `packets_received`, `frames_received`, `total_data_bytes`, and the current-frame state used by `get_current_frame_info()` and `wait_for_frame()`.
+AXIS-level frame tracking is layered on by overriding `_recv`: every packet the GAXI pipeline completes is passed to `_axis_packet_callback` first and then delivered the standard cocotb way. `_axis_packet_callback` which maintains `packets_received`, `frames_received`, `total_data_bytes`, and the current-frame state used by `get_current_frame_info()` and `wait_for_frame()`.
 
-`AXISSlave` sets `_default_packet_class = AXISPacket`, so the packets the pipeline hands to that callback are real `AXISPacket` objects (see `GAXIComponentBase._build_packet`). An explicit `packet_class=` argument still takes precedence.
+`AXISSlave` sets `_default_packet_class = AXISPacket`, so the packets the pipeline hands to that hook are real `AXISPacket` objects (see `GAXIComponentBase._build_packet`). An explicit `packet_class=` argument still takes precedence.
 
-> **Note:** here's the part that bites people. Registering a callback changes cocotb's delivery path — `Monitor._recv()` only appends to `_recvQ` when no callback is registered. So consume `AXISSlave` traffic through `_axis_packet_callback`, your own `add_callback()`, or the frame statistics — not `slave._recvQ`, which will sit there looking stubbornly empty. `AXISMonitor` sidesteps this by hooking `_finish_packet` instead of adding a callback, which is why its `_recvQ` still works.
+**Delivery contract** (the same as every cocotb Monitor and GAXI component):
+
+- No callbacks registered: every received packet is appended to `slave._recvQ`; consume it with `slave._recvQ.popleft()`.
+- Callbacks registered with `add_callback()`: each callback gets every packet, and `_recvQ` is not filled.
+- The frame tracker is not a callback, so it never suppresses `_recvQ`, and `packets_received` / `frames_received` count either way. Any status a subclass sets in the hook (AXIS5's `parity_error`) is already on the packet when a consumer sees it.
+
+> **Note:** before RDS-DV#89 the frame tracker was registered with `add_callback()`, and because cocotb's `Monitor._recv()` only appends to `_recvQ` when no callback exists, `slave._recvQ` stayed empty for every AXIS slave. `AXISMonitor` avoids the same trap by hooking `_finish_packet`.
 
 ## Constructor
 
@@ -122,10 +128,14 @@ slave.set_ready_always(False)
 
 This is how you do real backpressure. Instead of pinning TREADY yourself, you adjust the ready-delay constraints the receive pipeline consults — and the pipeline does the driving, so the backpressure survives across beats instead of being overwritten by the next pipeline action.
 
+It installs a new `FlexRandomizer` (through `set_randomizer`) whose `ready_delay` is 0 with probability `1 - probability` and uniform in `[min_cycles, max_cycles]` otherwise. Other constraints the current randomizer carries are kept; the old randomizer object is replaced, not modified.
+
 **Parameters:**
-- **`probability`** (float) - Probability of applying backpressure (0.0 to 1.0)
-- **`min_cycles`** (int) - Minimum cycles to hold ready low
-- **`max_cycles`** (int) - Maximum cycles to hold ready low
+- **`probability`** (float) - Probability of stalling a beat (0.0 to 1.0)
+- **`min_cycles`** (int) - Minimum cycles to hold ready low (>= 1)
+- **`max_cycles`** (int) - Maximum cycles to hold ready low (>= `min_cycles`)
+
+**Raises:** `ValueError` if an argument is out of range.
 
 **Example:**
 ```python

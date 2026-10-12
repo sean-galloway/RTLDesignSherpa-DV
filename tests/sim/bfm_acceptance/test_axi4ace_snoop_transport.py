@@ -45,7 +45,7 @@ from CocoTBFramework.components.ace.ace_transaction import (
     CRRESP,
     CacheState,
     SnoopType,
-    ACETransactionType,
+    ARSnoop,
 )
 from CocoTBFramework.components.axi4.axi4_interfaces import AXI4SlaveRead
 from CocoTBFramework.components.shared.flex_randomizer import FlexRandomizer
@@ -390,7 +390,7 @@ async def axi4ace_master_rd_rack_test(dut):
     data = await ace_master.read_transaction(
         address=addr,
         burst_len=1,
-        snoop_type=ACETransactionType.READ_SHARED,
+        snoop_type=ARSnoop.READ_SHARED,
         id=0xAB,
     )
 

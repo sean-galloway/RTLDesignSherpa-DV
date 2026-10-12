@@ -15,8 +15,9 @@
 
 """ACE transaction types and CRRESP bitfield helpers.
 
-This module defines the coherent transaction types used by ACE (ARSNOOP and
-AWSNOOP encodings), the snoop transaction types used on the AC channel, and a
+This module defines the coherent transaction types used by ACE (``ARSnoop``
+for ARSNOOP, ``AWSnoop`` for AWSNOOP, plus the deprecated combined
+``ACETransactionType`` namespace), the snoop transaction types used on the AC channel, and a
 CRRESP bitfield helper with per-snoop-type validity checking.
 
 The bit positions for CRRESP follow Arm IHI 0022H:
@@ -32,42 +33,112 @@ from enum import Enum, IntEnum
 from typing import Optional, Tuple
 
 
-class ACETransactionType(IntEnum):
-    """ACE coherent transaction types carried on ARSNOOP / AWSNOOP.
+class ARSnoop(IntEnum):
+    """ARSNOOP[3:0] encodings, Arm IHI 0022H.c Table D3-7.
 
-    The six values in the onyx D2 research subset are listed first and
-    highlighted in the docstrings. The remaining values are the full ACE set
-    supported by the cache-ip family contract.
+    Read-channel and write-channel snoop encodings overlap numerically
+    (0b0011 is ReadNotSharedDirty on AR and WriteBack on AW), so they live in
+    two enums. Use ``ARSnoop`` for ``snoop_type`` on reads and ``AWSnoop`` on
+    writes.
+
+    0b0000 is ReadOnce for a Shareable ARDOMAIN; the same encoding is
+    ReadNoSnoop when ARDOMAIN is Non-shareable or System, and Barrier when
+    ARBAR[0] is 1. Those are told apart by ARDOMAIN/ARBAR, not by ARSNOOP, so
+    they are not separate members here. All other encodings are Reserved.
     """
 
-    # Research subset (onyx D2)
-    READ_SHARED = 0x1
-    """Fetch a line to read; other caches may keep Shared copies."""
+    # Coherent
+    READ_ONCE = 0b0000
+    READ_SHARED = 0b0001
+    READ_CLEAN = 0b0010
+    READ_NOT_SHARED_DIRTY = 0b0011
+    READ_UNIQUE = 0b0111
+    CLEAN_UNIQUE = 0b1011
+    MAKE_UNIQUE = 0b1100
 
-    READ_UNIQUE = 0x7
-    """Fetch a line to write; all other copies must be invalidated."""
+    # Cache maintenance
+    CLEAN_SHARED = 0b1000
+    CLEAN_INVALID = 0b1001
+    MAKE_INVALID = 0b1101
 
-    CLEAN_UNIQUE = 0xB
-    """Requester already holds the line; make this copy Unique (no data)."""
+    # DVM
+    DVM_COMPLETE = 0b1110
+    DVM_MESSAGE = 0b1111
 
-    MAKE_UNIQUE = 0xC
-    """Like CleanUnique but requester will overwrite the whole line."""
 
-    WRITE_BACK = 0x3
-    """Retire a dirty line to memory; manager must merge data into DRAM."""
+class AWSnoop(IntEnum):
+    """AWSNOOP[2:0] encodings, Arm IHI 0022H.c Table D3-8.
 
-    EVICT = 0x5
-    """Retire a clean line; hint, no data and no DRAM write needed."""
+    0b000 is WriteUnique for a Shareable AWDOMAIN; the same encoding is
+    WriteNoSnoop when AWDOMAIN is Non-shareable or System, and Barrier when
+    AWBAR[0] is 1. All other encodings are Reserved.
+    """
 
-    # Full ACE read-side types (completeness)
-    READ_ONCE = 0x0
-    READ_CLEAN = 0x2
-    READ_NOT_SHARED_DIRTY = 0x4
+    WRITE_UNIQUE = 0b000
+    WRITE_LINE_UNIQUE = 0b001
+    WRITE_CLEAN = 0b010
+    WRITE_BACK = 0b011
+    EVICT = 0b100
+    WRITE_EVICT = 0b101
 
-    # Full ACE write-side types (completeness)
-    WRITE_UNIQUE = 0x0
-    WRITE_LINE_UNIQUE = 0x1
-    WRITE_CLEAN = 0x2
+
+class _ACETransactionTypeMeta(type):
+    """Make the compatibility namespace iterable like the enum it replaced."""
+
+    def __iter__(cls):
+        return iter(cls._MEMBERS)
+
+    def __len__(cls):
+        return len(cls._MEMBERS)
+
+    def __contains__(cls, item):
+        return item in cls._MEMBERS
+
+
+class ACETransactionType(metaclass=_ACETransactionTypeMeta):
+    """Deprecated compatibility namespace; use ``ARSnoop`` / ``AWSnoop``.
+
+    This used to be one IntEnum holding both the ARSNOOP and AWSNOOP
+    encodings. Because the two encoding spaces overlap, the write-side names
+    silently aliased read-side members (``WRITE_BACK`` and
+    ``READ_NOT_SHARED_DIRTY`` cannot both be 0b0011 in one IntEnum), and two
+    values were wrong (ReadNotSharedDirty was 0x4, Evict was 0x5).
+
+    Every old attribute name still resolves, now to the correct member of
+    ``ARSnoop`` or ``AWSnoop``, so ``ACETransactionType.WRITE_BACK`` is
+    ``AWSnoop.WRITE_BACK`` (0b011) and ``ACETransactionType.READ_NOT_SHARED_DIRTY``
+    is ``ARSnoop.READ_NOT_SHARED_DIRTY`` (0b0011). Iterating yields the read
+    members, then the write members. Constructing from a bare value is refused,
+    because a value alone does not say which channel it belongs to.
+    """
+
+    READ_SHARED = ARSnoop.READ_SHARED
+    READ_UNIQUE = ARSnoop.READ_UNIQUE
+    CLEAN_UNIQUE = ARSnoop.CLEAN_UNIQUE
+    MAKE_UNIQUE = ARSnoop.MAKE_UNIQUE
+    READ_ONCE = ARSnoop.READ_ONCE
+    READ_CLEAN = ARSnoop.READ_CLEAN
+    READ_NOT_SHARED_DIRTY = ARSnoop.READ_NOT_SHARED_DIRTY
+
+    WRITE_BACK = AWSnoop.WRITE_BACK
+    EVICT = AWSnoop.EVICT
+    WRITE_UNIQUE = AWSnoop.WRITE_UNIQUE
+    WRITE_LINE_UNIQUE = AWSnoop.WRITE_LINE_UNIQUE
+    WRITE_CLEAN = AWSnoop.WRITE_CLEAN
+
+    _MEMBERS = (
+        ARSnoop.READ_ONCE, ARSnoop.READ_SHARED, ARSnoop.READ_CLEAN,
+        ARSnoop.READ_NOT_SHARED_DIRTY, ARSnoop.READ_UNIQUE,
+        ARSnoop.CLEAN_UNIQUE, ARSnoop.MAKE_UNIQUE,
+        AWSnoop.WRITE_UNIQUE, AWSnoop.WRITE_LINE_UNIQUE, AWSnoop.WRITE_CLEAN,
+        AWSnoop.WRITE_BACK, AWSnoop.EVICT,
+    )
+
+    def __new__(cls, value):
+        raise TypeError(
+            f"ACETransactionType({value!r}) is ambiguous: ARSNOOP and AWSNOOP "
+            "encodings overlap. Use ARSnoop(value) or AWSnoop(value)."
+        )
 
 
 class SnoopType(IntEnum):

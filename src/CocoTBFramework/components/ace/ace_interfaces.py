@@ -54,7 +54,8 @@ from .ace_field_configs import (
 from .ace_packet import SnoopPacket
 from .ace_transaction import (
     CRRESP,
-    ACETransactionType,
+    ARSnoop,
+    AWSnoop,
     CacheState,
     SnoopType,
 )
@@ -166,7 +167,7 @@ class AXI4ACEMasterRead(AXI4MasterRead):
         Returns:
             List of read data values
         """
-        snoop_type = transaction_kwargs.pop("snoop_type", ACETransactionType.READ_SHARED)
+        snoop_type = transaction_kwargs.pop("snoop_type", ARSnoop.READ_SHARED)
 
         ar_packet = self.ar_channel.create_packet(
             addr=address,
@@ -404,7 +405,7 @@ class AXI4ACEMasterWrite(AXI4MasterWrite):
         Returns:
             Response dictionary
         """
-        snoop_type = transaction_kwargs.pop("snoop_type", ACETransactionType.WRITE_UNIQUE)
+        snoop_type = transaction_kwargs.pop("snoop_type", AWSnoop.WRITE_UNIQUE)
         aw_packet = None
 
         try:

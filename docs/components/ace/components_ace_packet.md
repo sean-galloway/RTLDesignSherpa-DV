@@ -15,7 +15,7 @@ The `ACEPacket` class provides:
 
 The enumerations define:
 
-- `ACETransactionType` -- values carried on ARSNOOP/AWSNOOP
+- `ARSnoop` / `AWSnoop` -- values carried on ARSNOOP / AWSNOOP (`ACETransactionType` is the deprecated combined form)
 - `SnoopType` -- values carried on ACSNOOP
 - `CacheState` -- Gem5-style stable cache-line states
 - `CRRESP` / `CRRESPBit` -- the snoop-response bitfield
@@ -49,7 +49,7 @@ Create a Write Address (AW) channel packet with `AWSNOOP` appended after the use
 ```python
 packet = ACEPacket.create_aw_packet(
     id=1, addr=0x1000, len=0, size=2, burst=1,
-    snoop=int(ACETransactionType.WRITE_UNIQUE),
+    snoop=int(AWSnoop.WRITE_UNIQUE),
 )
 ```
 
@@ -74,7 +74,7 @@ Create a Read Address (AR) channel packet with `ARSNOOP` appended after the user
 ```python
 packet = ACEPacket.create_ar_packet(
     id=2, addr=0x2000, len=7, size=3, burst=1,
-    snoop=int(ACETransactionType.READ_SHARED),
+    snoop=int(ARSnoop.READ_SHARED),
 )
 ```
 
@@ -141,11 +141,11 @@ Returns ACE-specific feature information. If the packet has a `snoop` field, it 
 
 ## Convenience Functions
 
-### `create_simple_read_packet(id_val, addr, snoop_type=ACETransactionType.READ_SHARED, id_width=8, addr_width=32) -> ACEPacket`
+### `create_simple_read_packet(id_val, addr, snoop_type=ARSnoop.READ_SHARED, id_width=8, addr_width=32) -> ACEPacket`
 
 Create a simple single-beat ACE read address packet.
 
-### `create_simple_write_packet(id_val, addr, data, snoop_type=ACETransactionType.WRITE_UNIQUE, id_width=8, addr_width=32, data_width=32) -> Tuple[ACEPacket, ACEPacket]`
+### `create_simple_write_packet(id_val, addr, data, snoop_type=AWSnoop.WRITE_UNIQUE, id_width=8, addr_width=32, data_width=32) -> Tuple[ACEPacket, ACEPacket]`
 
 Create simple single-beat ACE write address and data packets.
 
@@ -186,26 +186,43 @@ A convenience container for a complete snoop transaction result.
 
 ## Enumerations
 
-### ACETransactionType
+### ARSnoop and AWSnoop
 
-ACE coherent transaction types carried on ARSNOOP / AWSNOOP.
+The read and write snoop encodings overlap numerically (`0b0011` is ReadNotSharedDirty on AR and WriteBack on AW), so they are two enums. Pass an `ARSnoop` member as `snoop_type` on reads and an `AWSnoop` member on writes.
 
-| Member | Value | Meaning |
-|--------|-------|---------|
-| `READ_SHARED` | `0x1` | Fetch a line to read; other caches may keep Shared copies |
-| `READ_UNIQUE` | `0x7` | Fetch a line to write; all other copies must be invalidated |
-| `CLEAN_UNIQUE` | `0xB` | Requester already holds the line; make this copy Unique (no data) |
-| `MAKE_UNIQUE` | `0xC` | Like CleanUnique but requester will overwrite the whole line |
-| `WRITE_BACK` | `0x3` | Retire a dirty line to memory; manager must merge data into DRAM |
-| `EVICT` | `0x5` | Retire a clean line; hint, no data and no DRAM write needed |
-| `READ_ONCE` | `0x0` | Full-ACE read-side completeness |
-| `READ_CLEAN` | `0x2` | Full-ACE read-side completeness |
-| `READ_NOT_SHARED_DIRTY` | `0x4` | Full-ACE read-side completeness |
-| `WRITE_UNIQUE` | `0x0` | Full-ACE write-side completeness (shares value with READ_ONCE) |
-| `WRITE_LINE_UNIQUE` | `0x1` | Full-ACE write-side completeness |
-| `WRITE_CLEAN` | `0x2` | Full-ACE write-side completeness |
+`ARSnoop` -- `ARSNOOP[3:0]`, Arm IHI 0022H.c Table D3-7:
 
-The six values listed first are the onyx D2 research subset. The remaining values are carried for full-ACE completeness.
+| Member | Value | Transaction |
+|--------|-------|-------------|
+| `READ_ONCE` | `0b0000` | ReadOnce (ReadNoSnoop when ARDOMAIN is Non-shareable/System; Barrier when ARBAR[0]=1) |
+| `READ_SHARED` | `0b0001` | ReadShared |
+| `READ_CLEAN` | `0b0010` | ReadClean |
+| `READ_NOT_SHARED_DIRTY` | `0b0011` | ReadNotSharedDirty |
+| `READ_UNIQUE` | `0b0111` | ReadUnique |
+| `CLEAN_SHARED` | `0b1000` | CleanShared |
+| `CLEAN_INVALID` | `0b1001` | CleanInvalid |
+| `CLEAN_UNIQUE` | `0b1011` | CleanUnique |
+| `MAKE_UNIQUE` | `0b1100` | MakeUnique |
+| `MAKE_INVALID` | `0b1101` | MakeInvalid |
+| `DVM_COMPLETE` | `0b1110` | DVM Complete |
+| `DVM_MESSAGE` | `0b1111` | DVM Message |
+
+`AWSnoop` -- `AWSNOOP[2:0]`, Arm IHI 0022H.c Table D3-8:
+
+| Member | Value | Transaction |
+|--------|-------|-------------|
+| `WRITE_UNIQUE` | `0b000` | WriteUnique (WriteNoSnoop when AWDOMAIN is Non-shareable/System; Barrier when AWBAR[0]=1) |
+| `WRITE_LINE_UNIQUE` | `0b001` | WriteLineUnique |
+| `WRITE_CLEAN` | `0b010` | WriteClean |
+| `WRITE_BACK` | `0b011` | WriteBack |
+| `EVICT` | `0b100` | Evict |
+| `WRITE_EVICT` | `0b101` | WriteEvict |
+
+All other encodings are Reserved.
+
+### ACETransactionType (deprecated)
+
+The old combined type. It was one IntEnum holding both encodings, so the write-side names aliased read-side members, and two values were wrong (ReadNotSharedDirty was `0x4`, Evict was `0x5`). It is now a compatibility namespace: every old name resolves to the correct `ARSnoop` or `AWSnoop` member (`ACETransactionType.WRITE_BACK is AWSnoop.WRITE_BACK`), iteration yields the twelve old names, and `ACETransactionType(value)` raises `TypeError` because a bare value does not say which channel it is for. New code should use `ARSnoop` / `AWSnoop`.
 
 ### SnoopType
 
@@ -318,14 +335,14 @@ CRRESP_WAS_UNIQUE = 1 << CRRESPBit.WAS_UNIQUE
 ```python
 from CocoTBFramework.components.ace.ace_packet import ACEPacket
 from CocoTBFramework.components.ace.ace_transaction import (
-    ACETransactionType, SnoopType, CRRESP,
+    ARSnoop, AWSnoop, SnoopType, CRRESP,
 )
 
 # Front-side coherent read
 ar = ACEPacket.create_ar_packet(
     id_width=4, addr_width=32,
     id=1, addr=0x1000, len=3, size=2, burst=1,
-    snoop=int(ACETransactionType.READ_SHARED),
+    snoop=int(ARSnoop.READ_SHARED),
 )
 print(f"Channel: {ar.get_channel_type()}")  # 'AR'
 

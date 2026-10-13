@@ -63,6 +63,8 @@ CocoTBFramework/
 
 Each protocol package provides a complete set of verification components: **masters** (drivers), **slaves** (responders), **monitors** (passive observers), and **packets** (transaction representations).
 
+> **Note (2026-10-12):** RTL Design Sherpa's monitor system is branded **Ocelus**. The monitor BFM classes in this framework (`APBMonitor`, `GAXIMonitor`, `AXISMonitor`, ...) are the verification companions of that fabric — class names and the MonBus fabric name are unchanged by the brand.
+
 ### AMBA Protocols
 
 #### AXI4 (Advanced eXtensible Interface)

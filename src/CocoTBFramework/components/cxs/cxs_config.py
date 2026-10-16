@@ -106,6 +106,10 @@ class CXSConfig:
     tgtid_width: int = 0
     user_width: int = 0
     max_credit: int = 15
+    # The one sanctioned departure from the spec: a credit pool beyond
+    # CXS_MAX_CREDIT's cap (a receiver whose buffer is a whole SRAM). Skips
+    # rule 12 only; mirrors the RTL CXS_CREDIT_BEYOND_SPEC parameter.
+    credit_beyond_spec: bool = False
     link_control: bool = True
     check: bool = False
     continuous: bool = False
@@ -143,7 +147,7 @@ class CXSConfig:
             return 10
         if self.max_credit < 1:
             return 11
-        if self.max_credit > (63 if i >= CXSIssue.C else 15):
+        if not self.credit_beyond_spec and self.max_credit > (63 if i >= CXSIssue.C else 15):
             return 12
         if not (0 <= self.srcid_width <= 8 and 0 <= self.tgtid_width <= 8
                 and 0 <= self.user_width <= 128):
@@ -278,6 +282,7 @@ class CXSConfig:
             'CXS_TGTID_WIDTH': self.tgtid_width,
             'CXS_USER_WIDTH': self.user_width,
             'CXS_MAX_CREDIT': self.max_credit,
+            'CXS_CREDIT_BEYOND_SPEC': int(self.credit_beyond_spec),
             'CXS_LINK_CTRL': int(self.link_control),
             'CXS_CHECK': int(self.check),
         }

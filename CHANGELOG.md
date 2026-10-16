@@ -17,6 +17,16 @@
 
 ### Fixed
 
+- **CXS framing is per stream.** `CXSDepacketizer` (and so `CXSMonitor` and
+  `CXSReceiver`) tracked one open packet per link and flagged legal traffic:
+  IHI 0079D 2.5.2 lets flits of different streams (CXSPRCLTYPE / CXSSRCID /
+  CXSTGTID) interleave, so each stream now keeps its own open packet; the
+  CXSCONTINUOUSDATA insertion rule still applies. `CXSTransmitter`'s
+  "never deactivate mid-packet" model is per stream too.
+  `CXSConfig.credit_beyond_spec` lifts the 63-credit cap (rule 12 only), for
+  a receiver whose buffer is a whole SRAM; it maps to the RTL
+  `CXS_CREDIT_BEYOND_SPEC`. 5 new unit tests.
+
 - **Packet field cache served stale masks (#92).** `_FieldCache` keyed every
   entry by `(id(field_config), field_name)` and never validated a hit, so a
   FieldConfig allocated at a freed one's address inherited its masks

@@ -122,3 +122,14 @@ def test_rtl_parameters_round_trip():
     p = cfg.rtl_parameters()
     assert p['CXS_ISSUE'] == 2 and p['CXS_HAS_LAST'] == 1 and p['CXS_CHECK'] == 1
     assert p['CXS_HAS_PRCLTYPE'] == 0 and p['CXS_LINK_CTRL'] == 1
+
+
+def test_credit_beyond_spec_skips_rule_12_only():
+    wide = CXSConfig(issue='D', data_width=512, max_pkt_per_flit=2, max_credit=512)
+    assert wide.config_error() == 12
+    ok = wide.with_(credit_beyond_spec=True)
+    assert ok.config_error() == 0
+    assert ok.rtl_parameters()['CXS_CREDIT_BEYOND_SPEC'] == 1
+    # every other rule still applies
+    assert ok.with_(max_credit=0).config_error() == 11
+    assert ok.with_(data_width=128).config_error() == 6

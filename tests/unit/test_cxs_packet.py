@@ -158,3 +158,60 @@ def test_flit_formatting_compact():
 def test_stream_field_without_a_wire_is_refused():
     with pytest.raises(ValueError, match='prcltype'):
         CXSPacketizer(CFG256).add(CXSPacket(bytes(16), prcltype=1))
+
+
+# ---------------------------------------------------------------------------
+# Per-stream framing (IHI 0079D 2.5.2): flits of different streams interleave
+# ---------------------------------------------------------------------------
+CFG_D = CXSConfig(issue='D', data_width=256, max_pkt_per_flit=2, srcid_width=8)
+
+
+def _stream_flits(srcid, nflits):
+    """One packet of nflits whole flits on stream srcid (START on the first,
+    END at the last word on the last)."""
+    out = []
+    for i in range(nflits):
+        c = CXSCntl(starts=(0,) if i == 0 else (), ends=(7,) if i == nflits - 1 else ())
+        out.append(CXSFlit(CFG_D, data=(srcid << 8) | i, cntl=c.encode(CFG_D), srcid=srcid))
+    return out
+
+
+def test_interleaved_streams_reassemble_without_violations():
+    a, b, c = _stream_flits(1, 4), _stream_flits(2, 3), _stream_flits(3, 2)
+    order = [a[0], b[0], a[1], c[0], b[1], a[2], c[1], b[2], a[3]]
+    d = CXSDepacketizer(CFG_D)
+    for f in order:
+        d.push(f)
+    assert d.violations == []
+    assert sorted(p.srcid for p in d.packets) == [1, 2, 3]
+    assert [len(p.payload) for p in sorted(d.packets, key=lambda p: p.srcid)] == [128, 96, 64]
+    assert not d.in_packet
+
+
+def test_open_packets_are_per_stream():
+    a, b = _stream_flits(1, 3), _stream_flits(2, 3)
+    d = CXSDepacketizer(CFG_D)
+    for f in (a[0], b[0], a[1]):
+        d.push(f)
+    assert d.in_packet and d.open_streams() == [(0, 1, 0), (0, 2, 0)]
+    for f in (a[2], b[1], b[2]):
+        d.push(f)
+    assert d.violations == [] and not d.in_packet
+
+
+def test_same_stream_framing_errors_still_caught():
+    a = _stream_flits(1, 3)
+    d = CXSDepacketizer(CFG_D)
+    for f in (a[0], a[0]):          # a second START on a stream that is already open
+        d.push(f)
+    assert d.violations, "a START inside an open packet of the same stream must be flagged"
+
+
+def test_continuous_data_forbids_insertion_mid_packet():
+    cfg = CFG_D.with_(continuous=True)
+    a = [CXSFlit(cfg, data=f.get('data'), cntl=f.get('cntl'), srcid=1) for f in _stream_flits(1, 3)]
+    b = [CXSFlit(cfg, data=f.get('data'), cntl=f.get('cntl'), srcid=2) for f in _stream_flits(2, 1)]
+    d = CXSDepacketizer(cfg)
+    for f in (a[0], b[0], a[1], a[2]):
+        d.push(f)
+    assert any('CXSCONTINUOUSDATA' in v for v in d.violations)

@@ -35,7 +35,7 @@ four bytes are CXSDATA[31:0]).
 """
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Dict, Callable, List, Optional
 
 from ..shared.field_config import FieldConfig, FieldDefinition
 from ..shared.packet import Packet
@@ -306,7 +306,14 @@ class CXSDepacketizer:
     """Rebuild :class:`CXSPacket` objects from received flits, checking the
     placement rules on the way. Feed flits with :meth:`push`; finished
     packets collect in :attr:`packets` and go to ``callback`` if given.
-    ``violations`` lists every broken rule with the flit ordinal."""
+    ``violations`` lists every broken rule with the flit ordinal.
+
+    Packets are framed PER STREAM: a stream is the flits sharing
+    (CXSPRCLTYPE, CXSSRCID, CXSTGTID), and flits of different streams may
+    interleave (IHI 0079D 2.5.2), so each stream keeps its own open packet.
+    With CXSCONTINUOUSDATA a flit of another stream may not be inserted
+    while a packet is open and CXSLAST is low (absent CXSLAST counts as low
+    while a packet is open, 2.3)."""
 
     def __init__(self, cfg: CXSConfig, callback: Optional[Callable[[CXSPacket], None]] = None):
         self.cfg = cfg
@@ -314,9 +321,9 @@ class CXSDepacketizer:
         self.packets: List[CXSPacket] = []
         self.violations: List[str] = []
         self.flits = 0
-        self._open: Optional[bytearray] = None
-        self._open_stream = None
+        self._open: Dict[tuple, bytearray] = {}     # stream -> bytes of its open packet
         self._prev_last = 1
+        self._prev_stream = None
 
     def _violation(self, msg):
         self.violations.append(f"flit {self.flits}: {msg}")
@@ -337,36 +344,40 @@ class CXSDepacketizer:
         if cfg.is_lite:
             self._finish(data, stream, False)
             return
-        if cfg.continuous and cfg.has_last and not self._prev_last \
-                and self._open_stream is not None and stream != self._open_stream:
-            self._violation("stream changed while CXSLAST was low with CXSCONTINUOUSDATA")
+        if cfg.continuous and self._prev_stream is not None and stream != self._prev_stream:
+            last_low = (not self._prev_last) if cfg.has_last else bool(self._open)
+            if last_low and self._open:
+                self._violation("stream changed while CXSLAST was low with CXSCONTINUOUSDATA")
         c = flit.control
-        for v in c.violations(cfg, open_before=self._open is not None):
+        cur = self._open.get(stream)
+        for v in c.violations(cfg, open_before=cur is not None):
             self._violation(v)
-        if self._open is not None and stream != self._open_stream:
-            self._violation(f"flit stream {stream} differs from the open packet's {self._open_stream}")
         ends = list(zip(c.end_bytes(), c.end_errors))
-        if self._open is not None:
+        if cur is not None:
             if ends:
                 e, err = ends.pop(0)
-                self._open += data[:e + 1]
-                self._finish(self._open, self._open_stream, err)
-                self._open = None
+                cur += data[:e + 1]
+                self._finish(cur, stream, err)
+                del self._open[stream]
             elif not c.starts:
-                self._open += data
-        for s in c.start_bytes(cfg):
+                cur += data
+        for st in c.start_bytes(cfg):
             if ends:
                 e, err = ends.pop(0)
-                self._finish(data[s:e + 1], stream, err)
+                self._finish(data[st:e + 1], stream, err)
             else:
-                self._open = bytearray(data[s:])
-                self._open_stream = stream
+                self._open[stream] = bytearray(data[st:])
         if cfg.has_last:
             last = flit.get('last')
-            if last and self._open is not None:
+            if last and stream in self._open:
                 self._violation("CXSLAST high with a packet still open (2.3)")
             self._prev_last = last
+        self._prev_stream = stream
 
     @property
     def in_packet(self):
-        return self._open is not None
+        """Some stream has a packet open."""
+        return bool(self._open)
+
+    def open_streams(self):
+        return sorted(self._open)

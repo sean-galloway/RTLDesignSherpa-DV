@@ -228,6 +228,7 @@ class CXSTransmitter(_CXSBase):
         self._idle = 0
         self._gap = 0
         self._in_packet = False
+        self._open_streams = set()
         self._chk_inject: Dict[str, int] = {}
         self.count = 0
         self.stats = {'flits': 0, 'credits_received': 0, 'credits_returned': 0,
@@ -340,6 +341,7 @@ class CXSTransmitter(_CXSBase):
             await RisingEdge(self.clock)
             if self.in_reset():
                 self.credits, self.req, self._ack, self._in_packet = 0, 0, 0, False
+                self._open_streams = set()
                 self._driven = {}
                 self._drive_idle()
                 await FallingEdge(self.clock)
@@ -396,9 +398,15 @@ class CXSTransmitter(_CXSBase):
     def _track_packet(self, flit):
         if self.cfg.is_lite:
             return
+        # per stream (2.5.2): a packet of another stream does not close this one
         c = flit.control
-        opens = int(self._in_packet) + len(c.starts) - len(c.ends)
-        self._in_packet = opens > 0
+        stream = (flit.get('prcltype'), flit.get('srcid'), flit.get('tgtid'))
+        opens = int(stream in self._open_streams) + len(c.starts) - len(c.ends)
+        if opens > 0:
+            self._open_streams.add(stream)
+        else:
+            self._open_streams.discard(stream)
+        self._in_packet = bool(self._open_streams)
 
 
 # ===========================================================================

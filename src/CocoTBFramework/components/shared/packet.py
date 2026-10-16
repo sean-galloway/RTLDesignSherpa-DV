@@ -23,6 +23,7 @@ and comparisons with enhanced performance through thread-safe caching.
 UPDATED: Made field cache thread-safe for parallel test execution.
 """
 import threading
+import weakref
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .field_config import FieldConfig
@@ -30,23 +31,33 @@ from .field_config import FieldConfig
 
 # Thread-safe cache for field operations
 class _FieldCache:
-    """Thread-safe cache for field operations to improve performance in parallel testing"""
+    """Thread-safe cache for field operations to improve performance in parallel testing
+
+    Every entry remembers WHAT it was computed from, and a hit is served only
+    when that still holds:
+
+    * the same FieldConfig object -- a weak reference, not ``id()``. A freed
+      FieldConfig's id is reused by the next allocation; keyed on the bare id,
+      the new config inherited the dead one's masks (512-bit data was masked
+      to 256 bits after a 256-bit config was freed -- RDS-DV #92).
+    * the same FieldDefinition object, with the same attributes the value
+      depends on (``bits``, ``active_bits``, ``format``/``display_width``,
+      ``encoding``). ``update_field_width``, ``remove_field`` + ``add_field``,
+      or a direct edit of a FieldDefinition otherwise left the old value cached.
+
+    A stale entry is simply recomputed (a miss). Keys are still
+    ``(id(field_config), field_name)``; the validation is what makes them safe.
+    """
+
+    _MISSING = object()
 
     def __init__(self):
         """Initialize empty caches with thread safety"""
-        # Field masks cache: (field_config_id, field_name) -> mask
+        # Each cache: (id(field_config), field_name) -> (config_ref, field_def, source, value)
         self.field_masks = {}
-
-        # Field bits cache: (field_config_id, field_name) -> bits
         self.field_bits = {}
-
-        # Field active bits cache: (field_config_id, field_name) -> (msb, lsb)
         self.field_active_bits = {}
-
-        # Field format cache: (field_config_id, field_name) -> format_function
         self.field_formatters = {}
-
-        # Field encoding cache: (field_config_id, field_name) -> encoding_dict
         self.field_encodings = {}
 
         # Statistics
@@ -56,131 +67,92 @@ class _FieldCache:
         # Thread safety
         self._lock = threading.RLock()
 
-    def get_mask(self, field_config: FieldConfig, field_name: str) -> int:
-        """Get mask for a field (thread-safe cached)"""
-        # Create a cache key using the field_config's id and field name
+    @staticmethod
+    def _ref(field_config):
+        try:
+            return weakref.ref(field_config)
+        except TypeError:                       # not weak-referenceable: never trust a hit
+            return None
+
+    def _lookup(self, table, field_config, field_name, source_of, compute):
+        """Serve ``table`` for (field_config, field_name), validating the entry.
+
+        ``source_of(field_def)`` returns the attributes the value depends on;
+        ``compute(field_def)`` builds the value (``field_def`` is None when the
+        field does not exist).
+        """
         cache_key = (id(field_config), field_name)
+        field_def = (field_config.get_field(field_name)
+                     if field_config.has_field(field_name) else None)
+        source = source_of(field_def) if field_def is not None else None
 
         with self._lock:
-            if cache_key in self.field_masks:
-                self.hits += 1
-                return self.field_masks[cache_key]
+            entry = table.get(cache_key)
+            if entry is not None:
+                ref, cached_def, cached_source, value = entry
+                if (ref is not None and ref() is field_config
+                        and cached_def is field_def and cached_source == source):
+                    self.hits += 1
+                    return value
 
-            # Cache miss, calculate mask
+            # Miss, or a stale entry (freed config, replaced or edited field)
             self.misses += 1
-            if not field_config.has_field(field_name):
-                # Default to all bits if field not found
-                mask = 0xFFFFFFFF
-            else:
-                field_def = field_config.get_field(field_name)
-                bits = field_def.bits
-                mask = (1 << bits) - 1
+            value = compute(field_def)
+            table[cache_key] = (self._ref(field_config), field_def, source, value)
+            return value
 
-            # Store in cache
-            self.field_masks[cache_key] = mask
-            return mask
+    def get_mask(self, field_config: FieldConfig, field_name: str) -> int:
+        """Get mask for a field (thread-safe cached); all bits if the field is absent"""
+        return self._lookup(self.field_masks, field_config, field_name,
+                            lambda fd: fd.bits,
+                            lambda fd: 0xFFFFFFFF if fd is None else (1 << fd.bits) - 1)
 
     def get_bits(self, field_config: FieldConfig, field_name: str) -> int:
-        """Get bits for a field (thread-safe cached)"""
-        cache_key = (id(field_config), field_name)
-
-        with self._lock:
-            if cache_key in self.field_bits:
-                self.hits += 1
-                return self.field_bits[cache_key]
-
-            # Cache miss, calculate bits
-            self.misses += 1
-            if not field_config.has_field(field_name):
-                # Default to 32 bits if field not found
-                bits = 32
-            else:
-                field_def = field_config.get_field(field_name)
-                bits = field_def.bits
-
-            # Store in cache
-            self.field_bits[cache_key] = bits
-            return bits
+        """Get bits for a field (thread-safe cached); 32 if the field is absent"""
+        return self._lookup(self.field_bits, field_config, field_name,
+                            lambda fd: fd.bits,
+                            lambda fd: 32 if fd is None else fd.bits)
 
     def get_active_bits(self, field_config: FieldConfig, field_name: str) -> Tuple[int, int]:
         """Get active bits (msb, lsb) for a field (thread-safe cached)"""
-        cache_key = (id(field_config), field_name)
-
-        with self._lock:
-            if cache_key in self.field_active_bits:
-                self.hits += 1
-                return self.field_active_bits[cache_key]
-
-            # Cache miss, calculate active bits
-            self.misses += 1
-            if not field_config.has_field(field_name):
-                # Default to full width if field not found
-                bits = 32
-                active_bits = (bits - 1, 0)
-            else:
-                field_def = field_config.get_field(field_name)
-                active_bits = field_def.active_bits
-
-            # Store in cache
-            self.field_active_bits[cache_key] = active_bits
-            return active_bits
+        return self._lookup(self.field_active_bits, field_config, field_name,
+                            lambda fd: (fd.bits, tuple(fd.active_bits)),
+                            lambda fd: (31, 0) if fd is None else fd.active_bits)
 
     def get_formatter(self, field_config: FieldConfig, field_name: str):
         """Get a formatting function for a field (thread-safe cached)"""
-        cache_key = (id(field_config), field_name)
+        return self._lookup(self.field_formatters, field_config, field_name,
+                            lambda fd: (fd.format, fd.display_width),
+                            self._make_formatter)
 
-        with self._lock:
-            if cache_key in self.field_formatters:
-                self.hits += 1
-                return self.field_formatters[cache_key]
-
-            # Cache miss, create formatter
-            self.misses += 1
-            if not field_config.has_field(field_name):
-                # Default to hex format if field not found
-                def formatter(value):
-                    return f"0x{value:X}"
-            else:
-                field_def = field_config.get_field(field_name)
-                fmt = field_def.format
-                width = field_def.display_width
-
-                if fmt == 'bin':
-                    def formatter(value):
-                        return f"0b{value:0{width}b}"
-                elif fmt == 'dec':
-                    def formatter(value):
-                        return f"{value:{width}d}"
-                else:
-                    # Default to hex
-                    def formatter(value):
-                        return f"0x{value:0{width}X}"
-
-            # Store in cache
-            self.field_formatters[cache_key] = formatter
+    @staticmethod
+    def _make_formatter(field_def):
+        if field_def is None:
+            # Default to hex format if field not found
+            def formatter(value):
+                return f"0x{value:X}"
             return formatter
+        fmt = field_def.format
+        width = field_def.display_width
+        if fmt == 'bin':
+            def formatter(value):
+                return f"0b{value:0{width}b}"
+        elif fmt == 'dec':
+            def formatter(value):
+                return f"{value:{width}d}"
+        else:
+            # Default to hex
+            def formatter(value):
+                return f"0x{value:0{width}X}"
+        return formatter
 
     def get_encoding(self, field_config: FieldConfig, field_name: str) -> Optional[Dict[int, str]]:
         """Get encoding dictionary for a field (thread-safe cached)"""
-        cache_key = (id(field_config), field_name)
-
-        with self._lock:
-            if cache_key in self.field_encodings:
-                self.hits += 1
-                return self.field_encodings[cache_key]
-
-            # Cache miss, get encoding
-            self.misses += 1
-            if not field_config.has_field(field_name):
-                # No encoding if field not found
-                encoding = None
-            else:
-                field_def = field_config.get_field(field_name)
-                encoding = field_def.encoding if hasattr(field_def, 'encoding') else None
-
-            # Store in cache
-            self.field_encodings[cache_key] = encoding
-            return encoding
+        def encoding_of(fd):
+            return getattr(fd, 'encoding', None) if fd is not None else None
+        # Validated on the encoding OBJECT, so set_encoding (a new dict) invalidates
+        return self._lookup(self.field_encodings, field_config, field_name,
+                            lambda fd: id(encoding_of(fd)), encoding_of)
 
     def clear(self):
         """Clear all caches (thread-safe)"""

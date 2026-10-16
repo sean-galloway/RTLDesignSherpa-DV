@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **CXS BFM family (`components/cxs`)** -- Credited eXtensible Stream per
+  Arm IHI 0079, every published issue (A, B, C, D) and CXS-Lite in one code
+  base: `CXSConfig`/`CXSIssue` (per-issue property legality, CXSCNTL layout,
+  check widths, RTL parameter map), `CXSCntl` codec with the Table 4-4 / 4.1
+  checks, `CXSPacket`/`CXSFlit`, `CXSPacketizer`/`CXSDepacketizer`,
+  `CXSTransmitter`, `CXSReceiver`, `CXSMonitor` (credit model, link
+  handshake, placement, Odd_Byte_Parity), factories. Not GAXI-based: CXS
+  has no READY. Unit tests `test_cxs_config.py` (all 22 rows of Tables
+  4-5/4-7) and `test_cxs_packet.py` (Table 4-3 reproduced). Docs under
+  `docs/components/cxs/`.
+
+### Fixed
+
+- **Packet field cache served stale masks (#92).** `_FieldCache` keyed every
+  entry by `(id(field_config), field_name)` and never validated a hit, so a
+  FieldConfig allocated at a freed one's address inherited its masks
+  (512-bit data silently masked to 256 bits), and `update_field_width`,
+  `remove_field`+`add_field`, a new encoding or a direct FieldDefinition edit
+  left the old value cached. Entries now record a weak reference to the
+  config, the FieldDefinition object and the attributes the value depends on;
+  a hit is served only when all still match. API unchanged. Tests:
+  `tests/unit/test_packet_field_cache_staleness.py` (the four bug tests fail
+  against the old code; the id-reuse one 20/20).
+
 ## [1.2.1] - 2026-10-06
 
 ### Fixed

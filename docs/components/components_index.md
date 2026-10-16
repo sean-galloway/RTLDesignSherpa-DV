@@ -42,6 +42,7 @@ Everything that talks to your DUT lives here: a master, slave, and monitor for e
 - [**AXIL4 Components**](axil4/index.md) - AXI4-Lite, trimmed down for register-style memory-mapped interfaces
 - [**AXIS4 Components**](axis4/index.md) - AXI4-Stream for packet-based streaming data
 - [**AXIS5 Components**](axis5/components_axis5_overview.md) - AXI-Stream v5 components
+- [**CXS Components**](cxs/components_cxs_overview.md) - Credited eXtensible Stream, Issues A-D and CXS-Lite: transmitter, receiver, monitor, packetizer
 - [**DFI Components**](dfi/components_dfi_overview.md) - DDR PHY Interface (v2.1-v5.x) memory-controller and PHY BFMs with JEDEC timing enforcement
 - [**FIFO Components**](fifo/components_fifo_index.md) - Buffer and queue verification with flow control
 - [**GAXI Components**](gaxi/components_gaxi_index.md) - The generic valid/ready layer the AXI and FIFO BFMs are built on — and a good lightweight choice on its own for checking small internal blocks

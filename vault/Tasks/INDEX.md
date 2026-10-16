@@ -42,6 +42,7 @@ actually lives, so the map is complete even where the pages are not.
 | Area | Status | Covers | Where its work lives now |
 |---|---|---|---|
 | [dfi](dfi/INDEX.md) | **migrated** | DFI BFMs: CA maps, transport, dispatch, DRAM state model, BFM parity | here (`TODO.md` D1–D11 folded in 2026-08-13) |
+| [cxs](cxs/INDEX.md) | closed | CXS BFM family, IHI 0079 Issues A-D | here |
 | [axi3](axi3/INDEX.md) | closed | Standalone AXI3 BFM family (issue #87) | here |
 | gaxi | pending | generic ready/valid infrastructure — the workhorse every AXI\* family builds on, so it carries the highest bar | GitHub issues |
 | axi4 / axi5 | pending | AXI4 full + AXI5, compliance, sequences | GitHub issues |

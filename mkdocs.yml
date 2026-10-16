@@ -112,6 +112,10 @@ nav:
       - Overview: components/axi3/components_axi3_overview.md
       - Interfaces: components/axi3/components_axi3_interfaces.md
 
+    - CXS:
+      - Overview: components/cxs/components_cxs_overview.md
+      - Config, CNTL and Packing: components/cxs/components_cxs_packet.md
+
     - Wishbone B4:
       - Index: components/wb4/components_wb4_index.md
       - Overview: components/wb4/components_wb4_overview.md

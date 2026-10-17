@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-10-17
+
 ### Added
 
 - **CXS BFM family (`components/cxs`)** -- Credited eXtensible Stream per
@@ -30,7 +32,7 @@
   send, W stream) leaves the line, so it cannot block later calls on its ID. API
   unchanged. Tests: `tests/unit/test_id_order.py` (the swap test fails
   against the old AXI4 and AXI5 code). Found by RTLDesignSherpa
-  `test_bridge_2x2_axi5_wakeup[full]` at SEED=80505, which fails on 1.2.1
+  `test_bridge_2x2_axi5_wakeup[full]` at SEED=80505, which fails on 1.2.2
   and passes with this fix. `axi4_sequence.py` still pops `_response_by_id`
   directly; it orders its own bursts, but do not mix it with concurrent
   `*_transaction` calls on the same ID.
@@ -55,6 +57,31 @@
   a hit is served only when all still match. API unchanged. Tests:
   `tests/unit/test_packet_field_cache_staleness.py` (the four bug tests fail
   against the old code; the id-reuse one 20/20).
+
+## [1.2.2] - 2026-10-13
+
+This section was missing when 1.2.2 shipped; reconstructed from
+`git log v1.2.1..v1.2.2` at the 1.2.3 release.
+
+### Added
+
+- **AXI3 and APB3 BFM families (#87).** AXI3 mirrors the AXI4/AXI5 layout
+  (4-bit len, 2-bit lock, no QoS/REGION, WID on W); the master sets
+  WID=AWID and does not interleave, the slave demuxes W by WID. APB3
+  subclasses the APB4 BFMs (PSLVERR kept, PPROT/PSTRB rejected and stripped).
+
+### Fixed
+
+- **AMBA spec-conformance signal sets (RTLDesignSherpa#102).** APB5 optional
+  signals are the IHI 0024E *CHK set; AXIS5 check signals (IHI 0051B)
+  replace TPARITY, and its master/slave/monitor constructors work; AXI5
+  uses AxIDUNQ/xIDUNQ in place of `unique`, drops AWTAG/BTAG/RTAGMATCH, and
+  BTAGMATCH is 2 bits.
+- **ACE snoop encodings per IHI 0022H.c; AXIS5 BFM defects (#89).**
+  ARSnoop/AWSnoop enums cover every Table D3-7/D3-8 encoding
+  (READ_NOT_SHARED_DIRTY is 0b0011, EVICT 0b100, WRITE_EVICT 0b101), so read
+  and write encodings no longer alias. `ACETransactionType` stays as a
+  deprecated namespace; a bare value raises TypeError.
 
 ## [1.2.1] - 2026-10-06
 

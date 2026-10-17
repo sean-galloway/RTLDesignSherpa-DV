@@ -35,7 +35,7 @@ four bytes are CXSDATA[31:0]).
 """
 
 from dataclasses import dataclass
-from typing import Dict, Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from ..shared.field_config import FieldConfig, FieldDefinition
 from ..shared.packet import Packet

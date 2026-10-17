@@ -24,9 +24,9 @@ This module provides AXIS5 Master functionality with:
 from cocotb.triggers import RisingEdge
 
 from ..axis4.axis_master import AXISMaster
+from .axis5_check import start_inverse_driver
 from .axis5_field_configs import AXIS5FieldConfigs, with_pinless_optional_fields
 from .axis5_packet import AXIS5Packet
-from .axis5_check import start_inverse_driver
 
 
 class AXIS5Master(AXISMaster):

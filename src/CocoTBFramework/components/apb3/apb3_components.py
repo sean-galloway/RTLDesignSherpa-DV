@@ -28,7 +28,7 @@ from typing import Any
 from cocotb.utils import get_sim_time
 
 from ..apb.apb_components import APBMaster, APBMonitor, APBSlave
-from ..shared.apb_common import BASE_APB_OPTIONAL_SIGNALS, BASE_APB_SIGNALS
+from ..shared.apb_common import BASE_APB_SIGNALS
 from .apb3_packet import APB3Packet
 
 

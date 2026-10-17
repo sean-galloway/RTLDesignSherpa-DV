@@ -35,6 +35,15 @@ Usage:
     )
 """
 
+from .axi3_factories import (
+    create_axi3_master_interface,
+    create_axi3_master_rd,
+    create_axi3_master_wr,
+    create_axi3_slave_interface,
+    create_axi3_slave_rd,
+    create_axi3_slave_wr,
+    create_complete_axi3_testbench_components,
+)
 from .axi3_field_configs import (
     AXI3FieldConfigHelper,
     create_channel_field_config,
@@ -50,15 +59,6 @@ from .axi3_packet import (
     AXI3Packet,
     create_simple_read_packet,
     create_simple_write_packets,
-)
-from .axi3_factories import (
-    create_axi3_master_interface,
-    create_axi3_master_rd,
-    create_axi3_master_wr,
-    create_axi3_slave_interface,
-    create_axi3_slave_rd,
-    create_axi3_slave_wr,
-    create_complete_axi3_testbench_components,
 )
 
 __all__ = [

@@ -47,10 +47,10 @@ from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
 
 from .ace_field_configs import (
-    AXI4ACEFieldConfigHelper,
+    BAR_NORMAL_RESPECT,
     DOMAIN_NON_SHAREABLE,
     DOMAIN_OUTER_SHAREABLE,
-    BAR_NORMAL_RESPECT,
+    AXI4ACEFieldConfigHelper,
 )
 from .ace_packet import SnoopPacket
 from .ace_transaction import (

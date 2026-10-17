@@ -36,6 +36,15 @@ Factory Functions:
 The API extends AXIS4 components while maintaining backward compatibility.
 """
 
+from .axis5_check import (
+    PAYLOAD_CHECK_FIELDS,
+    chk_width,
+    drive_inverse_every_cycle,
+    is_odd_parity,
+    odd_parity_chk,
+    payload_check_values,
+    start_inverse_driver,
+)
 from .axis5_factories import (
     create_axis5_master,
     create_axis5_master_interface,
@@ -54,9 +63,6 @@ from .axis5_master import AXIS5Master
 from .axis5_monitor import AXIS5Monitor
 from .axis5_packet import AXIS5Packet, AXIS5Transaction
 from .axis5_slave import AXIS5Slave
-from .axis5_check import (PAYLOAD_CHECK_FIELDS, chk_width, odd_parity_chk,
-                          is_odd_parity, payload_check_values,
-                          drive_inverse_every_cycle, start_inverse_driver)
 
 # Version information
 __version__ = "1.0.0"

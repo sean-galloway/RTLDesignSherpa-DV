@@ -27,8 +27,7 @@ import random
 from ..axis4.axis_packet import AXISPacket
 from ..shared.field_config import FieldConfig, FieldDefinition
 from ..shared.flex_randomizer import FlexRandomizer
-from .axis5_check import (PAYLOAD_CHECK_FIELDS, chk_width, odd_parity_chk,
-                          payload_check_values)
+from .axis5_check import PAYLOAD_CHECK_FIELDS, chk_width, odd_parity_chk, payload_check_values
 
 
 def calculate_odd_parity(data_value: int, num_bytes: int) -> int:

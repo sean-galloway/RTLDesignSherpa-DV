@@ -27,7 +27,6 @@ Based on the AMBA5 AXI-Stream specification.
 from ..shared.field_config import FieldConfig, FieldDefinition
 from .axis5_check import chk_width
 
-
 # Packet fields that carry BFM status, not a bus signal. They live in the
 # field config so the packet can hold and print them, but no pin exists for
 # them, so the multi-signal resolver must not require one.

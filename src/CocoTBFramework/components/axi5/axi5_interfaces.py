@@ -47,8 +47,8 @@ from CocoTBFramework.components.axi5.axi5_field_configs import AXI5FieldConfigHe
 # Import GAXI components and AXI5 field configs
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
-from CocoTBFramework.components.shared.memory_model import oor_read_data
 from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
+from CocoTBFramework.components.shared.memory_model import oor_read_data
 
 # AWATOP[5]: the atomic returns the location's original data on the R
 # channel (AtomicLoad 10xxxx, AtomicSwap 110000, AtomicCompare 110001), using

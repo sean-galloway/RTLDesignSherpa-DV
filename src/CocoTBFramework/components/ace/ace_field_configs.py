@@ -36,7 +36,6 @@ from typing import Dict, List
 from ..axi4.axi4_field_configs import AXI4FieldConfigHelper
 from ..shared.field_config import FieldConfig, FieldDefinition
 
-
 # RRESP is 4 bits on an ACE interface: [1:0] OKAY/EXOKAY/SLVERR/DECERR,
 # [2] PassDirty, [3] IsShared (IHI 0022H Table D3-14).
 ACE_RRESP_WIDTH = 4

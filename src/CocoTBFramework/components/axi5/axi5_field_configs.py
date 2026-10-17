@@ -77,10 +77,6 @@ class AXI5FieldConfigHelper:
         Returns:
             FieldConfig object for AW channel
         """
-        # Calculate number of tags based on data width (one tag per 128 bits)
-        num_tags = max(1, data_width // 128)
-        total_tag_width = tag_width * num_tags
-
         config = FieldConfig()
 
         # Required AXI5 AW fields in specification order
@@ -334,9 +330,6 @@ class AXI5FieldConfigHelper:
         Returns:
             FieldConfig object for B channel
         """
-        num_tags = max(1, data_width // 128)
-        total_tag_width = tag_width * num_tags
-
         config = FieldConfig()
 
         config.add_field(FieldDefinition(

@@ -22,8 +22,8 @@ signals, and overrides formatting/equality so that APB3 transactions compare
 only the fields that exist on an APB3 bus.
 """
 
-from ..shared.field_config import FieldConfig, FieldDefinition
 from ..apb.apb_packet import APBPacket
+from ..shared.field_config import FieldConfig, FieldDefinition
 
 
 class APB3Packet(APBPacket):

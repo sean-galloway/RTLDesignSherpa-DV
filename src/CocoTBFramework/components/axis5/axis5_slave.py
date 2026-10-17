@@ -26,9 +26,9 @@ from cocotb.triggers import RisingEdge
 from cocotb.utils import get_sim_time
 
 from ..axis4.axis_slave import AXISSlave
+from .axis5_check import start_inverse_driver
 from .axis5_field_configs import AXIS5FieldConfigs, with_pinless_optional_fields
 from .axis5_packet import AXIS5Packet
-from .axis5_check import start_inverse_driver
 
 
 class AXIS5Slave(AXISSlave):

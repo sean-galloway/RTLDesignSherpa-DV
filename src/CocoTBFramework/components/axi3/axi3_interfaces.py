@@ -39,8 +39,8 @@ from cocotb.triggers import Event, Lock, RisingEdge
 from CocoTBFramework.components.axi3.axi3_field_configs import AXI3FieldConfigHelper
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
-from CocoTBFramework.components.shared.memory_model import oor_read_data
 from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
+from CocoTBFramework.components.shared.memory_model import oor_read_data
 
 
 class AXI3MasterRead:

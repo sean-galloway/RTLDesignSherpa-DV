@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-10-17
+
+### Added
+
+- **`pipelined=True` on `AXI4MasterRead` / `AXI4MasterWrite`.** Each call
+  queues its address (and, for writes, its W beats) onto the channel driver
+  without waiting for the transmit pipeline to drain, so back-to-back calls
+  keep VALID high across transactions. Without it a requester drains between
+  transactions and cannot saturate a link (0.89 beats/cycle on 16-beat
+  writes), which makes it unusable for bandwidth measurement. Default
+  `False` keeps the historic drive. Note that each channel driver keeps its
+  own READY timeout (`aw_channel` / `w_channel` / `ar_channel
+  .timeout_cycles`, default 1000), separate from the call's `timeout_cycles`:
+  a DUT that legitimately holds READY low for longer needs both raised.
+
+### Fixed
+
+- **A channel READY timeout dropped the transaction under a misleading
+  message.** `GAXIMaster._xmit_phase2` raised `cocotb.result.TestFailure`,
+  which cocotb 2.x removed, so the timeout surfaced as an AttributeError and
+  the transmit pipeline logged "module 'cocotb' has no attribute 'result'".
+  It raises `TimeoutError` with the timeout message now. (The pipeline still
+  logs it and moves to the next queued transaction.)
+- **The AXI4/AXI5 compliance checkers rejected W before AW.** AXI allows a
+  W beat to precede its AW; the checkers flagged it as a violation and
+  dropped the beat, so the AW that followed was then mis-paired. Early W
+  beats are now held until their AW arrives; any still orphaned at report
+  time count as violations (`w_without_aw` in the report).
+
 ## [1.2.3] - 2026-10-17
 
 ### Added

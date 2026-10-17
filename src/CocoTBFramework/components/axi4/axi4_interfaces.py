@@ -104,6 +104,13 @@ class AXI4MasterRead:
         # Store parameters for transaction methods
         # Large timeout to handle worst-case backpressure through skid buffers
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
+        # pipelined=True: queue each address (and, for writes, the W beats)
+        # without waiting for the channel to drain, so back-to-back calls keep
+        # VALID high across transactions. Default False keeps the historic
+        # one-transaction-at-a-time drive; a bandwidth measurement needs True,
+        # because draining between transactions costs a cycle or two of
+        # pipeline spin-up per transaction (0.89 beats/cycle on 16-beat writes).
+        self.pipelined = kwargs.get('pipelined', False)
 
         # ENHANCEMENT: Integrate compliance checker automatically
         self.compliance_checker = AXI4ComplianceChecker.create_if_enabled(
@@ -180,7 +187,10 @@ class AXI4MasterRead:
         # Send read address
         _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
         try:
-            await self.ar_channel.send(ar_packet)
+            if getattr(self, 'pipelined', False):
+                await self.ar_channel._driver_send(ar_packet)
+            else:
+                await self.ar_channel.send(ar_packet)
         except BaseException:
             release(self._waiters_by_id, txn_id, _ticket)
             raise
@@ -311,6 +321,13 @@ class AXI4MasterWrite:
         # Store parameters for transaction methods
         # Large timeout to handle worst-case backpressure through skid buffers
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
+        # pipelined=True: queue each address (and, for writes, the W beats)
+        # without waiting for the channel to drain, so back-to-back calls keep
+        # VALID high across transactions. Default False keeps the historic
+        # one-transaction-at-a-time drive; a bandwidth measurement needs True,
+        # because draining between transactions costs a cycle or two of
+        # pipeline spin-up per transaction (0.89 beats/cycle on 16-beat writes).
+        self.pipelined = kwargs.get('pipelined', False)
 
         # ENHANCEMENT: Integrate compliance checker automatically
         self.compliance_checker = AXI4ComplianceChecker.create_if_enabled(
@@ -435,7 +452,10 @@ class AXI4MasterWrite:
                 prev_w_done = self._w_prev_done
                 self._w_prev_done = my_w_done
                 _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
-                await self.aw_channel.send(aw_packet)
+                if getattr(self, 'pipelined', False):
+                    await self.aw_channel._driver_send(aw_packet)
+                else:
+                    await self.aw_channel.send(aw_packet)
 
             # Stream W in AW order, contiguously. The finally is load-bearing:
             # if this transaction raises midway, its successor must still be
@@ -476,7 +496,13 @@ class AXI4MasterWrite:
                         strb=beat_strb,
                         **{k: v for k, v in transaction_kwargs.items() if k.startswith('w')}
                     ))
-                await self.w_channel.send_burst(w_packets)
+                if getattr(self, 'pipelined', False):
+                    # Queue order is wire order: once these beats are queued
+                    # the successor may queue its own behind them.
+                    for w_packet in w_packets:
+                        await self.w_channel._driver_send(w_packet)
+                else:
+                    await self.w_channel.send_burst(w_packets)
             finally:
                 my_w_done.set()
 

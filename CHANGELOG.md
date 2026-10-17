@@ -17,6 +17,24 @@
 
 ### Fixed
 
+- **Same-ID responses went to whichever call woke first (#94).** The AXI4,
+  AXI5, AXI3 and ACE requesters route B / R beats into a per-ID deque, and
+  every concurrent `read_transaction` / `write_transaction` on one ID polled
+  it; the first to wake took the beats, not the oldest request, so two
+  same-ID calls could swap responses while the DUT was correct. Each call now
+  takes a ticket where its address is queued (`send()` enqueues
+  synchronously, so ticket order is wire order) and consumes beats only at
+  the head of its ID's line, which is the AXI ordering rule. The AXI5 atomic
+  read-return pickup waits its turn the same way. Shared helper
+  `components/shared/id_order.py`; a call that times out or fails (AR / AW
+  send, W stream) leaves the line, so it cannot block later calls on its ID. API
+  unchanged. Tests: `tests/unit/test_id_order.py` (the swap test fails
+  against the old AXI4 and AXI5 code). Found by RTLDesignSherpa
+  `test_bridge_2x2_axi5_wakeup[full]` at SEED=80505, which fails on 1.2.1
+  and passes with this fix. `axi4_sequence.py` still pops `_response_by_id`
+  directly; it orders its own bursts, but do not mix it with concurrent
+  `*_transaction` calls on the same ID.
+
 - **CXS framing is per stream.** `CXSDepacketizer` (and so `CXSMonitor` and
   `CXSReceiver`) tracked one open packet per link and flagged legal traffic:
   IHI 0079D 2.5.2 lets flits of different streams (CXSPRCLTYPE / CXSSRCID /

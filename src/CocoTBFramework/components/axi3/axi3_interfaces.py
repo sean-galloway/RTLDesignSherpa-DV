@@ -40,6 +40,7 @@ from CocoTBFramework.components.axi3.axi3_field_configs import AXI3FieldConfigHe
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 from CocoTBFramework.components.shared.memory_model import oor_read_data
+from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
 
 
 class AXI3MasterRead:
@@ -94,6 +95,7 @@ class AXI3MasterRead:
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
 
         self._response_by_id = collections.defaultdict(collections.deque)
+        self._waiters_by_id = new_waiters()  # same-ID calls in issue order (RDS-DV #94)
         self.r_channel.add_callback(self._on_r_response)
 
     def _on_r_response(self, pkt):
@@ -123,19 +125,18 @@ class AXI3MasterRead:
         if 'user' in transaction_kwargs and hasattr(ar_packet, 'user'):
             ar_packet.user = transaction_kwargs['user']
 
-        await self.ar_channel.send(ar_packet)
+        _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
+        try:
+            await self.ar_channel.send(ar_packet)
+        except BaseException:
+            release(self._waiters_by_id, txn_id, _ticket)
+            raise
 
-        id_queue = self._response_by_id[txn_id]
-        cycles_waited = 0
-        while len(id_queue) < burst_len:
-            await RisingEdge(self.clock)
-            cycles_waited += 1
-
-            if cycles_waited > self.timeout_cycles:
-                received = len(id_queue)
-                raise TimeoutError(f"AXI3 read timeout after {cycles_waited} cycles: "
-                                    f"got {received} of {burst_len} responses at address 0x{address:08X} "
-                                    f"(id={txn_id})")
+        # Served in issue order among same-ID calls (RDS-DV #94):
+        # a call takes its beats only at the head of its ID's line.
+        id_queue = collections.deque(await wait_turn(
+            self.clock, self._waiters_by_id, self._response_by_id, txn_id, _ticket,
+            burst_len, self.timeout_cycles, lambda c, r: f"AXI3 read timeout after {c} cycles: got {r} of {burst_len} responses at address 0x{address:08X} (id={txn_id})"))
 
         read_data = []
         for _ in range(burst_len):
@@ -229,6 +230,7 @@ class AXI3MasterWrite:
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
 
         self._response_by_id = collections.defaultdict(collections.deque)
+        self._waiters_by_id = new_waiters()  # same-ID calls in issue order (RDS-DV #94)
         self.b_channel.add_callback(self._on_b_response)
 
         self._aw_lock = Lock(name=f"AW_Lock{self.ifc_name}")
@@ -244,6 +246,7 @@ class AXI3MasterWrite:
         """High-level write transaction using generic field names."""
         aw_packet = None
 
+        _ticket = None
         try:
             if isinstance(data, list):
                 data_list = data
@@ -280,6 +283,7 @@ class AXI3MasterWrite:
             async with self._aw_lock:
                 prev_w_done = self._w_prev_done
                 self._w_prev_done = my_w_done
+                _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
                 await self.aw_channel.send(aw_packet)
 
             try:
@@ -310,16 +314,11 @@ class AXI3MasterWrite:
             finally:
                 my_w_done.set()
 
-            id_queue = self._response_by_id[txn_id]
-            cycles_waited = 0
-            while len(id_queue) < 1:
-                await RisingEdge(self.clock)
-                cycles_waited += 1
-
-                if cycles_waited > self.timeout_cycles:
-                    raise TimeoutError(f"AXI3 write timeout after {cycles_waited} cycles: "
-                                        f"waiting for B response at address 0x{address:08X} "
-                                        f"(id={txn_id})")
+            # Served in issue order among same-ID calls (RDS-DV #94):
+            # a call takes its beats only at the head of its ID's line.
+            id_queue = collections.deque(await wait_turn(
+                self.clock, self._waiters_by_id, self._response_by_id, txn_id, _ticket,
+                1, self.timeout_cycles, lambda c, r: f"AXI3 write timeout after {c} cycles: waiting for B response at address 0x{address:08X} (id={txn_id})"))
 
             b_response = id_queue.popleft()
 
@@ -340,6 +339,8 @@ class AXI3MasterWrite:
             return result
 
         except Exception as e:
+            if _ticket is not None:  # leave the ID line (RDS-DV #94)
+                release(self._waiters_by_id, txn_id, _ticket)
             if self.log:
                 addr_str = f"addr=0x{address:08X}" if address is not None else "addr=None"
                 data_str = f"data=0x{data:08X}" if isinstance(data, int) else f"data={type(data).__name__}"

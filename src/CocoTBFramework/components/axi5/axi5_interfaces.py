@@ -48,6 +48,7 @@ from CocoTBFramework.components.axi5.axi5_field_configs import AXI5FieldConfigHe
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 from CocoTBFramework.components.shared.memory_model import oor_read_data
+from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
 
 # AWATOP[5]: the atomic returns the location's original data on the R
 # channel (AtomicLoad 10xxxx, AtomicSwap 110000, AtomicCompare 110001), using
@@ -179,6 +180,7 @@ class AXI5MasterRead:
         # race -- AXI5 (like AXI4) guarantees same-ID R beats arrive in order.
         # Mirrors the FIFO matching introduced for AXIL4SlaveWrite in 2e7e825.
         self._response_by_id = collections.defaultdict(collections.deque)
+        self._waiters_by_id = new_waiters()  # same-ID calls in issue order (RDS-DV #94)
         self.r_channel.add_callback(self._on_r_response)
 
     def _on_r_response(self, pkt):
@@ -196,16 +198,13 @@ class AXI5MasterRead:
         given this read interface as `read_channel`.
         """
         limit = self.timeout_cycles if timeout_cycles is None else timeout_cycles
-        id_queue = self._response_by_id[txn_id]
-        cycles_waited = 0
-        while not id_queue:
-            await RisingEdge(self.clock)
-            cycles_waited += 1
-            if cycles_waited > limit:
-                raise TimeoutError(
-                    f"AXI5 atomic read-return timeout after {cycles_waited} cycles: "
-                    f"no R beat for id={txn_id}"
-                )
+        _ticket = take_ticket(self._waiters_by_id, txn_id)  # (RDS-DV #94)
+        # Served in issue order among same-ID calls (RDS-DV #94):
+        # a call takes its beats only at the head of its ID's line.
+        id_queue = collections.deque(await wait_turn(
+            self.clock, self._waiters_by_id, self._response_by_id, txn_id, _ticket,
+            1, limit, lambda c, r: f"AXI5 atomic read-return timeout after {c} cycles: no R beat for id={txn_id}"))
+
         packet = id_queue.popleft()
         response = {
             'data': getattr(packet, 'data', 0),
@@ -279,23 +278,20 @@ class AXI5MasterRead:
         )
 
         # Send read address
-        await self.ar_channel.send(ar_packet)
+        _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
+        try:
+            await self.ar_channel.send(ar_packet)
+        except BaseException:
+            release(self._waiters_by_id, txn_id, _ticket)
+            raise
 
         # Wait for burst_len R beats in this transaction's ID deque.
         # See __init__ for concurrency rationale.
-        id_queue = self._response_by_id[txn_id]
-        cycles_waited = 0
-        while len(id_queue) < burst_len:
-            await RisingEdge(self.clock)
-            cycles_waited += 1
-
-            if cycles_waited > self.timeout_cycles:
-                received = len(id_queue)
-                raise TimeoutError(
-                    f"AXI5 read timeout after {cycles_waited} cycles: "
-                    f"got {received} of {burst_len} responses at address 0x{address:08X} "
-                    f"(id={txn_id})"
-                )
+        # Served in issue order among same-ID calls (RDS-DV #94):
+        # a call takes its beats only at the head of its ID's line.
+        id_queue = collections.deque(await wait_turn(
+            self.clock, self._waiters_by_id, self._response_by_id, txn_id, _ticket,
+            burst_len, self.timeout_cycles, lambda c, r: f"AXI5 read timeout after {c} cycles: got {r} of {burst_len} responses at address 0x{address:08X} (id={txn_id})"))
 
         # Drain burst_len beats from this ID's queue
         responses = []
@@ -465,6 +461,7 @@ class AXI5MasterWrite:
         # B response per AW transaction and same-ID B responses arrive in
         # order, so a deque per ID is sufficient.
         self._response_by_id = collections.defaultdict(collections.deque)
+        self._waiters_by_id = new_waiters()  # same-ID calls in issue order (RDS-DV #94)
         self.b_channel.add_callback(self._on_b_response)
 
         # AW/W issuance ordering (see AXI4MasterWrite.__init__ for the full
@@ -522,6 +519,7 @@ class AXI5MasterWrite:
         """
         aw_packet = None
 
+        _ticket = None
         try:
             # Handle data formatting
             if isinstance(data, list):
@@ -566,6 +564,7 @@ class AXI5MasterWrite:
             async with self._aw_lock:
                 prev_w_done = self._w_prev_done
                 self._w_prev_done = my_w_done
+                _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
                 await self.aw_channel.send(aw_packet)
 
             # Stream W in AW order, contiguously. The finally is load-bearing:
@@ -610,18 +609,11 @@ class AXI5MasterWrite:
             # Wait for B response in this transaction's ID deque.
             # See AXI5MasterRead.read_transaction for concurrency rationale --
             # positional _recvQ indexing races under cocotb.start_soon.
-            id_queue = self._response_by_id[txn_id]
-            cycles_waited = 0
-            while len(id_queue) < 1:
-                await RisingEdge(self.clock)
-                cycles_waited += 1
-
-                if cycles_waited > self.timeout_cycles:
-                    raise TimeoutError(
-                        f"AXI5 write timeout after {cycles_waited} cycles: "
-                        f"waiting for B response at address 0x{address:08X} "
-                        f"(id={txn_id})"
-                    )
+            # Served in issue order among same-ID calls (RDS-DV #94):
+            # a call takes its beats only at the head of its ID's line.
+            id_queue = collections.deque(await wait_turn(
+                self.clock, self._waiters_by_id, self._response_by_id, txn_id, _ticket,
+                1, self.timeout_cycles, lambda c, r: f"AXI5 write timeout after {c} cycles: waiting for B response at address 0x{address:08X} (id={txn_id})"))
 
             # Pop our B response from this ID's queue
             b_response = id_queue.popleft()
@@ -653,6 +645,8 @@ class AXI5MasterWrite:
             return result
 
         except Exception as e:
+            if _ticket is not None:  # leave the ID line (RDS-DV #94)
+                release(self._waiters_by_id, txn_id, _ticket)
             if self.log:
                 addr_str = f"addr=0x{address:08X}" if address is not None else "addr=None"
                 self.log.error(f"AXI5 write transaction failed: {addr_str}, error: {str(e)}")

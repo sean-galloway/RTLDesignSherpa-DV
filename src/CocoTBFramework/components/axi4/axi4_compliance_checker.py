@@ -141,6 +141,10 @@ class AXI4ComplianceChecker:
         # data phase) while outstanding_writes advances on the B response (end
         # of the transaction), which are distinct protocol events.
         self.aw_awaiting_w: Deque[Dict[str, Any]] = deque()
+        # W beats seen before their AW (legal: write data may precede its
+        # address). Each is its WLAST flag; they are applied, in order, to
+        # the AWs as those arrive. Any left at report time never got an AW.
+        self.w_before_aw: Deque[bool] = deque()
 
         # Previous-cycle handshake state for VALID-dropped detection
         self.prev_signals: Dict[str, Any] = {}
@@ -525,6 +529,8 @@ class AXI4ComplianceChecker:
 
         # Same entry object also joins the global (all-ID) write-data order
         self.aw_awaiting_w.append(entry)
+        while self.w_before_aw and self.aw_awaiting_w:
+            self._consume_w_beat(self.w_before_aw.popleft())
 
     async def validate_w_transaction(self, packet: AXI4Packet):
         """Validate W (Write Data) transaction, including real WLAST checking.
@@ -539,13 +545,15 @@ class AXI4ComplianceChecker:
         is_last = bool(getattr(packet, 'last', 0))
 
         if not self.aw_awaiting_w:
-            self.record_violation(
-                AXI4ViolationType.WLAST_MISMATCH,
-                'W',
-                "W beat received with no outstanding AW awaiting write data"
-            )
+            # Write data before its address is legal AXI; hold the beat
+            # until the AW arrives (it used to be reported and dropped,
+            # which then mis-paired every later beat).
+            self.w_before_aw.append(is_last)
             return
+        self._consume_w_beat(is_last)
 
+    def _consume_w_beat(self, is_last: bool) -> None:
+        """Count one W beat against the oldest AW still in its data phase."""
         entry = self.aw_awaiting_w[0]
         entry['received_beats'] += 1
         received = entry['received_beats']
@@ -674,7 +682,7 @@ class AXI4ComplianceChecker:
         if not self.enabled:
             return {'compliance_checking': 'disabled'}
 
-        total_violations = len(self.violations)
+        total_violations = len(self.violations) + len(self.w_before_aw)
         violation_summary = {}
 
         for vtype in AXI4ViolationType:
@@ -688,6 +696,7 @@ class AXI4ComplianceChecker:
             'armed': bool(self.monitors_active),
             'channels': sorted(self.monitors.keys()),
             'total_violations': total_violations,
+            'w_without_aw': len(self.w_before_aw),
             'violation_summary': violation_summary,
             'statistics': self.stats.copy(),
             'violations': [

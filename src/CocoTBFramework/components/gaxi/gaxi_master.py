@@ -423,8 +423,11 @@ class GAXIMaster(GAXIComponentBase, BusDriver):
         # Update stats
         self.stats.record_timeout()
 
-        # Raise exception for clean test exit with VCD
-        raise cocotb.result.TestFailure(
+        # Raise for a clean test exit with VCD. (cocotb.result.TestFailure
+        # no longer exists in cocotb 2.x: this line raised AttributeError
+        # instead, and the pipeline logged "module 'cocotb' has no attribute
+        # 'result'" in place of the timeout it was reporting.)
+        raise TimeoutError(
             f"Master({self.title}) TIMEOUT: No ready signal after {self.timeout_cycles} cycles. "
             "Check RTL for backpressure issues or increase timeout_cycles if legitimate delay."
         )

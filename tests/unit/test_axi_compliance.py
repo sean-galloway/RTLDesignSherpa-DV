@@ -256,22 +256,46 @@ def test_axi4_overrun_after_missing_wlast_resyncs_not_spams():
     run(checker.validate_aw_transaction(SimpleNamespace(id=2, len=0)))  # 1 beat
 
     run(checker.validate_w_transaction(w(0)))   # beat 1 of 1, no WLAST -> 1 violation
-    run(checker.validate_w_transaction(w(1)))   # overrun beat, no AW pending -> 1 violation
+    run(checker.validate_w_transaction(w(1)))   # overrun beat, no AW pending -> held
 
-    assert violation_types(checker) == [
-        AXI4ViolationType.WLAST_MISMATCH,
-        AXI4ViolationType.WLAST_MISMATCH,
-    ]
-    assert 'no outstanding AW' in checker.violations[1].message
+    assert violation_types(checker) == [AXI4ViolationType.WLAST_MISMATCH]
+    # The overrun beat is write data whose AW never came: counted at report time.
+    report = checker.get_compliance_report()
+    assert report['w_without_aw'] == 1 and report['total_violations'] == 2
 
 
-def test_axi4_w_beat_with_no_pending_aw_detected():
+def test_axi4_w_beat_with_no_aw_ever_is_a_violation_at_report():
+    """Write data may precede its address, so a W with no AW is held, not
+    flagged -- but if no AW ever claims it, the report counts it."""
     checker = make_axi4()
     run(checker.validate_w_transaction(w(1)))
 
-    assert violation_types(checker) == [AXI4ViolationType.WLAST_MISMATCH]
-    assert 'no outstanding AW' in checker.violations[0].message
+    assert checker.violations == []
     assert checker.stats['total_w_beats'] == 1
+    report = checker.get_compliance_report()
+    assert report['w_without_aw'] == 1 and report['total_violations'] == 1
+
+
+def test_axi4_w_before_aw_pairs_when_the_aw_arrives():
+    checker = make_axi4()
+    run(checker.validate_w_transaction(w(0)))   # data of a 2-beat burst ...
+    run(checker.validate_w_transaction(w(1)))
+    run(checker.validate_aw_transaction(SimpleNamespace(id=4, len=1)))   # ... then its AW
+    run(checker.validate_aw_transaction(SimpleNamespace(id=5, len=0)))
+    run(checker.validate_w_transaction(w(1)))   # the next burst, after its AW
+
+    assert checker.violations == []
+    assert len(checker.aw_awaiting_w) == 0 and len(checker.w_before_aw) == 0
+    assert checker.get_compliance_report()['total_violations'] == 0
+
+
+def test_axi4_w_before_aw_with_wrong_wlast_still_detected():
+    checker = make_axi4()
+    run(checker.validate_w_transaction(w(1)))   # WLAST on beat 1 ...
+    run(checker.validate_aw_transaction(SimpleNamespace(id=4, len=3)))   # ... of a 4-beat AW
+
+    assert violation_types(checker) == [AXI4ViolationType.WLAST_MISMATCH]
+    assert 'early' in checker.violations[0].message
 
 
 def test_axi4_back_to_back_bursts_different_ids_associate_in_aw_order():
@@ -507,12 +531,22 @@ def test_axi5_missing_wlast_detected():
     assert 'missing' in checker.violations[0].message
 
 
-def test_axi5_w_beat_with_no_pending_aw_detected():
+def test_axi5_w_beat_with_no_aw_ever_is_a_violation_at_report():
     checker = make_axi5()
     run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=0)))
 
-    assert violation_types(checker) == [AXI5ViolationType.WLAST_MISMATCH]
-    assert 'no outstanding AW' in checker.violations[0].message
+    assert checker.violations == []
+    report = checker.get_compliance_report()
+    assert report['w_without_aw'] == 1 and report['total_violations'] == 1
+
+
+def test_axi5_w_before_aw_pairs_when_the_aw_arrives():
+    checker = make_axi5()
+    run(checker.validate_w_transaction(SimpleNamespace(last=1, poison=0)))
+    run(checker.validate_aw_transaction(SimpleNamespace(id=2, len=0)))
+
+    assert checker.violations == []
+    assert checker.get_compliance_report()['total_violations'] == 0
 
 
 def test_axi5_back_to_back_bursts_different_ids_associate_in_aw_order():

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-10-18
+
 ### Added
 
 - **`pipelined=True` on the AXI3 and AXI5 requesters** (`AXI3MasterRead` /

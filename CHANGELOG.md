@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-10-18
+
+### Fixed
+
+- **`GAXISlave` dropped a beat after `set_ready_policy('always')`.** The
+  call raised READY at once, out of band. If the receive loop was parked in
+  its `valid_first` wait, which wakes only on rising edges and does not
+  sample, a beat could complete its handshake on the pins and never be
+  recorded. One W beat of a write vanished, and the burst landed a beat
+  short (an AXI4 -> AXI3 -> AXI4 loopback with overlapping writes, after a
+  phase that switched policies). `'always'` now takes effect from the loop
+  itself: the `valid_first` wait rechecks the policy every edge and leaves
+  for the `'always'` path, raising READY just after a rising edge and
+  skipping the randomized delay. `'stall'` still drops READY at once.
+
 ## [1.2.5] - 2026-10-18
 
 ### Added

@@ -265,8 +265,13 @@ class GAXISlave(GAXIMonitorBase):
         self.ready_policy = policy
         if policy == 'stall':
             self._set_ready(0)
-        elif policy == 'always':
-            self._set_ready(1)
+        # 'always' is NOT applied to the pin here: the receive loop raises
+        # ready itself within a cycle (its valid_first wait checks the policy
+        # every edge). Raising it out of band let a handshake complete while
+        # the loop was still parked in the valid_first wait, which wakes only
+        # on rising edges and does not sample -- so the beat was accepted on
+        # the pins and never recorded: one W beat of a write vanished and the
+        # burst landed a beat short (RTLDesignSherpa axi3_loopback, 2026-10-18).
 
     def _set_ready(self, value):
         """Set ready signal with pipeline state awareness"""
@@ -398,14 +403,21 @@ class GAXISlave(GAXIMonitorBase):
                 self.valid_sig.value.is_resolvable):
 
                 wait_cycles = 0
-                while int(self.valid_sig.value) == 0:
+                # Leave the wait if the policy changes under us
+                # (set_ready_policy): the 'always' path then raises ready
+                # here, just after a rising edge, a full cycle ahead of the
+                # falling-edge sample -- never out of band.
+                while (int(self.valid_sig.value) == 0 and
+                       self.ready_policy == 'valid_first'):
                     await self.wait_cycles(1)
                     wait_cycles += 1
                     if self.pipeline_debug and wait_cycles == 1:
                         self.log.debug(f"Slave({self.title}) Phase2: waiting for valid assertion")
 
-            # Determine ready delay for this cycle - using inherited randomizer
-            delay_cfg = self.randomizer.next()
+            # Determine ready delay for this cycle - using inherited randomizer.
+            # A policy switched while we waited (set_ready_policy) takes over
+            # now: no randomized delay unless it is still valid_first.
+            delay_cfg = self.randomizer.next() if self.ready_policy == 'valid_first' else {}
             ready_delay = delay_cfg.get('ready_delay', 0)
 
             if self.pipeline_debug and ready_delay > 0:

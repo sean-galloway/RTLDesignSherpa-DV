@@ -93,6 +93,11 @@ class AXI3MasterRead:
         )
 
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
+        # pipelined=True: queue each address (and, for writes, the W beats)
+        # without waiting for the channel to drain, so back-to-back calls keep
+        # VALID high across transactions (see AXI4MasterRead). Default False
+        # keeps the one-transaction-at-a-time drive.
+        self.pipelined = kwargs.get('pipelined', False)
 
         self._response_by_id = collections.defaultdict(collections.deque)
         self._waiters_by_id = new_waiters()  # same-ID calls in issue order (RDS-DV #94)
@@ -127,7 +132,10 @@ class AXI3MasterRead:
 
         _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
         try:
-            await self.ar_channel.send(ar_packet)
+            if getattr(self, 'pipelined', False):
+                await self.ar_channel._driver_send(ar_packet)
+            else:
+                await self.ar_channel.send(ar_packet)
         except BaseException:
             release(self._waiters_by_id, txn_id, _ticket)
             raise
@@ -228,6 +236,11 @@ class AXI3MasterWrite:
         )
 
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
+        # pipelined=True: queue each address (and, for writes, the W beats)
+        # without waiting for the channel to drain, so back-to-back calls keep
+        # VALID high across transactions (see AXI4MasterRead). Default False
+        # keeps the one-transaction-at-a-time drive.
+        self.pipelined = kwargs.get('pipelined', False)
 
         self._response_by_id = collections.defaultdict(collections.deque)
         self._waiters_by_id = new_waiters()  # same-ID calls in issue order (RDS-DV #94)
@@ -284,7 +297,10 @@ class AXI3MasterWrite:
                 prev_w_done = self._w_prev_done
                 self._w_prev_done = my_w_done
                 _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
-                await self.aw_channel.send(aw_packet)
+                if getattr(self, 'pipelined', False):
+                    await self.aw_channel._driver_send(aw_packet)
+                else:
+                    await self.aw_channel.send(aw_packet)
 
             try:
                 if prev_w_done is not None:
@@ -310,7 +326,13 @@ class AXI3MasterWrite:
                         strb=beat_strb,
                         **{k: v for k, v in transaction_kwargs.items() if k.startswith('w')}
                     ))
-                await self.w_channel.send_burst(w_packets)
+                if getattr(self, 'pipelined', False):
+                    # Queue order is wire order: once these beats are queued
+                    # the successor may queue its own behind them.
+                    for w_packet in w_packets:
+                        await self.w_channel._driver_send(w_packet)
+                else:
+                    await self.w_channel.send_burst(w_packets)
             finally:
                 my_w_done.set()
 

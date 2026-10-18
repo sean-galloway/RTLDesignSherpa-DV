@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`pipelined=True` on the AXI3 and AXI5 requesters** (`AXI3MasterRead` /
+  `AXI3MasterWrite`, `AXI5MasterRead` / `AXI5MasterWrite`), the same mode
+  1.2.4 gave AXI4: each call queues its address, and a write's W beats, onto
+  the channel driver without waiting for the transmit pipeline to drain.
+  Default `False` is unchanged. Note that with it a write's W beats can
+  reach the wire before its AW is accepted, which AXI allows; a DUT that
+  requires W after AW needs the default.
+
 ## [1.2.4] - 2026-10-17
 
 ### Added

@@ -171,6 +171,11 @@ class AXI5MasterRead:
 
         # Timeout configuration
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
+        # pipelined=True: queue each address (and, for writes, the W beats)
+        # without waiting for the channel to drain, so back-to-back calls keep
+        # VALID high across transactions (see AXI4MasterRead). Default False
+        # keeps the one-transaction-at-a-time drive.
+        self.pipelined = kwargs.get('pipelined', False)
 
         # Per-ID response FIFO for concurrent read_transaction() pickup.
         # Positional indexing into self.r_channel._recvQ races when callers
@@ -280,7 +285,10 @@ class AXI5MasterRead:
         # Send read address
         _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
         try:
-            await self.ar_channel.send(ar_packet)
+            if getattr(self, 'pipelined', False):
+                await self.ar_channel._driver_send(ar_packet)
+            else:
+                await self.ar_channel.send(ar_packet)
         except BaseException:
             release(self._waiters_by_id, txn_id, _ticket)
             raise
@@ -455,6 +463,11 @@ class AXI5MasterWrite:
 
         # Timeout configuration
         self.timeout_cycles = kwargs.get('timeout_cycles', 5000)
+        # pipelined=True: queue each address (and, for writes, the W beats)
+        # without waiting for the channel to drain, so back-to-back calls keep
+        # VALID high across transactions (see AXI4MasterRead). Default False
+        # keeps the one-transaction-at-a-time drive.
+        self.pipelined = kwargs.get('pipelined', False)
 
         # Per-ID B-response FIFO for concurrent write_transaction() pickup.
         # See AXI5MasterRead.__init__ for race rationale. AXI5 guarantees one
@@ -565,7 +578,10 @@ class AXI5MasterWrite:
                 prev_w_done = self._w_prev_done
                 self._w_prev_done = my_w_done
                 _ticket = take_ticket(self._waiters_by_id, txn_id)  # wire order (RDS-DV #94)
-                await self.aw_channel.send(aw_packet)
+                if getattr(self, 'pipelined', False):
+                    await self.aw_channel._driver_send(aw_packet)
+                else:
+                    await self.aw_channel.send(aw_packet)
 
             # Stream W in AW order, contiguously. The finally is load-bearing:
             # if this transaction raises midway its successor must still be
@@ -602,7 +618,13 @@ class AXI5MasterWrite:
                     )
                     for i, data_value in enumerate(data_list)
                 ]
-                await self.w_channel.send_burst(w_packets)
+                if getattr(self, 'pipelined', False):
+                    # Queue order is wire order: once these beats are queued
+                    # the successor may queue its own behind them.
+                    for w_packet in w_packets:
+                        await self.w_channel._driver_send(w_packet)
+                else:
+                    await self.w_channel.send_burst(w_packets)
             finally:
                 my_w_done.set()
 

@@ -21,7 +21,9 @@ import pytest
 
 import CocoTBFramework.components.gaxi.gaxi_master as gaxi_master_mod
 import CocoTBFramework.components.shared.id_order as id_order
+from CocoTBFramework.components.axi3.axi3_interfaces import AXI3MasterRead
 from CocoTBFramework.components.axi4.axi4_interfaces import AXI4MasterRead
+from CocoTBFramework.components.axi5.axi5_interfaces import AXI5MasterRead
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 
 
@@ -47,8 +49,8 @@ class FakeAR:
         self.calls.append('_driver_send')
 
 
-def make_reader(pipelined):
-    m = object.__new__(AXI4MasterRead)
+def make_reader(pipelined, cls=AXI4MasterRead):
+    m = object.__new__(cls)
     m.clock = object()
     m.data_width = 32
     m.timeout_cycles = 3
@@ -64,8 +66,9 @@ def make_reader(pipelined):
 @pytest.mark.parametrize('pipelined, expect', [(True, '_driver_send'),
                                                (False, 'send'),
                                                (None, 'send')])
-def test_pipelined_selects_the_driver_queue(pipelined, expect):
-    m = make_reader(pipelined)
+@pytest.mark.parametrize('cls', [AXI3MasterRead, AXI4MasterRead, AXI5MasterRead])
+def test_pipelined_selects_the_driver_queue(pipelined, expect, cls):
+    m = make_reader(pipelined, cls)
     with patch.object(id_order, 'RisingEdge', FakeEdge):
         try:
             asyncio.run(m.read_transaction(0x100, burst_len=1, id=0))

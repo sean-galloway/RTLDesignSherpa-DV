@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-10-18
+
+### Added
+
+- **`interleave_r=True` on `AXI4SlaveRead`.** The slave read BFM can now
+  interleave R beats of different ARIDs, as AXI4 allows. It hands beats to
+  the R channel one at a time, at most two queued, round-robin across the
+  oldest waiting burst of every ID; a later burst of an ID waits behind
+  that ID's earlier one, so per-ID order holds. Default off. Bursts
+  interleave only when they wait together, so `response_delay_cycles` is
+  the knob that makes them.
+
 ## [1.2.6] - 2026-10-18
 
 ### Fixed

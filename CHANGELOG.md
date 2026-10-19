@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-10-18
+
+### Fixed
+
+- **`AXI4SlaveRead(interleave_r=True)` dropped VALID mid-stream.** 1.2.7
+  fed the R channel from a coroutine that topped up two beats per clock
+  edge. When the transmit pipeline sent the second beat before the
+  feeder's next turn, it found the queue empty, dropped VALID and
+  restarted a cycle later. The R channel now gets a queue that picks each
+  beat round-robin at the moment the channel takes it, and counts every
+  waiting beat, so VALID stays up while bursts wait. A burst arriving
+  mid-stream joins at the very next beat.
+
 ## [1.2.7] - 2026-10-18
 
 ### Added

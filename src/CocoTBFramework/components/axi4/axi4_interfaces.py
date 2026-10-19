@@ -620,6 +620,14 @@ class AXI4SlaveRead:
 
         # Out-of-order response configuration
         self.enable_ooo = kwargs.get('enable_ooo', False)
+        # interleave_r: send R beats of different IDs interleaved, one beat
+        # at a time round-robin across the bursts waiting to go (AXI4
+        # allows it; beats of one ID stay in order, burst after burst).
+        # Off by default: every burst is sent contiguously.
+        self.interleave_r = kwargs.get('interleave_r', False)
+        self._ilv_pending = []      # [[id, deque of R packets], ...] in arrival order
+        self._ilv_task = None
+        self._ilv_rr = 0
         self.ooo_config = kwargs.get('ooo_config', {
             'mode': 'random',                # 'random' or 'deterministic'
             'reorder_probability': 0.3,      # Probability to delay a transaction
@@ -975,6 +983,14 @@ class AXI4SlaveRead:
 
                 r_packets.append(r_packet)
 
+            if getattr(self, 'interleave_r', False):
+                # The feeder hands beats to the channel one at a time, so
+                # bursts that are waiting together go out interleaved.
+                self._ilv_pending.append([packet_id, collections.deque(r_packets)])
+                if self._ilv_task is None:
+                    self._ilv_task = cocotb.start_soon(self._interleave_feed())
+                r_packets = []
+
             # PERFORMANCE: Add all beats to queue synchronously (no per-beat await overhead)
             # This keeps the queue full and prevents the pipeline from going idle
             for r_packet in r_packets:
@@ -1005,6 +1021,36 @@ class AXI4SlaveRead:
         except Exception as e:
             if self.log:
                 self.log.error(f"AXI4SlaveRead: Error generating response: {e}")
+
+    async def _interleave_feed(self):
+        """interleave_r: keep at most two R beats queued on the channel,
+        taking each next beat round-robin from the oldest waiting burst of
+        every ID. A later burst of an ID waits behind that ID's earlier one,
+        so per-ID order holds; across IDs, beats interleave."""
+        while self._ilv_pending:
+            if self._interleave_fill() and not self.r_channel.transmit_coroutine:
+                self.r_channel.transmit_coroutine = cocotb.start_soon(
+                    self.r_channel._transmit_pipeline())
+            await RisingEdge(self.clock)
+        self._ilv_task = None
+
+    def _interleave_fill(self, depth: int = 2) -> bool:
+        """Top the R channel's queue up to `depth` beats from the waiting
+        bursts (see _interleave_feed). Returns True if a beat was added."""
+        added = False
+        while len(self.r_channel.transmit_queue) < depth and self._ilv_pending:
+            seen, eligible = set(), []
+            for burst in self._ilv_pending:
+                if burst[0] not in seen:
+                    seen.add(burst[0])
+                    eligible.append(burst)
+            burst = eligible[self._ilv_rr % len(eligible)]
+            self._ilv_rr += 1
+            self.r_channel.transmit_queue.append(burst[1].popleft())
+            if not burst[1]:
+                self._ilv_pending.remove(burst)
+            added = True
+        return added
 
     def get_compliance_report(self) -> Optional[Dict[str, Any]]:
         """

@@ -1,8 +1,8 @@
 """AXI4SlaveRead(interleave_r=True) sends R beats of different IDs
 interleaved, one beat at a time round-robin across the waiting bursts,
 while beats of one ID stay in order, burst after burst. Drives
-_generate_read_response and the feeder's fill step on a bare instance (no
-simulator): the feeder task is pre-set so none is started."""
+_generate_read_response on a bare instance (no simulator) and pops the R
+queue as the channel would."""
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -21,7 +21,6 @@ def _slave(interleave=True):
     s.enable_ooo = False
     s.interleave_r = interleave
     s._ilv_pending = []
-    s._ilv_task = object()             # truthy: no feeder task is started
     s._ilv_rr = 0
     s.r_channel = SimpleNamespace(
         create_packet=lambda **kw: SimpleNamespace(**kw),
@@ -45,10 +44,10 @@ def _ar(s, addr, length, rid):
 
 def _drain(s):
     out = []
-    while s._ilv_pending or s.r_channel.transmit_queue:
-        s._interleave_fill(depth=1)
-        out.extend(s.r_channel.transmit_queue)
-        s.r_channel.transmit_queue.clear()
+    q = s.r_channel.transmit_queue
+    while len(q):
+        out.append(q.popleft())
+    assert not s._ilv_pending
     return out
 
 
@@ -80,3 +79,28 @@ def test_default_is_contiguous():
     _ar(s, 0x100, 1, rid=1)
     _ar(s, 0x200, 1, rid=2)
     assert [b.id for b in s.r_channel.transmit_queue] == [1, 1, 2, 2]
+
+
+def test_a_burst_arriving_mid_stream_joins_at_the_next_beat():
+    """The pick happens at pop time, so a burst that arrives while another
+    is being sent interleaves from the very next beat; nothing staged ahead
+    delays it."""
+    s = _slave()
+    _ar(s, 0x100, 3, rid=1)
+    q = s.r_channel.transmit_queue
+    first = q.popleft()
+    _ar(s, 0x200, 1, rid=2)
+    rest = [q.popleft() for _ in range(len(q))]
+    assert [b.id for b in [first] + rest] == [1, 2, 1, 2, 1, 1]
+
+
+def test_queue_reports_every_waiting_beat():
+    """The transmit pipeline loops while len(queue) and keeps VALID up while
+    beats remain, so len must count the beats still in waiting bursts."""
+    s = _slave()
+    _ar(s, 0x100, 3, rid=1)
+    _ar(s, 0x200, 1, rid=2)
+    q = s.r_channel.transmit_queue
+    assert len(q) == 6 and bool(q)
+    q.popleft()
+    assert len(q) == 5

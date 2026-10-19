@@ -580,6 +580,34 @@ class AXI4MasterWrite:
             self.log.debug("AXI4MasterWrite: Compliance checking is disabled")
 
 
+class _InterleavedRQueue(collections.deque):
+    """R transmit queue for AXI4SlaveRead(interleave_r=True).
+
+    Beats appended directly go first. After them, each popleft picks the
+    next beat at the moment the channel takes it, round-robin across the
+    oldest waiting burst of every ID (see AXI4SlaveRead._interleave_next).
+    Nothing is staged ahead, so the channel never finds the queue empty
+    while bursts wait. A feeder that topped up two beats per clock edge
+    lost that race: the transmit pipeline drained, dropped VALID and
+    restarted a cycle later, costing read bandwidth.
+    """
+
+    def __init__(self, owner, items=()):
+        super().__init__(items)
+        self._owner = owner
+
+    def __len__(self):
+        return super().__len__() + sum(len(b[1]) for b in self._owner._ilv_pending)
+
+    def __bool__(self):
+        return len(self) > 0
+
+    def popleft(self):
+        if super().__len__():
+            return super().popleft()
+        return self._owner._interleave_next()
+
+
 class AXI4SlaveRead:
     """
     AXI4 Slave Read Interface - Enhanced with integrated compliance checking.
@@ -626,7 +654,6 @@ class AXI4SlaveRead:
         # Off by default: every burst is sent contiguously.
         self.interleave_r = kwargs.get('interleave_r', False)
         self._ilv_pending = []      # [[id, deque of R packets], ...] in arrival order
-        self._ilv_task = None
         self._ilv_rr = 0
         self.ooo_config = kwargs.get('ooo_config', {
             'mode': 'random',                # 'random' or 'deterministic'
@@ -984,11 +1011,14 @@ class AXI4SlaveRead:
                 r_packets.append(r_packet)
 
             if getattr(self, 'interleave_r', False):
-                # The feeder hands beats to the channel one at a time, so
-                # bursts that are waiting together go out interleaved.
+                # The channel takes beats one at a time from the waiting
+                # bursts (_InterleavedRQueue), so bursts that are waiting
+                # together go out interleaved. A reset replaces the queue
+                # with a plain deque, so (re)install it here.
                 self._ilv_pending.append([packet_id, collections.deque(r_packets)])
-                if self._ilv_task is None:
-                    self._ilv_task = cocotb.start_soon(self._interleave_feed())
+                q = self.r_channel.transmit_queue
+                if not isinstance(q, _InterleavedRQueue):
+                    self.r_channel.transmit_queue = _InterleavedRQueue(self, q)
                 r_packets = []
 
             # PERFORMANCE: Add all beats to queue synchronously (no per-beat await overhead)
@@ -1022,35 +1052,22 @@ class AXI4SlaveRead:
             if self.log:
                 self.log.error(f"AXI4SlaveRead: Error generating response: {e}")
 
-    async def _interleave_feed(self):
-        """interleave_r: keep at most two R beats queued on the channel,
-        taking each next beat round-robin from the oldest waiting burst of
-        every ID. A later burst of an ID waits behind that ID's earlier one,
-        so per-ID order holds; across IDs, beats interleave."""
-        while self._ilv_pending:
-            if self._interleave_fill() and not self.r_channel.transmit_coroutine:
-                self.r_channel.transmit_coroutine = cocotb.start_soon(
-                    self.r_channel._transmit_pipeline())
-            await RisingEdge(self.clock)
-        self._ilv_task = None
-
-    def _interleave_fill(self, depth: int = 2) -> bool:
-        """Top the R channel's queue up to `depth` beats from the waiting
-        bursts (see _interleave_feed). Returns True if a beat was added."""
-        added = False
-        while len(self.r_channel.transmit_queue) < depth and self._ilv_pending:
-            seen, eligible = set(), []
-            for burst in self._ilv_pending:
-                if burst[0] not in seen:
-                    seen.add(burst[0])
-                    eligible.append(burst)
-            burst = eligible[self._ilv_rr % len(eligible)]
-            self._ilv_rr += 1
-            self.r_channel.transmit_queue.append(burst[1].popleft())
-            if not burst[1]:
-                self._ilv_pending.remove(burst)
-            added = True
-        return added
+    def _interleave_next(self):
+        """interleave_r: the next R beat, round-robin across the oldest
+        waiting burst of every ID. A later burst of an ID waits behind that
+        ID's earlier one, so per-ID order holds; across IDs, beats
+        interleave."""
+        seen, eligible = set(), []
+        for burst in self._ilv_pending:
+            if burst[0] not in seen:
+                seen.add(burst[0])
+                eligible.append(burst)
+        burst = eligible[self._ilv_rr % len(eligible)]
+        self._ilv_rr += 1
+        beat = burst[1].popleft()
+        if not burst[1]:
+            self._ilv_pending.remove(burst)
+        return beat
 
     def get_compliance_report(self) -> Optional[Dict[str, Any]]:
         """

@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [1.2.9] - 2026-10-21
+
+### Fixed
+
+- **AXI slave BFMs walked bursts against AXI A3.4.1.** The AXI3, AXI4 and
+  AXI5 slaves stepped INCR beats from the unaligned start address
+  (`start + i * bytes`) instead of the size grid (`aligned(start) +
+  i * bytes`), advanced FIXED bursts, and placed narrow beats on the
+  wrong lanes. Every beat address now comes from one helper,
+  `components/shared/axi_burst.py` (`beat_addr`, `beat_lanes`): FIXED
+  holds, INCR realigns after the first beat, WRAP wraps in its container.
+  Reads come from the beat's bus-aligned window; writes honour the wire
+  strobes. Tests that expected an incrementing FIXED read were encoding
+  the old behaviour.
+- **AXI3 / AXI4 / ACE master strobes on unaligned and narrow beats.** The
+  masters now assert no strobes below an unaligned start (A3.4.3) and put
+  narrow data on the lanes its address selects.
+
+### Changed
+
+- **`AXI5Master` default AxSIZE is the full bus width** for both reads and
+  writes, as the AXI3 / AXI4 masters already did, and beats are placed
+  with `beat_lanes`.
+
 ## [1.2.8] - 2026-10-18
 
 ### Fixed

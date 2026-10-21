@@ -39,6 +39,7 @@ from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
 from CocoTBFramework.components.shared.memory_model import oor_read_data
+from CocoTBFramework.components.shared.axi_burst import beat_addr, beat_lanes
 
 
 class AXI4MasterRead:
@@ -479,17 +480,16 @@ class AXI4MasterWrite:
                 for i, data_value in enumerate(data_list):
                     if 'strb' in transaction_kwargs:
                         beat_strb = transaction_kwargs['strb']
-                    elif beat_bytes >= strb_width:
-                        beat_strb = (1 << strb_width) - 1  # All bytes enabled
                     else:
-                        # Narrow write: enable only this beat's addressed
-                        # lanes (INCR walks the lanes beat by beat). Strobes
-                        # outside the AWSIZE window are an AXI violation.
-                        # The data value is lane-positioned to match -- on
-                        # the wire, narrow data rides in the addressed lanes.
-                        lane = (address + i * beat_bytes) % strb_width
-                        beat_strb = ((1 << beat_bytes) - 1) << lane
-                        data_value = (data_value & ((1 << (beat_bytes * 8)) - 1)) << (lane * 8)
+                        # Strobes by the burst rules (AXI A3.4.1): the beat's bytes from
+                        # its address to the end of its aligned window, none below an
+                        # unaligned start. A narrow beat's data rides in that window's
+                        # lanes (FIXED holds them, WRAP wraps, INCR steps from the aligned
+                        # start).
+                        beat_strb, lane = beat_lanes(address, i, aw_packet.size, aw_packet.burst,
+                                                     len(data_list) - 1, strb_width)
+                        if beat_bytes < strb_width:
+                            data_value = (data_value & ((1 << (beat_bytes * 8)) - 1)) << (lane * 8)
                     w_packets.append(self.w_channel.create_packet(
                         data=data_value,
                         last=1 if i == len(data_list) - 1 else 0,
@@ -949,14 +949,19 @@ class AXI4SlaveRead:
             # then trigger pipeline once at end. This eliminates per-beat async overhead.
             r_packets = []
             for i in range(burst_len):
-                current_addr = address + (i * bytes_per_beat)
+                # AXI A3.4.1 beat address (FIXED holds, INCR steps from the
+                # aligned start, WRAP wraps); the beat carries its aligned
+                # window -- an unaligned first beat has no bytes below it.
+                current_addr = beat_addr(address, i, size_encoding,
+                                         getattr(ar_packet, 'burst', 1), burst_len - 1)
+                window_addr = current_addr & ~(bytes_per_beat - 1)
 
                 # Read from memory model if available
                 beat_resp = 0
                 if self.memory_model:
                     # Apply base address offset before accessing memory model
                     # (RTL sends absolute addresses, memory model expects 0-based offsets)
-                    memory_offset = current_addr - self.base_addr
+                    memory_offset = window_addr - self.base_addr
                     if not self.memory_model.in_range(memory_offset, bytes_per_beat):
                         # Out-of-range contract (shared/memory_model.py): SLVERR
                         # on this beat, pattern data, one warning. This used to
@@ -992,7 +997,7 @@ class AXI4SlaveRead:
                 # because current_addr already advances by bytes_per_beat.
                 bus_bytes = self.data_width // 8
                 if self.memory_model and bytes_per_beat < bus_bytes:
-                    lane = current_addr % bus_bytes
+                    lane = window_addr % bus_bytes
                     data = (data & ((1 << (bytes_per_beat * 8)) - 1)) << (lane * 8)
 
                 # Create R response packet using GENERIC field names
@@ -1690,9 +1695,15 @@ class AXI4SlaveWrite:
                     # answered SLVERR with nothing written -- not the in-range
                     # beats landed and the rest dropped under an OKAY, which
                     # is what this did before.
-                    first_off = (base_addr - (base_addr % bus_bytes)) - self.base_addr
-                    last_addr = base_addr + (len(w_packets) - 1) * bytes_per_beat
-                    span = (last_addr - (last_addr % bus_bytes)) + bus_bytes - (base_addr - (base_addr % bus_bytes))
+                    # Beat addresses by the burst rules (AXI A3.4.1): FIXED holds,
+                    # INCR steps from the aligned start, WRAP wraps.
+                    beat_addrs = [beat_addr(base_addr, i, size_encoding, getattr(aw_packet, 'burst', 1),
+                                            getattr(aw_packet, 'len', len(w_packets) - 1))
+                                  for i in range(len(w_packets))] or [base_addr]
+                    lo = min(beat_addrs) - (min(beat_addrs) % bus_bytes)
+                    hi = max(beat_addrs) - (max(beat_addrs) % bus_bytes) + bus_bytes
+                    first_off = lo - self.base_addr
+                    span = hi - lo
                     if not self.memory_model.in_range(first_off, span):
                         self.memory_model.oor_warning(self.log, 'AXI4SlaveWrite',
                                                       base_addr, span, transaction_id)
@@ -1701,7 +1712,7 @@ class AXI4SlaveWrite:
                     else:
                         w_packets_to_write = w_packets
                     for i, w_packet in enumerate(w_packets_to_write):
-                        addr = base_addr + (i * bytes_per_beat)
+                        addr = beat_addrs[i]
                         bus_aligned_addr = addr - (addr % bus_bytes)
 
                         # Apply base address offset before accessing memory model

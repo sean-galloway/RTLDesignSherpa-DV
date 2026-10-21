@@ -49,6 +49,7 @@ from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
 from CocoTBFramework.components.shared.memory_model import oor_read_data
+from CocoTBFramework.components.shared.axi_burst import beat_addr, beat_lanes
 
 # AWATOP[5]: the atomic returns the location's original data on the R
 # channel (AtomicLoad 10xxxx, AtomicSwap 110000, AtomicCompare 110001), using
@@ -265,7 +266,9 @@ class AXI5MasterRead:
             addr=address,
             len=burst_len - 1,
             id=txn_id,
-            size=transaction_kwargs.get('size', 2),
+            # Full bus width unless the caller narrows it (AXI4MasterRead's
+            # default; a fixed 2 made every beat a narrow 4-byte transfer).
+            size=transaction_kwargs.get('size', (self.data_width // 8).bit_length() - 1),
             burst=transaction_kwargs.get('burst', 1),
             lock=transaction_kwargs.get('lock', 0),
             cache=transaction_kwargs.get('cache', 0),
@@ -553,7 +556,9 @@ class AXI5MasterWrite:
                 addr=address,
                 len=burst_len - 1,
                 id=txn_id,
-                size=transaction_kwargs.get('size', 2),
+                # Full bus width unless the caller narrows it (AXI4MasterWrite's
+                # default; a fixed 2 made every beat a narrow 4-byte transfer).
+                size=transaction_kwargs.get('size', (self.data_width // 8).bit_length() - 1),
                 burst=transaction_kwargs.get('burst', 1),
                 lock=transaction_kwargs.get('lock', 0),
                 cache=transaction_kwargs.get('cache', 0),
@@ -592,7 +597,19 @@ class AXI5MasterWrite:
 
                 # Send data beats with AXI5 fields
                 strb_width = self.data_width // 8
-                default_strb = (1 << strb_width) - 1
+                beat_bytes = 1 << aw_packet.size
+
+                # Strobes by the burst rules (AXI A3.4.1), as AXI4MasterWrite:
+                # the beat's bytes from its address to the end of its aligned
+                # window; a narrow beat's data rides in that window's lanes.
+                def _beat(i, data_value):
+                    if 'strb' in transaction_kwargs:
+                        return data_value, transaction_kwargs['strb']
+                    strb, lane = beat_lanes(address, i, aw_packet.size, aw_packet.burst,
+                                            len(data_list) - 1, strb_width)
+                    if beat_bytes < strb_width:
+                        data_value = (data_value & ((1 << (beat_bytes * 8)) - 1)) << (lane * 8)
+                    return data_value, strb
 
                 # Build every beat FIRST, then hand the whole burst to the
                 # driver in one call. Sending beat-by-beat with send() drains
@@ -607,9 +624,9 @@ class AXI5MasterWrite:
                     return v[i] if isinstance(v, (list, tuple)) else v
                 w_packets = [
                     self.w_channel.create_packet(
-                        data=data_value,
+                        data=_beat(i, data_value)[0],
                         last=1 if i == len(data_list) - 1 else 0,
-                        strb=transaction_kwargs.get('strb', default_strb),
+                        strb=_beat(i, data_value)[1],
                         user=transaction_kwargs.get('wuser', 0),
                         # AXI5-specific fields
                         poison=transaction_kwargs.get('poison', 0),
@@ -991,12 +1008,17 @@ class AXI5SlaveRead:
             # Generate response data beats
             r_packets = []
             for i in range(burst_len):
-                current_addr = address + (i * bytes_per_beat)
+                # AXI A3.4.1 beat address (FIXED holds, INCR steps from the
+                # aligned start, WRAP wraps); the beat carries its aligned
+                # window -- an unaligned first beat has no bytes below it.
+                current_addr = beat_addr(address, i, size_encoding,
+                                         getattr(ar_packet, 'burst', 1), burst_len - 1)
+                window_addr = current_addr & ~(bytes_per_beat - 1)
 
                 # Read from memory model if available
                 beat_resp = 0
                 if self.memory_model:
-                    memory_offset = current_addr - self.base_addr
+                    memory_offset = window_addr - self.base_addr
                     if not self.memory_model.in_range(memory_offset, bytes_per_beat):
                         # Out-of-range contract (shared/memory_model.py).
                         self.memory_model.oor_warning(self.log, 'AXI5SlaveRead',
@@ -1015,6 +1037,13 @@ class AXI5SlaveRead:
                             beat_resp = 2
                 else:
                     data = current_addr
+
+                # Narrow read (ARSIZE below the bus width): the bytes ride in
+                # the lanes the address selects, as AXI4SlaveRead does.
+                bus_bytes = self.data_width // 8
+                if self.memory_model and bytes_per_beat < bus_bytes:
+                    lane = window_addr % bus_bytes
+                    data = (data & ((1 << (bytes_per_beat * 8)) - 1)) << (lane * 8)
 
                 # Memory Tagging: a Transfer read returns the stored tag of
                 # every 16-byte granule of the beat (0 where none was stored).
@@ -1593,8 +1622,16 @@ class AXI5SlaveWrite:
             if self.memory_model:
                 # Out-of-range contract (shared/memory_model.py): whole burst
                 # checked first; an overrunning burst is SLVERR, nothing written.
-                span = len(w_packets) * bytes_per_beat
-                first_off = base_addr - self.base_addr
+                # Beat addresses by the burst rules (AXI A3.4.1): FIXED holds,
+                # INCR steps from the aligned start, WRAP wraps.
+                bus_bytes = self.data_width // 8
+                beat_addrs = [beat_addr(base_addr, i, size_encoding, getattr(aw_packet, 'burst', 1),
+                                        getattr(aw_packet, 'len', len(w_packets) - 1))
+                              for i in range(len(w_packets))] or [base_addr]
+                lo = min(beat_addrs) - (min(beat_addrs) % bus_bytes)
+                hi = max(beat_addrs) - (max(beat_addrs) % bus_bytes) + bus_bytes
+                span = hi - lo
+                first_off = lo - self.base_addr
                 if not self.memory_model.in_range(first_off, span):
                     self.memory_model.oor_warning(self.log, 'AXI5SlaveWrite',
                                                   base_addr, span, transaction_id)
@@ -1605,10 +1642,10 @@ class AXI5SlaveWrite:
                 else:
                     w_packets_to_write = w_packets
                 for i, w_packet in enumerate(w_packets_to_write):
-                    addr = base_addr + (i * bytes_per_beat)
+                    addr = beat_addrs[i]
                     memory_offset = addr - self.base_addr
                     data = getattr(w_packet, 'data', 0)
-                    strb = getattr(w_packet, 'strb', 0xF)
+                    strb = getattr(w_packet, 'strb', (1 << bus_bytes) - 1)
 
                     try:
                         if atop:
@@ -1616,8 +1653,13 @@ class AXI5SlaveWrite:
                             # not a plain write of the operand.
                             rr_data = self._atomic_apply(atop, memory_offset, data, bytes_per_beat)
                         else:
-                            data_bytes = self.memory_model.integer_to_bytearray(data, bytes_per_beat)
-                            self.memory_model.write(memory_offset, data_bytes, strb)
+                            # W data and WSTRB are bus-width quantities: write the
+                            # whole bus word at the bus-aligned address with the
+                            # wire strobe, so a narrow beat lands in its lanes
+                            # (AXI4SlaveWrite's form).
+                            data_bytes = self.memory_model.integer_to_bytearray(data, bus_bytes)
+                            self.memory_model.write((addr - (addr % bus_bytes)) - self.base_addr,
+                                                    data_bytes, strb)
                         # Memory Tagging (AXI5 MTE): one 4-bit tag per 16-byte
                         # granule of the beat. Transfer stores every tag, Update
                         # only the ones WTAGUPDATE marks, Match compares and

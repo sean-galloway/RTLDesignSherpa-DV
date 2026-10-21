@@ -45,6 +45,7 @@ from CocoTBFramework.components.axi4.axi4_interfaces import (
 from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
+from CocoTBFramework.components.shared.axi_burst import beat_lanes
 
 from .ace_field_configs import (
     BAR_NORMAL_RESPECT,
@@ -460,12 +461,16 @@ class AXI4ACEMasterWrite(AXI4MasterWrite):
                 for i, data_value in enumerate(data_list):
                     if "strb" in transaction_kwargs:
                         beat_strb = transaction_kwargs["strb"]
-                    elif beat_bytes >= strb_width:
-                        beat_strb = (1 << strb_width) - 1
                     else:
-                        lane = (address + i * beat_bytes) % strb_width
-                        beat_strb = ((1 << beat_bytes) - 1) << lane
-                        data_value = (data_value & ((1 << (beat_bytes * 8)) - 1)) << (lane * 8)
+                        # Strobes by the burst rules (AXI A3.4.1): the beat's bytes from
+                        # its address to the end of its aligned window, none below an
+                        # unaligned start. A narrow beat's data rides in that window's
+                        # lanes (FIXED holds them, WRAP wraps, INCR steps from the aligned
+                        # start).
+                        beat_strb, lane = beat_lanes(address, i, aw_packet.size, aw_packet.burst,
+                                                     len(data_list) - 1, strb_width)
+                        if beat_bytes < strb_width:
+                            data_value = (data_value & ((1 << (beat_bytes * 8)) - 1)) << (lane * 8)
                     w_packets.append(self.w_channel.create_packet(
                         data=data_value,
                         last=1 if i == len(data_list) - 1 else 0,

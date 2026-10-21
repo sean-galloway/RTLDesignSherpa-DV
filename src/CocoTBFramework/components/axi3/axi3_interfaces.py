@@ -41,6 +41,7 @@ from CocoTBFramework.components.gaxi.gaxi_master import GAXIMaster
 from CocoTBFramework.components.gaxi.gaxi_slave import GAXISlave
 from CocoTBFramework.components.shared.id_order import new_waiters, release, take_ticket, wait_turn
 from CocoTBFramework.components.shared.memory_model import oor_read_data
+from CocoTBFramework.components.shared.axi_burst import beat_addr, beat_lanes
 
 
 class AXI3MasterRead:
@@ -313,12 +314,16 @@ class AXI3MasterWrite:
                 for i, data_value in enumerate(data_list):
                     if 'strb' in transaction_kwargs:
                         beat_strb = transaction_kwargs['strb']
-                    elif beat_bytes >= strb_width:
-                        beat_strb = (1 << strb_width) - 1
                     else:
-                        lane = (address + i * beat_bytes) % strb_width
-                        beat_strb = ((1 << beat_bytes) - 1) << lane
-                        data_value = (data_value & ((1 << (beat_bytes * 8)) - 1)) << (lane * 8)
+                        # Strobes by the burst rules (AXI A3.4.1): the beat's bytes from
+                        # its address to the end of its aligned window, none below an
+                        # unaligned start. A narrow beat's data rides in that window's
+                        # lanes (FIXED holds them, WRAP wraps, INCR steps from the aligned
+                        # start).
+                        beat_strb, lane = beat_lanes(address, i, aw_packet.size, aw_packet.burst,
+                                                     len(data_list) - 1, strb_width)
+                        if beat_bytes < strb_width:
+                            data_value = (data_value & ((1 << (beat_bytes * 8)) - 1)) << (lane * 8)
                     w_packets.append(self.w_channel.create_packet(
                         id=txn_id,
                         data=data_value,
@@ -585,11 +590,16 @@ class AXI3SlaveRead:
 
             r_packets = []
             for i in range(burst_len):
-                current_addr = address + (i * bytes_per_beat)
+                # AXI A3.4.1 beat address (FIXED holds, INCR steps from the
+                # aligned start, WRAP wraps); the beat carries its aligned
+                # window -- an unaligned first beat has no bytes below it.
+                current_addr = beat_addr(address, i, size_encoding,
+                                         getattr(ar_packet, 'burst', 1), burst_len - 1)
+                window_addr = current_addr & ~(bytes_per_beat - 1)
 
                 beat_resp = 0
                 if self.memory_model:
-                    memory_offset = current_addr - self.base_addr
+                    memory_offset = window_addr - self.base_addr
                     if not self.memory_model.in_range(memory_offset, bytes_per_beat):
                         self.memory_model.oor_warning(self.log, 'AXI3SlaveRead',
                                                       current_addr, bytes_per_beat, packet_id)
@@ -613,7 +623,7 @@ class AXI3SlaveRead:
 
                 bus_bytes = self.data_width // 8
                 if self.memory_model and bytes_per_beat < bus_bytes:
-                    lane = current_addr % bus_bytes
+                    lane = window_addr % bus_bytes
                     data = (data & ((1 << (bytes_per_beat * 8)) - 1)) << (lane * 8)
 
                 is_last = (i == burst_len - 1)
@@ -966,9 +976,15 @@ class AXI3SlaveWrite:
             resp = 0
             if self.memory_model:
                 bus_bytes = self.data_width // 8
-                first_off = (base_addr - (base_addr % bus_bytes)) - self.base_addr
-                last_addr = base_addr + (len(w_packets) - 1) * bytes_per_beat
-                span = (last_addr - (last_addr % bus_bytes)) + bus_bytes - (base_addr - (base_addr % bus_bytes))
+                # Beat addresses by the burst rules (AXI A3.4.1): FIXED holds,
+                # INCR steps from the aligned start, WRAP wraps.
+                beat_addrs = [beat_addr(base_addr, i, size_encoding, getattr(aw_packet, 'burst', 1),
+                                        getattr(aw_packet, 'len', len(w_packets) - 1))
+                              for i in range(len(w_packets))] or [base_addr]
+                lo = min(beat_addrs) - (min(beat_addrs) % bus_bytes)
+                hi = max(beat_addrs) - (max(beat_addrs) % bus_bytes) + bus_bytes
+                first_off = lo - self.base_addr
+                span = hi - lo
                 if not self.memory_model.in_range(first_off, span):
                     self.memory_model.oor_warning(self.log, 'AXI3SlaveWrite',
                                                   base_addr, span, transaction_id)
@@ -978,7 +994,7 @@ class AXI3SlaveWrite:
                     w_packets_to_write = w_packets
 
                 for i, w_packet in enumerate(w_packets_to_write):
-                    addr = base_addr + (i * bytes_per_beat)
+                    addr = beat_addrs[i]
                     bus_aligned_addr = addr - (addr % bus_bytes)
                     memory_offset = bus_aligned_addr - self.base_addr
 

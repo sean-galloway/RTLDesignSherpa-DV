@@ -177,6 +177,65 @@ def test_act_after_pre_before_tRP_is_hard(model, timings):
         model.on_activate(bank_idx=0, row=0x200)
 
 
+# ---------------------------------------------------------------------
+# Auto-precharge (RDA / WRA): the device closes the bank at the earliest
+# legal instant; the model must time the NEXT ACT against that instant and
+# must not report the column's own tRTP / tWR (pumice TASK-044).
+# ---------------------------------------------------------------------
+
+
+def _rda(model, timings):
+    model.on_activate(bank_idx=0, row=0x100)
+    _advance(model, timings.tRCD_cycles)
+    model.on_read(bank_idx=0)
+    model.on_auto_precharge(bank_idx=0)
+    assert model.banks[0].state == BankState.IDLE
+    assert model.banks[0].row is None
+    # internal precharge: tRTP after the read, but not before tRAS_min
+    return max(model.cycle + timings.tRTP_cycles,
+               timings.tRAS_min_cycles)
+
+
+def test_auto_precharge_reports_no_tRTP_or_tWR(model, timings):
+    _rda(model, timings)
+    assert model.policy.soft_violation_counts == {}
+
+
+def test_act_after_rda_before_tRP_is_hard(model, timings):
+    pre_at = _rda(model, timings)
+    _advance(model, pre_at - model.cycle + timings.tRP_cycles - 1)
+    with pytest.raises(AssertionError, match="tRP"):
+        model.on_activate(bank_idx=0, row=0x200)
+
+
+def test_act_after_rda_at_tRP_succeeds(model, timings):
+    pre_at = _rda(model, timings)
+    _advance(model, pre_at - model.cycle + timings.tRP_cycles)
+    model.on_activate(bank_idx=0, row=0x200)  # no raise
+    assert model.banks[0].state == BankState.ACTIVE
+
+
+def test_act_after_wra_waits_tWR_from_last_data_beat(model, timings):
+    model.on_activate(bank_idx=0, row=0x100)
+    _advance(model, timings.tRCD_cycles)
+    model.on_write(bank_idx=0)
+    model.on_auto_precharge(bank_idx=0)
+    last_data = model.banks[0].last_wr_data_cycle
+    pre_at = max(last_data + timings.tWR_cycles,
+                 timings.tRAS_min_cycles)
+    assert model.banks[0].last_pre_cycle == pre_at
+    _advance(model, pre_at - model.cycle + timings.tRP_cycles - 1)
+    with pytest.raises(AssertionError, match="tRP"):
+        model.on_activate(bank_idx=0, row=0x200)
+
+
+def test_auto_precharge_on_idle_bank_is_reported(model, timings, caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        model.on_auto_precharge(bank_idx=2)   # unknown names default to SOFT
+    assert model.policy.soft_violation_counts.get("ap_on_idle_bank") == 1
+
+
 def test_act_to_act_diff_bank_before_tRRD_is_hard(model, timings):
     model.on_activate(bank_idx=0, row=0x100)
     _advance(model, timings.tRRD_cycles - 2)  # one short

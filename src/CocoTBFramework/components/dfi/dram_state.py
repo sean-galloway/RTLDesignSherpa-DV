@@ -589,6 +589,41 @@ class DramStateModel:
             b.row = None
             b.last_pre_cycle = self.cycle
 
+    def on_auto_precharge(self, bank_idx: int) -> None:
+        """Process the auto-precharge half of an RDA / WRA.
+
+        The device precharges the bank itself at the earliest point JEDEC
+        allows -- tRTP after the read, tWR after the last write data beat,
+        and not before tRAS_min since the ACT -- so none of the explicit-PRE
+        checks can fail here by construction. What IS checked downstream is
+        the ACT that follows: ``last_pre_cycle`` is set to that internal
+        precharge instant (possibly in the future), so an ACT arriving less
+        than tRP after it reports tRP exactly as it would after an explicit
+        PRE issued at the legal time. The old shortcut called on_precharge()
+        at the column's own cycle, which reported one phantom tRTP / tWR per
+        auto-precharge column and made the counter useless for any close-page
+        or close-on-drain controller (pumice TASK-044, 2026-10-23).
+        """
+        self._arm_refi_window()
+        b = self._bank(bank_idx)
+        if b.state != BankState.ACTIVE:
+            self.policy.report(
+                "ap_on_idle_bank",
+                f"auto-precharge bank={bank_idx} but state={b.state.value} "
+                f"@ cycle {self.cycle}",
+                self.log,
+            )
+        internal_pre = self.cycle
+        if b.last_act_cycle >= 0:
+            internal_pre = max(internal_pre, b.last_act_cycle + self.timings.tRAS_min_cycles)
+        if b.last_rd_cycle >= 0:
+            internal_pre = max(internal_pre, b.last_rd_cycle + self.timings.tRTP_cycles)
+        if b.last_wr_data_cycle >= 0:
+            internal_pre = max(internal_pre, b.last_wr_data_cycle + self.timings.tWR_cycles)
+        b.state = BankState.IDLE
+        b.row = None
+        b.last_pre_cycle = internal_pre
+
     def on_refresh(self) -> None:
         """Process a REF (all-bank refresh) command."""
         self._check_not_low_power("REF")

@@ -969,23 +969,23 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
         """Auto-precharge: close the bank so a subsequent ACT to the same
         bank (different row) succeeds.
 
-        Correct JEDEC semantics would defer the precharge until BL/2 cycles
-        after the last data beat (WRITE) or CL cycles after the read data
-        (READ). Since `_handle_command` captures `flat_addr` at CMD-time
-        from the current `.row`, and `_pending_writes` / `_pending_reads`
-        carry those flats forward independently of subsequent bank state,
-        firing the precharge here (immediately after the command) is
-        functionally equivalent: pending ops resolve against the row
-        that was open at CMD-time, and the bank is now free to accept a
-        fresh ACT — which is exactly what the controller expects from
-        WRA / RDA.
+        The bank closes in the model NOW (functionally equivalent:
+        `_handle_command` captures `flat_addr` at CMD-time from the current
+        `.row`, and `_pending_writes` / `_pending_reads` carry those flats
+        forward independently of subsequent bank state), but the TIMING
+        bookkeeping is the device's: the model records the internal
+        precharge at the earliest JEDEC-legal instant (tRTP / tWR / tRAS_min
+        after the column) and checks the next ACT's tRP against that. The
+        earlier version called on_precharge() at the column's own cycle,
+        which reported one phantom tRTP / tWR violation per RDA / WRA
+        (pumice TASK-044, 2026-10-23).
 
         Prior behavior: this was a debug-log-only stub. Every same-bank
         different-row sequence stayed pinned on the first ACT'd row —
         the whole D-2 pathological pattern matrix tripped on this
         (RTLDesignSherpa#33).
         """
-        self.dram.on_precharge(bank_idx=bank)
+        self.dram.on_auto_precharge(bank_idx=bank)
         self.log.debug(
             f"{self.title}: auto-precharge applied for bank {bank}"
         )

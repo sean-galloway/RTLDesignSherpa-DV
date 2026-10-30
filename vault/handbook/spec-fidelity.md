@@ -32,6 +32,12 @@ Local archives, both outside the repos:
   (HBM4), JESD209-5C (LPDDR5), JESD209-6 (LPDDR6)
 - `~/github/cold_storage/MemorySpecs/` — JEDEC DDR2/3/4/5, LPDDR2/3/4,
   GDDR6, plus vendor datasheets
+- `~/github/amba-specs/` — Arm AMBA: AXI/ACE (IHI 0022 L), APB (0024 E),
+  AHB (0033 C), CHI (0050 G plus errata), AXI-Stream (0051 B), CXS (0079 B),
+  LPI, ATB, DTI, LTI, GFB. Its README records the
+  `documentation-service.arm.com/static/<id>` behind each PDF, which is
+  the only part of the download Arm's site hides, and `refetch.sh`
+  pulls the set again. CHI H, CXS D and CHI C2C still need their ids.
 
 Extract truth tables with `pdftotext -layout`. Without `-layout` a multi-column
 truth table linearizes into meaningless order — the columns interleave and you

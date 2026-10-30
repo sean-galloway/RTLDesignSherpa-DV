@@ -36,6 +36,8 @@ vault and would dangle here). Do not restate any of it. This handbook is the
   in a new branch
 - [[unit-tests]] — the unit/sim split, the environment, and scoping a
   formatter so it does not rewrite the repo
+- [[signal-binding]] — every family, GAXI composition or not, resolves its
+  pins through the shared SignalResolver; CXS and CHI learned it the hard way
 - [[issues-and-changelog]] — what gets a GitHub issue, what gets a vault task,
   what gets a CHANGELOG line, and the case where none of them apply
 

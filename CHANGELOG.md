@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **CXS and CHI bind through `SignalResolver`** (owner ruling 2026-10-30:
+  a family that is not a GAXI composition still uses the shared resolver,
+  never a private `prefix + name` binder). The resolver gained a generic
+  "flat" config kind (`'flat': True`: plain logical names, no valid/ready
+  pair, no mandatory data signal) and the protocol types `cxs` and
+  `chi_{rn_f,rn_d,rn_i,hn_f,hn_i,sn_f}_port`, with pattern tables that try
+  the spellings a port may use (`crdgnt` / `crd_gnt` / `CXSCRDGNT`,
+  `txreqflitv` / `txreq_flitv` / `tx_req_flit_v` / `TXREQFLITV`, a `cxs`
+  infix, `prefix` and `bus_name` with or without a trailing underscore).
+  Every CXS and CHI constructor and factory takes `bus_name`; `signal_map`
+  keeps its keys (logical names) and is now a partial override with typo
+  rejection. Existing `prefix='m_cxs_'` style calls bind unchanged. CHI
+  lost its `dut_perspective` argument: a DUT names its pins from its own
+  side, so a BFM always drives `rx*` and samples `tx*`, and a TB binds a
+  CHI port with a prefix and nothing else (the `chi_wires` loopback now
+  names each side the way the node across from it would). Both families
+  gained `reset_bus()`, the `GAXIMaster` idiom, beside the optional
+  `reset=` pin.
+
+### Added
+
+- **CHI BFM family** (`components/chi/`, Arm IHI 0050 Issue H): `CHIConfig`
+  with numbered legality rules and the flit widths of Tables B13.6-B13.9;
+  every opcode table and field encoding (`chi_opcodes`); one `Packet`
+  subclass per channel with bit-exact `pack()`/`unpack()` and aliases for
+  the spec's shared bits (`chi_flits`); pure-Python link models (L-Credits,
+  FLITPEND one cycle ahead, one LINKACTIVE pair per direction, LCrdReturn,
+  a passive `LinkChecker`) in `chi_link`; the request classes, legal
+  response sequences, TxnID/DBID pools and Request Retry in
+  `chi_transaction`; the B4.1 cache states with the Table B4.38/43/44
+  requester and B4.46-50 snoopee transitions, a precise snoop filter and
+  the home's completion policy in `chi_cache_model`; and the BFMs
+  `CHIRequestNode` (RN-F), `CHIHome` + `CHIHomeNode` (HN-F, memory-backed,
+  several ports can share one home), `CHIMonitor` (link + transaction
+  checks). Scope: no Resource Planes, replicated channels, DCT, stash,
+  atomics, DVM, MTE, RME or C2C; see `docs/components/chi/`. Only the
+  `tests/sim/chi` loopback (BFM against BFM through wires) has exercised
+  it in simulation; no RTL DUT yet.
+- **`Packet.pack()` / `Packet.unpack()`**: an integer packing that honours
+  each field's declared `bit_position`. The combined-signal packer in
+  `data_strategies` walks `field_names()` from bit 0, which is the reverse
+  of the positions `FieldConfig` reports; that path is unchanged (its
+  users carry one field) but a spec-fixed layout must use `pack()`.
+
 ## [1.2.9] - 2026-10-21
 
 ### Fixed

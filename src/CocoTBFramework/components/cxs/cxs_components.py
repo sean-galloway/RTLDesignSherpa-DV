@@ -30,11 +30,14 @@ edge sees. Consequences that match the spec exactly:
   earliest -- the receiver reuse rule;
 * ACTIVEACK sampled in cycle t lets the transmitter send in t+1.
 
-Ports bind by ``prefix`` + lower-case signal name (``m_cxs_`` binds
-``m_cxs_valid``, ``m_cxs_crdgnt``, ...); a case-insensitive match also finds
-``CXSTXVALID``-style ports with ``prefix='CXSTX'``. Optional signals the
-:class:`CXSConfig` does not have are not bound; ``signal_map`` overrides any
-name.
+Ports bind through the shared :class:`SignalResolver` (protocol type
+``'cxs'``), like every family: ``prefix`` and ``bus_name`` are tried with
+and without a trailing underscore over the spellings a port may use
+(``m_cxs_crdgnt``, ``m_cxs_crd_gnt``, ``m_crdgnt``, ``CXSTXCRDGNT`` with
+``prefix='CXSTX'``, ...), ``signal_map`` overrides any subset by logical
+name (``{'crdgnt': 'odd_pin'}``) and discovery does the rest. Only the
+signals the :class:`CXSConfig` says the port has are required of the DUT;
+a missing one fails construction naming every spelling that was tried.
 """
 
 import random
@@ -46,6 +49,7 @@ from cocotb.triggers import FallingEdge, RisingEdge
 from cocotb.utils import get_sim_time
 
 from ..shared.flex_randomizer import FlexRandomizer
+from ..shared.signal_mapping_helper import SignalResolver
 from .cxs_check import PAYLOAD_SIGNALS, RX_CONTROL_SIGNALS, TX_CONTROL_SIGNALS, odd_parity_chk, signal_width
 from .cxs_cntl import CXSCntl
 from .cxs_config import CXSConfig
@@ -76,11 +80,13 @@ class _CXSBase:
     """Signal binding, check-signal arithmetic, reset handling, violations."""
 
     def __init__(self, dut, title, prefix, clock, cfg: CXSConfig, reset=None,
-                 reset_active_low=True, signal_map: Optional[Dict[str, str]] = None, log=None):
+                 reset_active_low=True, signal_map: Optional[Dict[str, str]] = None, log=None,
+                 bus_name: str = ''):
         cfg.validate()
         self.dut = dut
         self.title = title
         self.prefix = prefix
+        self.bus_name = bus_name
         self.clock = clock
         self.cfg = cfg
         self.reset = reset
@@ -88,10 +94,22 @@ class _CXSBase:
         self.log = log or getattr(dut, '_log', None)
         self.violations: Dict[str, int] = {}
         self.signal_map = dict(signal_map or {})
-        self._names = {n.lower(): n for n in dir(dut) if not n.startswith('_')}
+        self.resolver = SignalResolver('cxs', dut, None, self.log, title, prefix=prefix, bus_name=bus_name,
+                                       signal_map=self.signal_map or None)
+        self.resolver.get_signal_lists()
         self.sig = {}
+        missing = []
         for name in self._wanted_signals():
-            self.sig[name] = self._find(name)
+            obj = self.resolver.get_signal(name)
+            if obj is None:
+                missing.append(name)
+            else:
+                self.sig[name] = obj
+        if missing:
+            tried = {n: sorted(t)[:6] for n, t, _ in self.resolver.missing_signals if n in missing}
+            raise AttributeError(f"{title}: CXS signals {missing} not found on {dut._name} "
+                                 f"(prefix '{prefix}', bus_name '{bus_name}'); the configuration "
+                                 f"{cfg.short_name()} needs them. Tried e.g. {tried}")
         self._recvQ = deque()
         self.callbacks: List[Callable] = []
 
@@ -120,14 +138,6 @@ class _CXSBase:
                 'crdgnt', 'crdrtn', 'activereq', 'activeack', 'deacthint')
         names = list(base) + [f"{b}chk" for b in base if b != 'deacthint']
         return [n for n in names if self._present(n)]
-
-    def _find(self, name):
-        want = self.signal_map.get(name, f"{self.prefix}{name}")
-        actual = self._names.get(want.lower())
-        if actual is None:
-            raise AttributeError(f"{self.title}: CXS signal '{want}' not found on {self.dut._name} "
-                                 f"(the configuration {self.cfg.short_name()} needs it)")
-        return getattr(self.dut, actual)
 
     def has(self, name):
         return name in self.sig
@@ -212,8 +222,8 @@ class CXSTransmitter(_CXSBase):
 
     def __init__(self, dut, title, prefix, clock, cfg: CXSConfig, randomizer=None,
                  auto_link=True, idle_deactivate: Optional[int] = 16, reset=None,
-                 reset_active_low=True, signal_map=None, log=None):
-        super().__init__(dut, title, prefix, clock, cfg, reset, reset_active_low, signal_map, log)
+                 reset_active_low=True, signal_map=None, log=None, bus_name=''):
+        super().__init__(dut, title, prefix, clock, cfg, reset, reset_active_low, signal_map, log, bus_name)
         self.randomizer = randomizer or FlexRandomizer(self._default_randomizer_constraints())
         self.auto_link = auto_link
         self.idle_deactivate = idle_deactivate
@@ -288,6 +298,16 @@ class CXSTransmitter(_CXSBase):
 
     def inject_check_error(self, signal='data', cycles=1):
         self._chk_inject[signal] = self._chk_inject.get(signal, 0) + cycles
+
+    async def reset_bus(self):
+        """House idiom (as ``GAXIMaster.reset_bus``): drop credits, link state
+        and the open packet, drive the idle values, return after one clock.
+        The optional ``reset=`` pin does the same automatically."""
+        self.credits, self.req, self._ack, self._in_packet = 0, 0, 0, False
+        self._open_streams = set()
+        self._driven = {}
+        self._drive_idle()
+        await RisingEdge(self.clock)
 
     @property
     def link_state(self):
@@ -433,8 +453,8 @@ class CXSReceiver(_CXSBase):
 
     def __init__(self, dut, title, prefix, clock, cfg: CXSConfig, buffer_depth=None,
                  randomizer=None, reset=None, reset_active_low=True, signal_map=None,
-                 log=None, packet_callback: Optional[Callable] = None):
-        super().__init__(dut, title, prefix, clock, cfg, reset, reset_active_low, signal_map, log)
+                 log=None, packet_callback: Optional[Callable] = None, bus_name=''):
+        super().__init__(dut, title, prefix, clock, cfg, reset, reset_active_low, signal_map, log, bus_name)
         self.buffer_depth = buffer_depth or cfg.max_credit
         self.randomizer = randomizer or FlexRandomizer(self._default_randomizer_constraints())
         self.depacketizer = CXSDepacketizer(cfg, callback=packet_callback)
@@ -485,6 +505,18 @@ class CXSReceiver(_CXSBase):
     @property
     def packets(self):
         return self.depacketizer.packets
+
+    async def reset_bus(self):
+        """House idiom: forget outstanding credits and the link, drive the idle
+        values (check pins at their idle inversions), return after one clock."""
+        self.outstanding, self.buffered, self.ack, self._req = 0, 0, 0, 0
+        self._ack_wait = None
+        for n in ('crdgnt', 'activeack', 'deacthint'):
+            self.drive(n, 0)
+        if self.cfg.check:
+            self.drive('crdgntchk', 1)
+            self.drive('activeackchk', 1)
+        await RisingEdge(self.clock)
 
     @property
     def link_state(self):
@@ -606,8 +638,8 @@ class CXSMonitor(_CXSBase):
 
     def __init__(self, dut, title, prefix, clock, cfg: CXSConfig, reset=None,
                  reset_active_low=True, signal_map=None, log=None,
-                 packet_callback: Optional[Callable] = None):
-        super().__init__(dut, title, prefix, clock, cfg, reset, reset_active_low, signal_map, log)
+                 packet_callback: Optional[Callable] = None, bus_name=''):
+        super().__init__(dut, title, prefix, clock, cfg, reset, reset_active_low, signal_map, log, bus_name)
         self.depacketizer = CXSDepacketizer(cfg, callback=packet_callback)
         self.tx_credits = 0
         self.max_credits = 0

@@ -116,6 +116,12 @@ nav:
       - Overview: components/cxs/components_cxs_overview.md
       - Config, CNTL and Packing: components/cxs/components_cxs_packet.md
 
+    - CHI:
+      - Index: components/chi/index.md
+      - Overview: components/chi/components_chi_overview.md
+      - Config and Flits: components/chi/components_chi_config_flits.md
+      - Protocol Models: components/chi/components_chi_protocol.md
+
     - Wishbone B4:
       - Index: components/wb4/components_wb4_index.md
       - Overview: components/wb4/components_wb4_overview.md

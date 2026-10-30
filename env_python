@@ -85,10 +85,14 @@ if [ -d "/mnt/data/tools/oss-cad-suite/bin" ]; then
     export PATH="/mnt/data/tools/oss-cad-suite/bin:$PATH"
 fi
 
-# Verilator 5.020 — newer versions have known cocotb VCD/FST bugs.
-# Don't set VERILATOR_ROOT; the perl wrapper auto-detects relative to its
-# own location. Setting it wrong breaks verilator_bin lookup.
-if [ -d "/mnt/data/tools/verilator-5.020/bin" ]; then
+# Verilator: cocotb 2.1 (the venv since 2026-10-17) needs Verilator >= 5.036
+# (its VPI shim calls VerilatedVpi::doInertialPuts / evalNeeded), so the
+# oss-cad-suite build on PATH above (5.045) is the one to use. The 5.020
+# pin that lived here was for cocotb 1.x and now fails every sim test at
+# the C++ compile step. It stays as a fallback only when oss-cad-suite is
+# absent. Don't set VERILATOR_ROOT; the perl wrapper auto-detects relative
+# to its own location.
+if [ ! -d "/mnt/data/tools/oss-cad-suite/bin" ] && [ -d "/mnt/data/tools/verilator-5.020/bin" ]; then
     unset VERILATOR_ROOT 2>/dev/null
     export PATH="/mnt/data/tools/verilator-5.020/bin:$PATH"
 fi

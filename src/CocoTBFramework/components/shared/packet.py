@@ -380,6 +380,30 @@ class Packet:
 
         return value if active_bits[1] == 0 else value << active_bits[1]
 
+    def pack(self) -> int:
+        """Pack every field into one integer by its declared ``bit_position``.
+
+        This is the wire layout a spec describes ("field X at bits [m:l]"),
+        unlike ``pack_for_fifo`` (a per-field dict) and the combined-signal
+        packer in ``data_strategies`` (which walks ``field_names()`` from
+        bit 0 and so inverts the declared layout -- see RDS-DV chi/).
+        Values are masked to their field width.
+        """
+        word = 0
+        for name, fdef in self.field_config.items():
+            msb, lsb = fdef.bit_position
+            word |= (int(self.fields.get(name, 0)) & ((1 << fdef.bits) - 1)) << lsb
+        return word
+
+    def unpack(self, word: int):
+        """Inverse of :meth:`pack`: set every field from ``word`` by its
+        declared ``bit_position``. Returns self."""
+        word = int(word)
+        for name, fdef in self.field_config.items():
+            msb, lsb = fdef.bit_position
+            self.fields[name] = (word >> lsb) & ((1 << fdef.bits) - 1)
+        return self
+
     def pack_for_fifo(self):
         """
         Pack the packet into a dictionary suitable for FIFO transmission,

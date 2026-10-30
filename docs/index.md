@@ -35,6 +35,7 @@ Welcome to the CocoTBFramework — a verification framework built on cocotb, wit
 ### Verification Components
 - [**Components**](components/components_index.md) - Protocol BFMs: masters, slaves, monitors, and the utilities around them
   - **AXI4 / AXI4-ACE / AXI5 / AXI4-Lite**: full AMBA memory-mapped BFMs with compliance checking
+  - **CHI**: Coherent Hub Interface (Issue H) RN-F / HN-F BFMs and monitor on credited-flit link and cache-state models
   - **APB / APB5**: Advanced Peripheral Bus components
   - **AXI-Stream (AXIS4 / AXIS5)**: unidirectional streaming components
   - **DFI**: DDR PHY Interface (v2.1-v5.x) memory-controller and PHY BFMs

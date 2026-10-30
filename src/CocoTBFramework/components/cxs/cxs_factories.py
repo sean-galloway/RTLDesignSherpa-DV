@@ -37,25 +37,25 @@ def _cfg(cfg, props):
 
 def create_cxs_transmitter(dut, title, prefix, clock, cfg=None, randomizer=None,
                            auto_link=True, idle_deactivate=16, reset=None,
-                           signal_map=None, log=None, **props):
+                           signal_map=None, log=None, bus_name='', **props):
     """Drive a CXS receiver DUT. ``randomizer`` key ``valid_gap``."""
     return CXSTransmitter(dut, title, prefix, clock, _cfg(cfg, props), randomizer=randomizer,
                           auto_link=auto_link, idle_deactivate=idle_deactivate, reset=reset,
-                          signal_map=signal_map, log=log)
+                          signal_map=signal_map, log=log, bus_name=bus_name)
 
 
 def create_cxs_receiver(dut, title, prefix, clock, cfg=None, buffer_depth=None,
                         randomizer=None, reset=None, signal_map=None, log=None,
-                        packet_callback=None, **props):
+                        packet_callback=None, bus_name='', **props):
     """Receive from a CXS transmitter DUT. ``randomizer`` keys ``grant_gap``,
     ``drain_gap``, ``ack_delay``."""
     return CXSReceiver(dut, title, prefix, clock, _cfg(cfg, props), buffer_depth=buffer_depth,
                        randomizer=randomizer, reset=reset, signal_map=signal_map, log=log,
-                       packet_callback=packet_callback)
+                       packet_callback=packet_callback, bus_name=bus_name)
 
 
 def create_cxs_monitor(dut, title, prefix, clock, cfg=None, reset=None, signal_map=None,
-                       log=None, packet_callback=None, **props):
+                       log=None, packet_callback=None, bus_name='', **props):
     """A passive monitor + protocol checker on one CXS link."""
     return CXSMonitor(dut, title, prefix, clock, _cfg(cfg, props), reset=reset,
-                      signal_map=signal_map, log=log, packet_callback=packet_callback)
+                      signal_map=signal_map, log=log, packet_callback=packet_callback, bus_name=bus_name)

@@ -674,6 +674,118 @@ AXIL5_OPTIONAL_B_FIELDS = ('user', 'trace')
 AXIL5_OPTIONAL_R_FIELDS = ('user', 'trace', 'poison')
 
 
+# ===========================================================================
+# CREDITED-FLIT FAMILIES (CXS, CHI): "flat" configurations
+# ===========================================================================
+# These protocols have no valid/ready pair and no single data signal, so
+# their configs carry ``'flat': True``: every key of ``signal_map`` and
+# ``optional_signal_map`` IS the logical name a component asks for
+# (``resolver.get_signal('crdgnt')``), there is no i_/o_ or multi_sig
+# layering, and ``_validate_required_signals`` does not demand a data signal.
+# A ``signal_map`` given to the component uses those same names as keys.
+#
+# Owner ruling 2026-10-30: a family that is not a GAXI composition still
+# binds through SignalResolver. CXS and the first CHI cut shipped with
+# private ``prefix + name`` binders, which meant every port spelled a little
+# differently (``crd_gnt``, ``CXSCRDGNT``, ``tx_req_flit_v``) needed a
+# hand-written signal_map; that is exactly the chore the resolver exists to
+# remove. The spellings below are the ones the resolver tries, in order.
+
+
+def _flat_patterns(spellings):
+    """Prefix/bus-name pattern list for every spelling of one signal.
+
+    ``{prefix}`` and ``{bus_name}`` get their underscore variants from
+    ``_generate_parameter_combinations``; a spelling is tried as given and
+    upper-cased (the AMBA specs print CXSCRDGNT / TXREQFLITV style names,
+    and some DUTs keep them)."""
+    out = []
+    for sp in spellings:
+        out.append('{prefix}{bus_name}' + sp)
+        if sp.upper() != sp:
+            out.append('{prefix}{bus_name}' + sp.upper())
+    return out
+
+
+# CXS (IHI 0079): logical name -> spellings. ``cxs`` is tried as an infix too,
+# so ``prefix='m_'`` finds ``m_cxs_valid`` and ``prefix='m_cxs_'`` finds it as
+# well (the resolver adds the trailing underscore variant of a prefix).
+_CXS_SPELLINGS = {
+    'valid': ['valid'], 'data': ['data'], 'cntl': ['cntl', 'ctrl', 'control'],
+    'last': ['last'], 'prcltype': ['prcltype', 'prcl_type'],
+    'srcid': ['srcid', 'src_id'], 'tgtid': ['tgtid', 'tgt_id'], 'user': ['user'],
+    'crdgnt': ['crdgnt', 'crd_gnt', 'credit_grant'], 'crdrtn': ['crdrtn', 'crd_rtn', 'credit_return'],
+    'activereq': ['activereq', 'active_req'], 'activeack': ['activeack', 'active_ack'],
+    'deacthint': ['deacthint', 'deact_hint'],
+}
+CXS_REQUIRED = ('valid', 'data', 'crdgnt')
+
+
+def _cxs_spellings(name):
+    base = _CXS_SPELLINGS[name[:-3]] if name.endswith('chk') else _CXS_SPELLINGS[name]
+    if name.endswith('chk'):
+        base = [b + 'chk' for b in base] + [b + '_chk' for b in base]
+    return [b for b in base] + ['cxs' + b for b in base] + ['cxs_' + b for b in base]
+
+
+def cxs_signal_config():
+    """The ``'cxs'`` flat config: valid, data and crdgnt required; every
+    other signal (and every *chk) optional, since CXSConfig decides which a
+    port has and the BFM enforces that after resolution."""
+    names = list(_CXS_SPELLINGS) + [f"{n}chk" for n in _CXS_SPELLINGS if n != 'deacthint']
+    return {
+        'flat': True,
+        'signal_map': {n: _flat_patterns(_cxs_spellings(n)) for n in CXS_REQUIRED},
+        'optional_signal_map': {n: _flat_patterns(_cxs_spellings(n)) for n in names if n not in CXS_REQUIRED},
+    }
+
+
+# CHI (IHI 0050): logical names are the DUT port's OWN perspective
+# (``txreqflitv`` on an RN-F port). A component playing the opposite node
+# asks for the swapped name (its TX RSP is the DUT's ``rxrsp*``).
+_CHI_TX = {'rn_f': ('req', 'rsp', 'dat'), 'rn_d': ('req', 'rsp', 'dat'), 'rn_i': ('req', 'rsp', 'dat'),
+           'hn_f': ('rsp', 'dat', 'snp'), 'hn_i': ('rsp', 'dat'), 'sn_f': ('rsp', 'dat')}
+_CHI_RX = {'rn_f': ('rsp', 'dat', 'snp'), 'rn_d': ('rsp', 'dat', 'snp'), 'rn_i': ('rsp', 'dat'),
+           'hn_f': ('req', 'rsp', 'dat'), 'hn_i': ('req', 'rsp', 'dat'), 'sn_f': ('req', 'dat')}
+_CHI_SIG_SPELLINGS = {
+    'flitpend': ['flitpend', 'flit_pend'], 'flitv': ['flitv', 'flit_v', 'flitvalid', 'flit_valid'],
+    'flit': ['flit'], 'lcrdv': ['lcrdv', 'lcrd_v', 'lcrdvalid', 'lcrd_valid'],
+}
+_CHI_LINK_SPELLINGS = {
+    'txlinkactivereq': ['txlinkactivereq', 'tx_linkactivereq', 'tx_link_active_req', 'txlinkactive_req'],
+    'txlinkactiveack': ['txlinkactiveack', 'tx_linkactiveack', 'tx_link_active_ack', 'txlinkactive_ack'],
+    'rxlinkactivereq': ['rxlinkactivereq', 'rx_linkactivereq', 'rx_link_active_req', 'rxlinkactive_req'],
+    'rxlinkactiveack': ['rxlinkactiveack', 'rx_linkactiveack', 'rx_link_active_ack', 'rxlinkactive_ack'],
+    'txsactive': ['txsactive', 'tx_sactive', 'txs_active', 'tx_s_active'],
+    'rxsactive': ['rxsactive', 'rx_sactive', 'rxs_active', 'rx_s_active'],
+}
+
+
+def _chi_channel_spellings(direction, channel, sig):
+    out = []
+    for sp in _CHI_SIG_SPELLINGS[sig]:
+        out += [f"{direction}{channel}{sp}", f"{direction}{channel}_{sp}", f"{direction}_{channel}_{sp}",
+                f"{direction}_{channel}{sp}"]
+    return out
+
+
+def chi_signal_config(node):
+    """The ``'chi_<node>_port'`` flat config for a DUT port of node type
+    ``node`` ('rn_f', 'rn_d', 'rn_i', 'hn_f', 'hn_i', 'sn_f'): the flit
+    signals of every channel that node has are required; LINKACTIVE and
+    SACTIVE are optional (CHIConfig.link_control / sactive decide)."""
+    req, opt = {}, {}
+    for direction, chans in (('tx', _CHI_TX[node]), ('rx', _CHI_RX[node])):
+        for ch in chans:
+            for sig in _CHI_SIG_SPELLINGS:
+                req[f"{direction}{ch}{sig}"] = _flat_patterns(_chi_channel_spellings(direction, ch, sig))
+    for name, spellings in _CHI_LINK_SPELLINGS.items():
+        opt[name] = _flat_patterns(spellings)
+    return {'flat': True, 'signal_map': req, 'optional_signal_map': opt}
+
+
+CHI_NODE_PORTS = ('rn_f', 'rn_d', 'rn_i', 'hn_f', 'hn_i', 'sn_f')
+
 PROTOCOL_SIGNAL_CONFIGS = {
     # ===========================================================================
     # AXI3 PROTOCOL CONFIGURATIONS
@@ -1671,6 +1783,12 @@ PROTOCOL_SIGNAL_CONFIGS = {
 }
 
 
+PROTOCOL_SIGNAL_CONFIGS['cxs'] = cxs_signal_config()
+for _node in CHI_NODE_PORTS:
+    PROTOCOL_SIGNAL_CONFIGS[f'chi_{_node}_port'] = chi_signal_config(_node)
+FLAT_PROTOCOL_TYPES = frozenset({'cxs'} | {f'chi_{n}_port' for n in CHI_NODE_PORTS})
+
+
 def get_top_level_ports(dut):
     """Get all top-level input/output/inout ports of the DUT"""
     ports = {}
@@ -1872,9 +1990,16 @@ class SignalResolver:
             self.resolved_signals[logical_name] = signal_obj
             self._log_debug(f"Mapped '{simple_key}' -> '{logical_name}' = '{dut_signal_name}'")
 
+    @property
+    def is_flat(self) -> bool:
+        """A credited-flit family config (CXS, CHI): logical names are plain."""
+        return bool(self.config.get('flat'))
+
     def _validate_signal_map(self):
         """Validate signal_map keys and report missing required keys."""
-        if self.protocol_type.startswith('axis') or self.protocol_type.startswith('gaxi'):
+        if self.is_flat:
+            required_keys = set(self.config['signal_map'])
+        elif self.protocol_type.startswith('axis') or self.protocol_type.startswith('gaxi'):
             required_keys = {'valid', 'ready'}
 
             if self.multi_sig:
@@ -1946,6 +2071,9 @@ class SignalResolver:
         """Create mapping from simplified keys to internal logical names."""
         logical_mapping = {}
 
+        if self.is_flat:
+            return {name: name for name in self.config['signal_map']}
+
         if self.protocol_type == 'axis_master':
             logical_mapping['valid'] = 'o_valid'  # Master drives tvalid
             logical_mapping['ready'] = 'i_ready'  # Master reads tready
@@ -2004,6 +2132,8 @@ class SignalResolver:
         key is supplied, discovery skips the corresponding logical name.
         """
         logical_mapping = {}
+        if self.is_flat:
+            return {name: name for name in self.config.get('optional_signal_map', {})}
         mode_key = 'multi_sig_true' if self.multi_sig else 'multi_sig_false'
 
         # AXIS single-signal sideband signals
@@ -2159,6 +2289,9 @@ class SignalResolver:
     def _resolve_optional_signals(self):
         """Resolve optional signals based on multi_sig mode."""
         optional_map = self.config.get('optional_signal_map', {})
+        if self.is_flat:
+            self._resolve_signal_group(optional_map, required=False)
+            return
         mode_key = 'multi_sig_true' if self.multi_sig else 'multi_sig_false'
 
         if mode_key in optional_map:
@@ -2427,7 +2560,8 @@ class SignalResolver:
             )
 
         # ENHANCED: Critical validation for data signals in single-signal mode
-        if not self.multi_sig:
+        # (not for a flat family: it has no single data signal by design)
+        if not self.multi_sig and not self.is_flat:
             data_signal_found = any(
                 name.endswith('_sig') and 'data' in name
                 for name, signal in self.resolved_signals.items()
@@ -2536,6 +2670,8 @@ class SignalResolver:
 
     def _derive_attribute_name(self, logical_name: str) -> str:
         """Derive attribute name from logical signal name."""
+        if self.is_flat:
+            return f"{logical_name}_sig"
         # Handle field signals
         if logical_name.startswith('field_') and logical_name.endswith('_sig'):
             return logical_name  # field_{field_name}_sig stays as-is

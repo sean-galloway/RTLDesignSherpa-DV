@@ -37,6 +37,19 @@ Two operational notes that have each cost real time:
   a stale `sim_build` cannot mask the result. A suspiciously fast run is the
   tell; a reverted-RTL run against a stale build is meaningless.
 
+## The simulator the sim tree needs
+
+`env_python` must put a Verilator that matches the venv's cocotb on PATH.
+cocotb 2.1 (the venv since the 2026-10-17 swap) compiles its VPI shim
+against `VerilatedVpi::doInertialPuts` / `evalNeeded`, which exist from
+Verilator 5.036; the 5.020 pin that lived in `env_python` for cocotb 1.x
+failed every `tests/sim` run at the C++ compile step with "clearEvalNeeded
+is not a member of VerilatedVpi", which reads like a broken test rather
+than a stale tool. The oss-cad-suite build (5.045) is the one in use now
+(2026-10-30); the 5.020 block is a fallback only when oss-cad-suite is
+absent. If a sim test fails inside `verilator.cpp` before any RTL is
+compiled, check `verilator --version` before anything else.
+
 ## Testing something that needs a live cocotb entity
 
 `DFISlavePHY` and friends cannot be constructed without a DUT handle, which

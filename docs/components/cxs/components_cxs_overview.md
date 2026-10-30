@@ -62,7 +62,16 @@ Outputs change right after the rising edge, and inputs are sampled at the fallin
 
 ## Port Naming
 
-`prefix` plus the lower-case signal name: `m_cxs_` binds `m_cxs_valid`, `m_cxs_crdgnt`, `m_cxs_datachk`, and so on. The match is case-insensitive, so `prefix='CXSTX'` also binds `CXSTXVALID`-style ports. Only the signals the `CXSConfig` has are bound, and a missing one fails construction with its name. `signal_map={'valid': 'my_valid'}` overrides individual names.
+Binding goes through the shared `SignalResolver` (`components/shared/signal_mapping_helper.py`, protocol type `cxs`), like every family. `prefix` and `bus_name` are tried with and without a trailing underscore over the spellings a port may use, so each of these finds the same pin without a `signal_map`:
+
+| DUT port | Binding |
+|---|---|
+| `m_cxs_crdgnt` | `prefix='m_cxs_'`, or `prefix='m_'` (the `cxs` / `cxs_` infix is tried) |
+| `s_cxs_crd_gnt`, `s_cxs_prcl_type`, `s_cxs_active_req` | `prefix='s_cxs_'` (underscored spellings) |
+| `CXSTXCRDGNT` | `prefix='CXSTX'` (the spec's upper-case names) |
+| `u_link_cxs_valid` | `prefix='u_'`, `bus_name='link'` |
+
+Only the signals the `CXSConfig` says the port has are required of the DUT; a missing one fails construction naming every spelling that was tried. `signal_map={'crdgnt': 'odd_pin'}` overrides any subset by logical name (the keys are the names in the table below) and discovery resolves the rest; an unknown key is rejected, which catches typos. The resolver is `bfm.resolver` if you need to see what it bound. `tests/unit/test_flat_signal_resolver.py` pins these spellings.
 
 ## Quick Start
 

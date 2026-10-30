@@ -85,6 +85,12 @@ PROTOCOL_TYPES: FrozenSet[str] = frozenset({
     "axi4ace_ac_master", "axi4ace_ac_slave",
     "axi4ace_cr_master", "axi4ace_cr_slave",
     "axi4ace_cd_master", "axi4ace_cd_slave",
+    # Credited-flit families (flat SignalResolver configs, no valid/ready):
+    # CXS (IHI 0079) one config for TX, RX and monitor; CHI (IHI 0050) one
+    # per DUT port node type, logical names in that port's own perspective.
+    "cxs",
+    "chi_rn_f_port", "chi_rn_d_port", "chi_rn_i_port",
+    "chi_hn_f_port", "chi_hn_i_port", "chi_sn_f_port",
 })
 
 

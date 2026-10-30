@@ -98,14 +98,22 @@ def test_set_size_matches_expected_channels():
         }
     per_family["axi4ace"] = {t for t in PROTOCOL_TYPES if t.startswith("axi4ace_")}
 
+    # Credited-flit families bind through SignalResolver's flat configs
+    # (owner ruling 2026-10-30): CXS is one config; CHI is one per DUT port
+    # node type (B13.6: RN-F, RN-D, RN-I, HN-F, HN-I, SN-F).
+    cxs = {t for t in PROTOCOL_TYPES if t == "cxs"}
+    chi = {t for t in PROTOCOL_TYPES if t.startswith("chi_") and t.endswith("_port")}
+
     assert len(fifo) == 2, sorted(fifo)
     assert len(gaxi) == 2, sorted(gaxi)
     assert len(axis) == 2, sorted(axis)
+    assert len(cxs) == 1, sorted(cxs)
+    assert len(chi) == 6, sorted(chi)
     for fam, members in per_family.items():
         expected = 11 if fam == "axi4ace" else 10
         assert len(members) == expected, f"{fam}: {sorted(members)}"
 
-    counted = fifo | gaxi | axis | set().union(*per_family.values())
+    counted = fifo | gaxi | axis | cxs | chi | set().union(*per_family.values())
     assert counted == PROTOCOL_TYPES, (
         f"unaccounted identifiers: {sorted(PROTOCOL_TYPES - counted)}"
     )

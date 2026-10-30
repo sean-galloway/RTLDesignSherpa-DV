@@ -195,6 +195,16 @@ class GAXISlave(GAXIMonitorBase):
         # Slave-specific initialization - callbacks for compatibility
         self.callbacks = []
 
+        # Phase3 has reported a handshake (callback fired) whose transfer
+        # has not clocked through the DUT yet (the pop lands at the next
+        # rising edge). While this is set, set_ready_policy('stall') must
+        # NOT drop the pin out of band -- that would rescind ready between
+        # the falling-edge sample and the rising edge, so the BFM records a
+        # beat the DUT never accepted (cache-ip l1_cpu_frontend, 2026-10-30).
+        # The loop's phase3-end / next phase2 drops ready right after the
+        # edge anyway, so the stall still lands within the cycle.
+        self._handshake_pending_edge = False
+
         # Initialize signals safely without async
         self._initialize_signals()
 
@@ -263,7 +273,15 @@ class GAXISlave(GAXIMonitorBase):
                 f"GAXISlave({self.title}): ready_policy must be "
                 f"'valid_first', 'always' or 'stall', got {policy!r}")
         self.ready_policy = policy
-        if policy == 'stall':
+        if policy == 'stall' and not getattr(self, '_handshake_pending_edge', False):
+            # Immediate pin drop -- skipped while a handshake reported by
+            # phase3 this cycle has not clocked through the DUT yet (see
+            # __init__ note): dropping now would rescind ready in the gap
+            # between the loop's falling-edge sample and the rising edge the
+            # DUT actually transfers on, leaving the BFM one beat ahead of
+            # the pins. The stall still lands within the cycle: phase3-end
+            # drops ready just after that edge and the next phase2 (now
+            # 'stall') holds it low.
             self._set_ready(0)
         # 'always' is NOT applied to the pin here: the receive loop raises
         # ready itself within a cycle (its valid_first wait checks the policy
@@ -483,6 +501,7 @@ class GAXISlave(GAXIMonitorBase):
                 self.log.debug(f"Slave({self.title}) Phase3: handshake detected, processing transaction")
 
             self.phase_statistics['handshake_count'] += 1
+            self._handshake_pending_edge = True
 
             # Create a new packet
             packet = self._build_packet()
@@ -497,6 +516,7 @@ class GAXISlave(GAXIMonitorBase):
                 last_packet = packet
                 await RisingEdge(self.clock)
                 await Timer(self.tick_delay, self.tick_units)
+                self._handshake_pending_edge = False
 
                 if self.pipeline_debug:
                     phase_duration = get_sim_time('ns') - phase_start
@@ -533,6 +553,7 @@ class GAXISlave(GAXIMonitorBase):
         # Deassert ready on the rising edge (prepare for next cycle or delay)
         await RisingEdge(self.clock)
         await Timer(self.tick_delay, self.tick_units)
+        self._handshake_pending_edge = False
         self._set_ready(0)
 
         if self.pipeline_debug:

@@ -67,6 +67,25 @@ def test_stall_still_drops_ready_at_once():
     assert int(g.ready_sig.value) == 0
 
 
+def test_stall_defers_pin_drop_while_handshake_pending():
+    """Phase3 reports a handshake at the falling edge, but the DUT's
+    transfer clocks through at the next rising edge. A stall landing in
+    that gap must not drop READY out of band -- that rescinds a beat the
+    BFM already recorded (cache-ip l1_cpu_frontend, 2026-10-30). The loop
+    drops READY itself right after the edge, so the stall still lands
+    within the cycle."""
+    g = make_slave('always')
+    g.ready_sig.v = 1
+    g._handshake_pending_edge = True
+    g.set_ready_policy('stall')
+    assert g.ready_policy == 'stall'
+    assert int(g.ready_sig.value) == 1, \
+        "stall rescinded READY while a reported handshake was still unclocked"
+    g._handshake_pending_edge = False
+    g.set_ready_policy('stall')
+    assert int(g.ready_sig.value) == 0
+
+
 def test_valid_first_wait_leaves_on_policy_change():
     """Parked in the valid_first wait with VALID low, a switch to 'always'
     ends the wait at the next edge; READY is raised by the loop, and the

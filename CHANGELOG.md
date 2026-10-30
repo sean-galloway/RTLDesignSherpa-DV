@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **CXS and CHI bind through `SignalResolver`** (owner ruling 2026-10-30:
+- **CXS and CHI bind through `SignalResolver`** (#97; owner ruling 2026-10-30:
   a family that is not a GAXI composition still uses the shared resolver,
   never a private `prefix + name` binder). The resolver gained a generic
   "flat" config kind (`'flat': True`: plain logical names, no valid/ready
@@ -25,7 +25,7 @@
 
 ### Added
 
-- **CHI BFM family** (`components/chi/`, Arm IHI 0050 Issue H): `CHIConfig`
+- **CHI BFM family** (#98; `components/chi/`, Arm IHI 0050 Issue H): `CHIConfig`
   with numbered legality rules and the flit widths of Tables B13.6-B13.9;
   every opcode table and field encoding (`chi_opcodes`); one `Packet`
   subclass per channel with bit-exact `pack()`/`unpack()` and aliases for

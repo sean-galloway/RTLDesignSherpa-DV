@@ -140,7 +140,8 @@ def bind_chi_signals(owner, dut, title, prefix, bus_name, cfg: CHIConfig, signal
         tried = {n: sorted(t)[:6] for n, t, _ in resolver.missing_signals if n in dut_names}
         raise AttributeError(f"{title}: CHI signals {missing} (DUT names {sorted(dut_names)}) not found on "
                              f"{dut._name} (prefix '{prefix}', bus_name '{bus_name}', {resolver.protocol_type}); "
-                             f"{cfg.short_name()} needs them. Tried e.g. {tried}")
+                             f"{cfg.short_name()} needs them. Tried e.g. {tried}. A BFM or monitor plays the node "
+                             f"ACROSS from the DUT port: a monitor beside a home BFM takes the home's config.")
     owner.resolver = resolver
     return sig
 
@@ -287,6 +288,12 @@ class CHIPort:
         if channel not in self.tx:
             raise ValueError(f"{self.title}: {self.cfg.node_type.value} has no TX {channel.upper()} channel")
         self.tx[channel].queue.append(flit)
+
+    def set_rx_buffer_depth(self, depth: int, channels=None):
+        """Resize the modelled receive buffer (the credit pool) of the given
+        RX channels (default all), as a test's starve phase does."""
+        for ch in (channels or self.rx):
+            self.rx[ch].credit.buffer_depth = depth
 
     def have_work(self):
         return any(t.queue for t in self.tx.values())

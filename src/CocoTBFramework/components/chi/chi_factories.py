@@ -68,11 +68,14 @@ def create_chi_home(dut, title, prefix, clock, cfg=None, home=None, rn_id=0, opt
 
 
 def create_chi_monitor(dut, title, prefix, clock, cfg=None, reset=None, signal_map=None, log=None,
-                       track_transactions=True, bus_name='', **props):
-    """A passive monitor + protocol checker on one CHI port."""
+                       track_transactions=True, bus_name='', deactivate_credit_grace=1, **props):
+    """A passive monitor + protocol checker on one CHI port. It plays the
+    same node as the BFM beside it (both see the DUT port from across the
+    link). ``deactivate_credit_grace``: cycles after LINKACTIVEREQ falls in
+    which a grant is still legal (a DUT's synchronizer depth + 1)."""
     return CHIMonitor(dut, title, prefix, clock, _cfg(cfg, props), reset=reset, signal_map=signal_map,
                       log=log, track_transactions=track_transactions,
-                      bus_name=bus_name)
+                      bus_name=bus_name, deactivate_credit_grace=deactivate_credit_grace)
 
 
 __all__ = ['create_chi_requester', 'create_chi_home', 'create_chi_monitor']

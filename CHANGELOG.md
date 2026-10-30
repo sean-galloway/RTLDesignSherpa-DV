@@ -25,6 +25,14 @@
 
 ### Added
 
+- **CHI monitor knobs for an RTL DUT** (#98): `deactivate_credit_grace`
+  on `CHIMonitor` / `create_chi_monitor` (Table B14.2 lets a receiver
+  grant "when first entering" DEACTIVATE; a DUT that synchronizes
+  LINKACTIVEREQ needs sync depth + 1), the monitor binds and exposes
+  `txsactive` / `rxsactive`, every delivered flit carries `direction`
+  ('tx' or 'rx' from the monitored node's side), `CHIPort.set_rx_buffer_depth()`
+  resizes a BFM's credit pool mid-test, and the binding error says that a
+  monitor takes the config of the BFM beside it.
 - **CHI BFM family** (#98; `components/chi/`, Arm IHI 0050 Issue H): `CHIConfig`
   with numbered legality rules and the flit widths of Tables B13.6-B13.9;
   every opcode table and field encoding (`chi_opcodes`); one `Packet`

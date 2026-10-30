@@ -55,7 +55,7 @@ class CHIMonitor:
 
     def __init__(self, dut, title, prefix, clock, cfg: CHIConfig, reset=None, reset_active_low=True,
                  signal_map: Optional[Dict[str, str]] = None, log=None,
-                 track_transactions=True, bus_name: str = ''):
+                 track_transactions=True, bus_name: str = '', deactivate_credit_grace: int = 1):
         cfg.validate()
         self.dut, self.title, self.prefix, self.clock, self.cfg = dut, title, prefix, clock, cfg
         self.bus_name = bus_name
@@ -71,8 +71,14 @@ class CHIMonitor:
         self.callbacks: List[Callable] = []
         self.sig = bind_chi_signals(self, dut, title, prefix, bus_name, cfg,
                                     self.signal_map, self._wanted_signals(), self.log)
+        # Table B14.2: a receiver "is permitted, but not required, to send
+        # credits when first entering" DEACTIVATE, because it "could take some
+        # time to react" (B14.5.1.1). A DUT that synchronizes LINKACTIVEREQ
+        # over N flops and registers LCRDV grants for N + 1 cycles after the
+        # pin falls; set the grace to that depth.
         self.checker = LinkChecker(max_credit=cfg.max_lcredit, tx_channels=cfg.tx_channels,
-                                   rx_channels=cfg.rx_channels)
+                                   rx_channels=cfg.rx_channels,
+                                   deactivate_credit_grace=deactivate_credit_grace)
         self.txreq = self.txack = self.rxreq = self.rxack = 0
         # transaction tracking: the REQ channel's transmitter is the requester
         self._req_channel_dir = 'tx' if 'req' in cfg.tx_channels else 'rx'
@@ -92,6 +98,8 @@ class CHIMonitor:
             names += [f"rx{ch}flitpend", f"rx{ch}flitv", f"rx{ch}flit", f"rx{ch}lcrdv"]
         if self.cfg.link_control:
             names += ['txlinkactivereq', 'txlinkactiveack', 'rxlinkactivereq', 'rxlinkactiveack']
+        if self.cfg.sactive:
+            names += ['txsactive', 'rxsactive']
         return names
 
     def sig_read(self, name, default=0):
@@ -302,7 +310,16 @@ class CHIMonitor:
                 del self._snoops[flit.txnid]
             self.stats['snoop_responses'] = self.stats.get('snoop_responses', 0) + 1
 
+    @property
+    def txsactive(self):
+        return self.sig_read('txsactive') if 'txsactive' in self.sig else 0
+
+    @property
+    def rxsactive(self):
+        return self.sig_read('rxsactive') if 'rxsactive' in self.sig else 0
+
     def _on_flit(self, direction, ch, flit):
+        object.__setattr__(flit, 'direction', direction)      # 'tx' | 'rx' from this node's side
         self.stats['flits'] += 1
         key = f"{ch}.{flit.opcode_name}"
         self.opcode_counts[key] = self.opcode_counts.get(key, 0) + 1

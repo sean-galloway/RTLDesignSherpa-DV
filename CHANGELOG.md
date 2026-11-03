@@ -56,6 +56,15 @@
   of the positions `FieldConfig` reports; that path is unchanged (its
   users carry one field) but a spec-fixed layout must use `pack()`.
 
+### Fixed
+
+- **`DFISlavePHY` decodes every command in a two-command DFI word** (#99).
+  Outside the BL-anchored read model it read only the lowest selected phase,
+  so a row command beside a column in the same word (a dual-issue
+  controller) was dropped and the slave's bank state diverged. A word with
+  two or more selected phases now goes through `decode_all_phases`, as the
+  anchored model already did; single-command words are unchanged.
+
 ## [1.2.9] - 2026-10-21
 
 ### Fixed

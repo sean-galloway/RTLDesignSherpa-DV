@@ -1432,7 +1432,15 @@ class DFISlavePHY(_DFIBusAccessMixin, BusMonitor):
                 # as its anchor. LPDDR2 rides the CA bus (one cmd/cycle) so it
                 # keeps the single-decode path. The plain models also keep single
                 # decode (bit-identical to before).
-                if self._read_bl_anchored and not self._uses_ca_bus():
+                # Two or more selected phases outside the anchored model (a
+                # controller that issues a row command beside a column in one
+                # DFI word) take the same per-phase decode: the single-decode
+                # path below reads only the FIRST selected phase and silently
+                # dropped the other command. One selected phase -- every
+                # legacy stream -- stays on the single-decode path, unchanged.
+                _multi = (dfi_rate > 1 and not self._uses_ca_bus()
+                          and bin(~cs_all & ((1 << dfi_rate) - 1)).count("1") > 1)
+                if (self._read_bl_anchored or _multi) and not self._uses_ca_bus():
                     for _p, _cmd in decode_all_phases(
                             cs_all, _v(self.bus.ras_n), _v(self.bus.cas_n),
                             _v(self.bus.we_n), dfi_rate):

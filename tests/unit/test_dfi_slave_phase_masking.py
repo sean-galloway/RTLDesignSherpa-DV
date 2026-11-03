@@ -19,6 +19,7 @@ import pytest
 
 from CocoTBFramework.components.dfi.dfi_packet import DRAMCommand
 from CocoTBFramework.components.dfi.dfi_slave_phy import (
+    decode_all_phases,
     decode_phase0_cmd,
     slice_phase_wrdata,
 )
@@ -163,3 +164,27 @@ def test_slice_wrdata_idle():
     """wrdata_en=0 → no phases."""
     assert slice_phase_wrdata(full_wrdata=0xDEADBEEF, full_mask=0xFF,
                               wrdata_en_bits=0, beat_bytes=8) == []
+
+
+# ---------------------------------------------------------------------
+# decode_all_phases — a row command beside a column in ONE DFI word
+# ---------------------------------------------------------------------
+# A dual-issue controller (pumice TASK-047) puts a column on phase 0 and an
+# ACT or PRE to another bank on phase 1 of the same word. The single-decode
+# path reads only the first selected phase, so DFISlavePHY routes any word
+# with two or more selected phases through decode_all_phases; this pins that
+# decoder for the shape. Bits are {phase1, phase0}; cs_n active low.
+
+def test_decode_all_phases_column_plus_row():
+    # phase 0 RD (ras=1, cas=0, we=1), phase 1 ACT (ras=0, cas=1, we=1)
+    got = decode_all_phases(0b00, 0b01, 0b10, 0b11, 2)
+    assert got == [(0, DRAMCommand.RD), (1, DRAMCommand.ACT)]
+    # phase 0 WR (1, 0, 0), phase 1 PRE (0, 1, 0)
+    got = decode_all_phases(0b00, 0b01, 0b10, 0b00, 2)
+    assert got == [(0, DRAMCommand.WR), (1, DRAMCommand.PRE)]
+
+
+def test_decode_all_phases_row_alone_on_phase1():
+    # a word carrying only the row command: phase 0 deselected (cs_n=1)
+    got = decode_all_phases(0b01, 0b01, 0b11, 0b11, 2)
+    assert got == [(1, DRAMCommand.ACT)]
